@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="200 212 620 620">
+  <defs>
+    <mask id="cut">
+      <rect x="0" y="0" width="1024" height="1024" fill="#fff"/>
+      <circle cx="336" cy="404" r="20" fill="#000"/>
+      <ellipse cx="490" cy="448" rx="74" ry="96" transform="rotate(-12 490 448)" fill="none" stroke="#000" stroke-width="22"/>
+    </mask>
+  </defs>
+  <g mask="url(#cut)" fill="#000">
+    <rect x="418" y="368" width="368" height="270" rx="135"/>
+    <circle cx="376" cy="430" r="122"/>
+    <path d="M282 466 C 238 548, 236 628, 300 688" fill="none" stroke="#000" stroke-width="64" stroke-linecap="round"/>
+    <rect x="452" y="560" width="92" height="176" rx="40"/>
+    <rect x="660" y="560" width="92" height="176" rx="40"/>
+  </g>
+</svg>

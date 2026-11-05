@@ -1,0 +1,21 @@
+[package]
+name = "elephant-php"
+version = "0.1.0"
+description = "Selector de versión de PHP de Elephant Stack"
+authors = ["Cristian Cosano"]
+edition = "2024"
+
+[lib]
+name = "elephant_php"
+path = "src/lib.rs"
+
+[[bin]]
+name = "php"
+path = "src/main.rs"
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

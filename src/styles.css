@@ -1,0 +1,238 @@
+:root {
+  color-scheme: light dark;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --text: rgba(0, 0, 0, 0.85);
+  --secondary: rgba(0, 0, 0, 0.6);
+  --separator: rgba(0, 0, 0, 0.1);
+  --on: #34c759;
+  --off: rgba(0, 0, 0, 0.35);
+  --bad: #ff3b30;
+  font: 13px/16px -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --surface: #2a2a2a;
+    --text: rgba(255, 255, 255, 0.85);
+    --secondary: rgba(255, 255, 255, 0.6);
+    --separator: rgba(255, 255, 255, 0.1);
+    --on: #30d158;
+    --off: rgba(255, 255, 255, 0.4);
+    --bad: #ff453a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text);
+  background: var(--bg);
+  cursor: default;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Barra de título: 78 px dejan sitio a los botones de la ventana. */
+.titlebar {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  align-items: center;
+  height: 44px;
+  padding: 0 16px 0 78px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.titlebar .secondary {
+  flex: 1;
+  text-align: left;
+}
+
+main {
+  flex: 1;
+  min-height: 0;
+  padding: 0 16px 16px;
+  overflow-y: auto;
+}
+
+section,
+details {
+  margin-top: 12px;
+}
+
+section:first-child {
+  margin-top: 0;
+}
+
+h2,
+summary {
+  margin: 0 0 6px;
+  padding-left: 12px;
+  color: var(--secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+summary {
+  outline-offset: 2px;
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  background: var(--surface);
+  border-radius: 10px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  height: 34px;
+  padding: 0 12px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--separator);
+}
+
+.name {
+  flex: none;
+}
+
+.secondary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* El estado se distingue por la forma además del color. */
+.glyph {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.glyph.on {
+  background: var(--on);
+}
+
+.glyph.off {
+  border: 1.5px solid var(--off);
+}
+
+.glyph.bad {
+  width: 0;
+  height: 0;
+  border-right: 6px solid transparent;
+  border-bottom: 10px solid var(--bad);
+  border-left: 6px solid transparent;
+  border-radius: 0;
+}
+
+.notice {
+  color: var(--secondary);
+}
+
+.error {
+  color: var(--bad);
+}
+
+.error,
+.notice {
+  flex: none;
+  margin: 0 16px 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  background: var(--surface);
+  border-radius: 8px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  flex: none;
+  height: 22px;
+  padding: 0 10px;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+}
+
+button.icon {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+}
+
+button.icon:hover:not(:disabled) {
+  background: var(--separator);
+}
+
+button:disabled,
+input:disabled {
+  opacity: 0.5;
+}
+
+input[switch],
+input[type="radio"] {
+  flex: none;
+  margin: 0;
+}
+
+:focus-visible {
+  outline: 3px solid -apple-system-control-accent;
+  outline-offset: 1px;
+}
+
+#settings-view .hint {
+  margin: 8px 12px 0;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#settings-view label.name {
+  flex: 1;
+}
+
+#settings-view .row .secondary {
+  flex: 0;
+}

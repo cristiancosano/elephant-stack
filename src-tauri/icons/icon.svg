@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9AA2D6"/><stop offset="0.55" stop-color="#6B74B0"/><stop offset="1" stop-color="#454D87"/></linearGradient></defs>
+<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+<!-- Elefante: el centro de su silueta (502, 522) queda en el centro del icono. -->
+<g transform="translate(512 512) scale(0.84) translate(-502 -522)"><g fill="#fff"><rect x="418" y="368" width="368" height="270" rx="135"/><circle cx="376" cy="430" r="122"/><path d="M282 466 C 238 548, 236 628, 300 688" fill="none" stroke="#fff" stroke-width="64" stroke-linecap="round"/><rect x="452" y="560" width="92" height="176" rx="40"/><rect x="660" y="560" width="92" height="176" rx="40"/></g><ellipse cx="490" cy="448" rx="74" ry="96" transform="rotate(-12 490 448)" fill="#D6DAF0"/><circle cx="336" cy="404" r="17" fill="#3F477D"/></g>
+<g transform="translate(792 716)">
+  <circle r="100" fill="#555D9A"/>
+  <circle r="86" fill="#2E3466"/>
+  <g transform="scale(0.88)" fill="none" stroke="#fff" stroke-width="15" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M0 -54 L58 -24 L0 6 L-58 -24 Z" fill="#fff"/>
+    <path d="M-58 4 L0 34 L58 4"/>
+    <path d="M-58 32 L0 62 L58 32"/>
+  </g>
+</g>
+</svg>

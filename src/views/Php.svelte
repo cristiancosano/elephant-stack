@@ -6,7 +6,6 @@
   import Button from "../ui/Button.svelte";
   import Badge from "../ui/Badge.svelte";
   import Select from "../ui/Select.svelte";
-  import Sheet from "../ui/Sheet.svelte";
   import Icon from "../ui/Icon.svelte";
   import ProgressRing from "../ui/ProgressRing.svelte";
   import Skeleton from "../ui/Skeleton.svelte";
@@ -90,11 +89,10 @@
   }
 
   // ── Descargas (php-builds) ──
-  // El botón siempre está: si el catálogo no llega, la hoja explica por qué y
+  // La lista siempre se muestra: si el catálogo no llega, explica por qué y
   // deja reintentar, en vez de ocultar la función sin decir nada.
   let catalog = $state<Catalog | null>(null);
   let catalogLoading = $state(true);
-  let sheetOpen = $state(false);
   let downloading: Record<string, number | undefined> = $state({});
 
   async function loadCatalog() {
@@ -137,12 +135,6 @@
   <header class="toolbar" data-tauri-drag-region>
     <h1 data-tauri-drag-region>PHP</h1>
     {#if busy}<ProgressRing label={busy.label} />{/if}
-    <Button
-      onclick={() => {
-        sheetOpen = true;
-        if (!catalogLoading && releases.length === 0) void loadCatalog();
-      }}>Descargar versión…</Button
-    >
   </header>
 
   <div class="scroll">
@@ -153,7 +145,7 @@
         <EmptyState
           icon="php"
           title="No hay ninguna versión de PHP"
-          message="Instala una con el asistente o descárgala desde aquí."
+          message="Instala una de las versiones disponibles de abajo o usa el asistente."
           action={{ label: "Abrir el asistente", onclick: () => go("#/asistente") }}
         />
       {:else}
@@ -200,47 +192,52 @@
           </Group>
         {/if}
       {/if}
+
+      {#if snapshot}
+        <Group
+          title="Disponibles para instalar"
+          footer={catalog?.offline
+            ? "Sin conexión: se muestran las versiones que había la última vez."
+            : "Versiones de php-builds, con las extensiones que necesita Laravel."}
+        >
+          {#if releases.length === 0}
+            {#if catalogLoading}
+              <Skeleton lines={3} />
+            {:else}
+              <Row
+                title="No se pudo consultar las versiones"
+                subtitle="Comprueba la conexión y vuelve a intentarlo en unos minutos."
+              >
+                {#snippet trailing()}
+                  <Button onclick={() => void loadCatalog()}>Reintentar</Button>
+                {/snippet}
+              </Row>
+            {/if}
+          {:else}
+            {#each releases as r (r.version)}
+              {@const installed = installedIds.has(r.version)}
+              {@const progress = r.version in downloading}
+              <Row title={`PHP ${r.version}`} subtitle={formatBytes(r.size)}>
+                {#snippet trailing()}
+                  {#if installed}
+                    <Badge tone="green" label="Instalada" />
+                  {:else if progress}
+                    <ProgressRing value={downloading[r.version]} label={`Instalando PHP ${r.version}`} />
+                  {:else}
+                    <Button onclick={() => void download(r.version)}>
+                      Instalar<span class="visually-hidden"> PHP {r.version}</span>
+                    </Button>
+                  {/if}
+                {/snippet}
+              </Row>
+            {/each}
+          {/if}
+        </Group>
+      {/if}
     </div>
   </div>
 </div>
 
-<Sheet open={sheetOpen} title="Descargar una versión de PHP" onclose={() => (sheetOpen = false)}>
-  {#if releases.length === 0}
-    {#if catalogLoading}
-      <Skeleton lines={3} />
-    {:else}
-      <EmptyState
-        icon="warning"
-        title="No se pudo consultar las versiones"
-        message="Elephant no ha podido leer el catálogo de php-builds en GitHub. Comprueba la conexión y vuelve a intentarlo en unos minutos."
-        action={{ label: "Reintentar", onclick: () => void loadCatalog() }}
-      />
-    {/if}
-  {:else if catalog?.offline}
-    <p class="note">Sin conexión: se muestran las versiones que había la última vez.</p>
-  {/if}
-  <Group>
-    {#each releases as r (r.version)}
-      {@const progress = r.version in downloading}
-      <Row title={`PHP ${r.version}`} subtitle={formatBytes(r.size)}>
-        {#snippet trailing()}
-          {#if installedIds.has(r.version)}
-            <Badge tone="green" label="Instalada" />
-          {:else if progress}
-            <ProgressRing value={downloading[r.version]} label={`Descargando PHP ${r.version}`} />
-          {:else}
-            <Button onclick={() => void download(r.version)}>
-              Descargar<span class="visually-hidden"> PHP {r.version}</span>
-            </Button>
-          {/if}
-        {/snippet}
-      </Row>
-    {/each}
-  </Group>
-  <div class="actions">
-    <Button variant="primary" onclick={() => (sheetOpen = false)}>Cerrar</Button>
-  </div>
-</Sheet>
 
 <style>
   .mark {
@@ -250,17 +247,5 @@
 
   .mark.on {
     color: var(--accent);
-  }
-
-  .note {
-    margin-bottom: var(--s-3);
-    font: var(--t-callout);
-    color: var(--label-2);
-  }
-
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    margin-top: var(--s-4);
   }
 </style>

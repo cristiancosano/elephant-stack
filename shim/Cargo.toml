@@ -12,10 +12,3 @@ path = "src/lib.rs"
 [[bin]]
 name = "php"
 path = "src/main.rs"
-
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = "s"
-panic = "abort"
-strip = true

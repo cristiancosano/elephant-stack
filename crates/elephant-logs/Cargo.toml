@@ -1,0 +1,19 @@
+[package]
+name = "elephant-logs"
+description = "Motor de logs de Elephant Stack: descubrimiento de proyectos, lectura y directo"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[features]
+ts = ["dep:ts-rs"]
+schema = ["dep:schemars"]
+
+[dependencies]
+elephant-php.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+memchr.workspace = true
+jiff.workspace = true
+ts-rs = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }

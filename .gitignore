@@ -1,5 +1,5 @@
 # Logs
-logs
+/logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -7,10 +7,17 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Los fixtures del motor de logs sí van al repositorio.
+!crates/elephant-logs/tests/fixtures/**
+
 node_modules
 dist
 dist-ssr
 *.local
+
+# Rust: un solo target para todo el workspace y los sidecars generados.
+/target/
+src-tauri/binaries/
 
 # Editor directories and files
 .vscode/*
@@ -25,4 +32,4 @@ dist-ssr
 
 # Copias antiguas: la compilación de PHP vive en github.com/cristiancosano/php-builds
 php-builds/
-.github/
+.github/workflows/php-builds.yml

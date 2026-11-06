@@ -1,0 +1,43 @@
+[workspace]
+members = [
+    "shim",
+    "crates/elephant-core",
+    "crates/elephant-logs",
+    "crates/elephant-api",
+    "crates/elephant-mcp",
+    "crates/elephant-cli",
+    "src-tauri",
+]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+authors = ["Cristian Cosano"]
+version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jiff = "0.2"
+memchr = "2"
+sha2 = "0.10"
+schemars = "1"
+clap = { version = "=4.6.7", features = ["derive"] }
+ts-rs = { version = "=12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
+elephant-php = { path = "shim" }
+elephant-core = { path = "crates/elephant-core" }
+elephant-logs = { path = "crates/elephant-logs" }
+elephant-api = { path = "crates/elephant-api" }
+elephant-mcp = { path = "crates/elephant-mcp" }
+
+# En un workspace, Cargo ignora los [profile] de los miembros.
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+# El selector se ejecuta en cada `php`: binario mínimo.
+[profile.release.package.elephant-php]
+opt-level = "s"

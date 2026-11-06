@@ -5,22 +5,34 @@
 //! `~/.elephant-stack/projects.json`, salvo [`clear`]. No oculta secretos: lo
 //! que va a un agente pasa por `elephant_core::redact` (C6).
 //!
-//! P01 deja los tipos y las firmas; P03 implementa la lógica. Las funciones
-//! sin implementar devuelven [`NOT_AVAILABLE`] o un valor vacío.
+//! Los archivos de log son la única fuente de verdad: no se copian ni se
+//! indexan. Se leen hacia atrás por bloques, con búsqueda binaria por tiempo,
+//! y el directo es un hilo de sondeo que solo existe mientras hay
+//! suscripciones ([`LogHub`]).
+//!
+//! Las funciones libres no guardan estado (las usa la CLI); [`LogHub`]
+//! reutiliza el catálogo de proyectos y fuentes durante unos segundos.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use sources::Catalog;
+
 pub mod projects;
 
+mod ops;
 mod parse;
 mod query;
 mod reader;
 mod sources;
 mod tail;
+mod util;
 
+/// Mensaje común de lo que todavía no está disponible. Ya no lo devuelve
+/// ninguna función de la crate; se conserva porque es parte del contrato.
 pub const NOT_AVAILABLE: &str = "Todavía no disponible.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -333,102 +345,153 @@ pub struct ErrorSummary {
     pub nearest_request: Option<HttpBrief>,
 }
 
-pub fn sources(_home: &Path, _project: Option<&str>) -> Vec<SourceStatus> {
-    Vec::new()
+fn now_ms() -> i64 {
+    jiff::Timestamp::now().as_millisecond()
 }
 
-pub fn summaries(_home: &Path) -> Vec<ProjectSummary> {
-    Vec::new()
+/// Las fuentes de un proyecto (id, nombre o host) y las globales de nginx que
+/// pueden traer sus peticiones. Sin proyecto, todas. Un proyecto que no existe
+/// no tiene fuentes.
+pub fn sources(home: &Path, project: Option<&str>) -> Vec<SourceStatus> {
+    ops::sources(&Catalog::load(home), project)
 }
 
-pub fn query(_home: &Path, _q: &LogQuery) -> Result<LogPage, String> {
-    Err(NOT_AVAILABLE.into())
+/// Un resumen por proyecto, en el orden de [`projects::discover`].
+pub fn summaries(home: &Path) -> Vec<ProjectSummary> {
+    ops::summaries(&Catalog::load(home), now_ms())
 }
 
-pub fn entry(_home: &Path, _id: &str) -> Result<EntryDetail, String> {
-    Err(NOT_AVAILABLE.into())
+/// Una página de entradas, de la más nueva a la más antigua. Para la
+/// siguiente, `before = next_before`.
+pub fn query(home: &Path, q: &LogQuery) -> Result<LogPage, String> {
+    ops::query(&Catalog::load(home), q)
 }
 
-pub fn groups(_home: &Path, _q: &LogQuery) -> Result<Vec<LogGroup>, String> {
-    Err(NOT_AVAILABLE.into())
+/// El detalle de una entrada, releído del disco. Si el archivo ha cambiado y
+/// en ese punto ya no empieza una entrada, devuelve un error.
+pub fn entry(home: &Path, id: &str) -> Result<EntryDetail, String> {
+    ops::entry(&Catalog::load(home), id)
 }
 
-/// `source_id` es un id de [`LogSource`], nunca una ruta.
+/// Entradas agrupadas por huella, de la última vista a la más antigua.
+pub fn groups(home: &Path, q: &LogQuery) -> Result<Vec<LogGroup>, String> {
+    ops::groups(&Catalog::load(home), q)
+}
+
+/// Las últimas `lines` entradas de una fuente (≤ 500; 0 = 100), en orden
+/// cronológico. `source_id` es un id de [`LogSource`], nunca una ruta: lo que
+/// no es una fuente conocida se rechaza.
 pub fn tail(
-    _home: &Path,
-    _source_id: &str,
-    _lines: u32,
-    _min_level: Option<LogLevel>,
-    _contains: Option<&str>,
+    home: &Path,
+    source_id: &str,
+    lines: u32,
+    min_level: Option<LogLevel>,
+    contains: Option<&str>,
 ) -> Result<Vec<LogEntry>, String> {
-    Err(NOT_AVAILABLE.into())
+    ops::tail(&Catalog::load(home), source_id, lines, min_level, contains)
 }
 
+/// Errores (nivel Error o superior) desde `since_ms`, agrupados, con su traza
+/// recortada (8 frames propios y el primero de vendor) y la petición de nginx
+/// más próxima. Como mucho 20 grupos.
 pub fn errors_summary(
-    _home: &Path,
-    _project: Option<&str>,
-    _since_ms: i64,
+    home: &Path,
+    project: Option<&str>,
+    since_ms: i64,
 ) -> Result<Vec<ErrorSummary>, String> {
-    Err(NOT_AVAILABLE.into())
+    ops::errors_summary(&Catalog::load(home), project, since_ms)
 }
 
 /// `(project_id, errores, última)` desde `since_ms`, para el menú de la barra.
-pub fn count_errors(_home: &Path, _since_ms: i64) -> Vec<(String, u32, Option<i64>)> {
-    Vec::new()
+/// Lo que no es de ningún proyecto va a `none` (nginx) o `system` (PHP-FPM).
+pub fn count_errors(home: &Path, since_ms: i64) -> Vec<(String, u32, Option<i64>)> {
+    ops::count_errors(&Catalog::load(home), since_ms)
 }
 
-/// `15m`, `2h`, `1d` o una fecha ISO 8601.
-pub fn parse_since(_text: &str, _now_ms: i64) -> Result<i64, String> {
-    Err(NOT_AVAILABLE.into())
+/// `30s`, `15m`, `2h`, `1d`, `1w` o una fecha ISO 8601.
+pub fn parse_since(text: &str, now_ms: i64) -> Result<i64, String> {
+    ops::parse_since(text, now_ms)
 }
 
 /// Vacía un archivo de log de un proyecto o de Elephant; nunca uno de Herd.
-pub fn clear(_home: &Path, _file_key: &str) -> Result<(), String> {
-    Err(NOT_AVAILABLE.into())
+/// `file_key` es la primera parte del id de una entrada (16 caracteres hex).
+pub fn clear(home: &Path, file_key: &str) -> Result<(), String> {
+    ops::clear(&Catalog::load(home), file_key)
 }
 
-/// Envuelve las funciones libres con caché y añade el directo. Con 0
-/// suscripciones no queda ningún hilo de sondeo.
+/// El catálogo se reutiliza este tiempo entre llamadas del hub.
+const CATALOG_TTL: Duration = Duration::from_secs(3);
+
+/// Envuelve las funciones libres con un catálogo en caché y añade el directo.
+/// Con 0 suscripciones no queda ningún hilo de sondeo; al soltarlo se termina
+/// el hilo y se cierran los archivos.
 pub struct LogHub {
     home: PathBuf,
-    next_subscription: AtomicU32,
+    catalog: Mutex<Option<(Instant, Arc<Catalog>)>>,
+    live: tail::Live,
 }
 
 impl LogHub {
     pub fn new(home: PathBuf) -> Self {
         Self {
+            live: tail::Live::new(home.clone()),
             home,
-            next_subscription: AtomicU32::new(1),
+            catalog: Mutex::new(None),
         }
     }
 
+    fn catalog(&self, fresh: bool) -> Arc<Catalog> {
+        let mut cached = self
+            .catalog
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if !fresh
+            && let Some((at, catalog)) = cached.as_ref()
+            && at.elapsed() < CATALOG_TTL
+        {
+            return Arc::clone(catalog);
+        }
+        let catalog = Arc::new(Catalog::load(&self.home));
+        *cached = Some((Instant::now(), Arc::clone(&catalog)));
+        catalog
+    }
+
     pub fn summaries(&self) -> Vec<ProjectSummary> {
-        summaries(&self.home)
+        ops::summaries(&self.catalog(false), now_ms())
     }
 
     pub fn query(&self, q: &LogQuery) -> Result<LogPage, String> {
-        query(&self.home, q)
+        ops::query(&self.catalog(false), q)
     }
 
+    /// Si el archivo es nuevo (el catálogo en caché no lo conoce), se vuelve a
+    /// mirar el disco antes de dar la entrada por perdida.
     pub fn entry(&self, id: &str) -> Result<EntryDetail, String> {
-        entry(&self.home, id)
+        ops::entry(&self.catalog(false), id).or_else(|_| ops::entry(&self.catalog(true), id))
     }
 
     pub fn groups(&self, q: &LogQuery) -> Result<Vec<LogGroup>, String> {
-        groups(&self.home, q)
+        ops::groups(&self.catalog(false), q)
     }
 
     /// `sink` devuelve `false` si el canal se ha roto; entonces se cancela la
-    /// suscripción.
-    pub fn subscribe(&self, _q: LogQuery, _sink: Box<dyn Fn(LogBatch) -> bool + Send + 'static>) -> u32 {
-        self.next_subscription.fetch_add(1, Ordering::Relaxed)
+    /// suscripción. Los lotes llegan desde el hilo de sondeo, como mucho cada
+    /// 100 ms y con 500 entradas.
+    pub fn subscribe(
+        &self,
+        q: LogQuery,
+        sink: Box<dyn Fn(LogBatch) -> bool + Send + 'static>,
+    ) -> u32 {
+        self.live.subscribe(q, sink)
     }
 
-    pub fn unsubscribe(&self, _id: u32) {}
+    pub fn unsubscribe(&self, id: u32) {
+        self.live.unsubscribe(id);
+    }
 
     /// 0 → no queda hilo de sondeo.
     pub fn active_subscriptions(&self) -> usize {
-        0
+        self.live.active()
     }
 }
 
@@ -440,7 +503,10 @@ mod tests {
     fn levels_are_ordered_by_severity() {
         assert!(LogLevel::Error > LogLevel::Warning);
         assert!(LogLevel::Emergency > LogLevel::Critical);
-        assert_eq!(serde_json::to_string(&LogLevel::Warning).unwrap(), "\"warning\"");
+        assert_eq!(
+            serde_json::to_string(&LogLevel::Warning).unwrap(),
+            "\"warning\""
+        );
     }
 
     #[test]
@@ -456,7 +522,9 @@ mod tests {
 
     #[test]
     fn source_states_are_tagged() {
-        let state = SourceState::Unreadable { message: "Permiso denegado".into() };
+        let state = SourceState::Unreadable {
+            message: "Permiso denegado".into(),
+        };
         let json = serde_json::to_value(&state).unwrap();
         assert_eq!(json["kind"], "unreadable");
         assert_eq!(json["message"], "Permiso denegado");
@@ -467,6 +535,9 @@ mod tests {
         let hub = LogHub::new(PathBuf::from("/nonexistent"));
         assert_eq!(hub.active_subscriptions(), 0);
         let first = hub.subscribe(LogQuery::default(), Box::new(|_| true));
-        assert_ne!(first, hub.subscribe(LogQuery::default(), Box::new(|_| true)));
+        assert_ne!(
+            first,
+            hub.subscribe(LogQuery::default(), Box::new(|_| true))
+        );
     }
 }

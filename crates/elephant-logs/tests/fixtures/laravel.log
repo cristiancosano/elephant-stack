@@ -1,0 +1,31 @@
+[2026-11-06 09:00:00] local.INFO: Pedido creado {"order":1042,"total":"59.90"}
+[2026-11-06 09:05:12] local.WARNING: Stock bajo para el producto 77 {"sku":"CAM-001","left":2}
+[2026-11-06 09:10:30] local.ERROR: SQLSTATE[42S02]: Base table or view not found: 1146 Table 'tienda.cupones' doesn't exist {"userId":3,"exception":"[object] (Illuminate\\Database\\QueryException(code: 42S02): SQLSTATE[42S02]: Base table or view not found: 1146 Table 'tienda.cupones' doesn't exist (Connection: mysql, SQL: select * from `cupones` where `codigo` = OTOÑO) at /HOME/Herd/tienda/vendor/laravel/framework/src/Illuminate/Database/Connection.php:829)
+[stacktrace]
+#0 /HOME/Herd/tienda/vendor/laravel/framework/src/Illuminate/Database/Connection.php(783): Illuminate\\Database\\Connection->runQueryCallback()
+#1 /HOME/Herd/tienda/app/Services/Cupones.php(31): Illuminate\\Database\\Connection->select()
+#2 /HOME/Herd/tienda/app/Http/Controllers/CarritoController.php(58): App\\Services\\Cupones->aplicar()
+#3 [internal function]: App\\Http\\Controllers\\CarritoController->store()
+#4 /HOME/Herd/tienda/vendor/laravel/framework/src/Illuminate/Routing/Controller.php(54): call_user_func_array()
+#5 /HOME/Herd/tienda/public/index.php(17): Illuminate\\Foundation\\Application->handleRequest()
+#6 {main}
+
+[previous exception] [object] (PDOException(code: 42S02): SQLSTATE[42S02]: Base table or view not found at /HOME/Herd/tienda/vendor/laravel/framework/src/Illuminate/Database/Connection.php:404)
+[stacktrace]
+#0 /HOME/Herd/tienda/vendor/laravel/framework/src/Illuminate/Database/Connection.php(404): PDO->prepare()
+#1 {main}
+"}
+[2026-11-06 09:12:00] local.DEBUG: Petición externa
+con varias líneas
+en el mensaje {"payload":"línea uno
+línea dos"}
+[2026-11-06 09:15:45] local.ERROR: Undefined variable $cliente {"exception":"[object] (ErrorException(code: 0): Undefined variable $cliente at /HOME/Herd/tienda/app/Http/Controllers/CuentaController.php:22)
+[stacktrace]
+#0 /HOME/Herd/tienda/vendor/laravel/framework/src/Illuminate/Foundation/Bootstrap/HandleExceptions.php(256): Illuminate\\Foundation\\Bootstrap\\HandleExceptions->handleError()
+#1 /HOME/Herd/tienda/app/Http/Controllers/CuentaController.php(22): Illuminate\\Foundation\\Bootstrap\\HandleExceptions->Illuminate\\Foundation\\Bootstrap\\{closure}()
+#2 {main}
+"}
+[2026-11-06 09:20:00] local.CRITICAL: Pasarela de pago caída {"exception":"[object] (RuntimeException(code: 503): Pasarela de pago caída at /HOME/Herd/tienda/app/Pagos/Pasarela.php:88)
+[stacktrace]
+#0 /HOME/Herd/tienda/app/Pagos/Pasarela.php(40): App\\Pagos\\Pasarela->cobrar()
+#1 /HOME/Herd/tienda/app/Jobs/CobrarPedido.php(19

@@ -1,7 +1,14 @@
 //! Asistente inicial (04): detección del sistema, escenarios, plan y
-//! ejecución. P01 deja los tipos y las firmas; P04 implementa la lógica.
-//! Las funciones sin implementar devuelven [`crate::NOT_AVAILABLE`] o un valor
-//! vacío, y la interfaz oculta lo que depende de ellas.
+//! ejecución.
+//!
+//! - [`detect`] lee el Mac sin tocar nada.
+//! - [`resolve`] convierte lo que elige la interfaz en un [`Profile`].
+//! - [`plan`] compara los dos: es puro, así que se recalcula al aplicar y un
+//!   plan obsoleto no se ejecuta ([`apply_if_current`]).
+//! - [`apply`] ejecuta el plan en dos carriles (Homebrew y archivos).
+//!
+//! El plan solo suma: nunca desinstala ni apaga nada sin una casilla opcional
+//! que viene desmarcada.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -9,10 +16,16 @@ use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 
-use crate::NOT_AVAILABLE;
 use crate::brew::{Operation, Service};
+use crate::monitor;
 use crate::php::VersionInfo;
 
+mod apply;
+mod catalog;
+mod detect;
+mod download;
+mod plan;
+mod presets;
 pub mod shell;
 pub mod state;
 
@@ -310,9 +323,13 @@ pub struct ApplyReport {
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ApplyOutcome {
-    Done { report: ApplyReport },
+    Done {
+        report: ApplyReport,
+    },
     /// El sistema cambió desde la revisión: hay que revisar este plan nuevo.
-    Stale { plan: Plan },
+    Stale {
+        plan: Plan,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -375,75 +392,197 @@ pub struct ApplyContext<'a> {
     pub launch_at_login: &'a (dyn Fn(bool) -> Result<(), String> + Sync),
 }
 
+/// Lo que hay en el Mac. Solo lectura; tarda menos de 1,5 s (brew, `ps` y
+/// los puertos en paralelo). `launch_at_login` lo sabe la app.
 pub fn detect(launch_at_login: bool) -> Detection {
-    Detection {
-        arch_arm64: cfg!(target_arch = "aarch64"),
-        launch_at_login,
-        ..Detection::default()
-    }
+    detect::detect(launch_at_login)
 }
 
-pub fn catalog(_force_refresh: bool) -> Catalog {
-    Catalog {
-        offline: true,
-        ..Catalog::default()
-    }
+/// Releases de php-builds y Composer estable. Una hora en memoria y copia en
+/// `~/.elephant-stack/cache/catalog.json` para trabajar sin red.
+pub fn catalog(force_refresh: bool) -> Catalog {
+    catalog::catalog(force_refresh)
 }
 
-pub fn resolve(_input: &ProfileInput, _d: &Detection, _c: &Catalog) -> Result<Profile, String> {
-    Err(NOT_AVAILABLE.into())
+/// De la elección de la interfaz a un perfil. Valida Personalizado: solo
+/// servicios instalables de la tabla y ramas que existen.
+pub fn resolve(input: &ProfileInput, d: &Detection, c: &Catalog) -> Result<Profile, String> {
+    presets::resolve(input, d, c)
 }
 
-/// Personalizado sin tocar nada: el plan sale vacío.
+/// Personalizado sin tocar nada: describe el sistema, así que el plan sale vacío.
 pub fn profile_from_system(d: &Detection) -> Profile {
-    Profile {
-        scenario: ScenarioId::Custom,
-        php: PhpWant::None,
-        composer: false,
-        shim: false,
-        services: BTreeMap::new(),
-        launch_at_login: d.launch_at_login,
-        default_php: None,
+    presets::profile_from_system(d)
+}
+
+/// Tarjetas de escenario con su RAM en reposo, descarga y número de pasos.
+/// Usa la RAM real de los servicios que ya están en marcha.
+pub fn scenarios(d: &Detection, c: &Catalog) -> Vec<ScenarioCard> {
+    presets::scenarios(d, c, &measured_ram(d))
+}
+
+/// Pura: no ejecuta nada. La RAM es la estimada; [`plan_measured`] usa la real.
+pub fn plan(d: &Detection, p: &Profile, c: &Catalog) -> Plan {
+    plan::plan(d, p, c, &BTreeMap::new())
+}
+
+/// Como [`plan`], pero `totals.idle_ram_mb` usa la RAM real de los servicios
+/// que ya están en marcha. El `id` es el mismo.
+pub fn plan_measured(d: &Detection, p: &Profile, c: &Catalog) -> Plan {
+    plan::plan(d, p, c, &measured_ram(d))
+}
+
+/// RAM (MB) de cada servicio de Homebrew en marcha, con sus procesos hijos.
+fn measured_ram(d: &Detection) -> BTreeMap<String, u32> {
+    let pids: Vec<i64> = d
+        .services
+        .iter()
+        .filter(|s| s.running)
+        .filter_map(|s| s.pid)
+        .collect();
+    if pids.is_empty() {
+        return BTreeMap::new();
+    }
+    let usage = monitor::usage_for(&pids).unwrap_or_default();
+    d.services
+        .iter()
+        .filter_map(|service| {
+            let pid = service.pid?;
+            let used = usage.iter().find(|u| u.pid == pid)?;
+            Some((
+                service.name.clone(),
+                u32::try_from(used.memory_kb / 1024).unwrap_or(u32::MAX),
+            ))
+        })
+        .collect()
+}
+
+/// Con un HOME sin definir no se puede ejecutar nada: todos los pasos fallan
+/// con ese motivo.
+fn failed_report(plan: &Plan, error: &str) -> ApplyReport {
+    ApplyReport {
+        failed: plan
+            .steps
+            .iter()
+            .map(|s| (s.key.clone(), error.to_string()))
+            .collect(),
+        ..ApplyReport::default()
     }
 }
 
-pub fn scenarios(_d: &Detection, _c: &Catalog) -> Vec<ScenarioCard> {
-    Vec::new()
+/// Ejecuta los pasos obligatorios y los opcionales de `accepted` (cualquier
+/// otra clave se ignora y queda en el log). Toma el cerrojo de Homebrew en cada
+/// paso de brew y avisa con `stamp::touch` al terminar.
+pub fn apply(
+    plan: &Plan,
+    accepted: &BTreeSet<String>,
+    ctx: &ApplyContext,
+    cancel: &AtomicBool,
+    on_event: &(dyn Fn(SetupProgress) + Sync),
+) -> ApplyReport {
+    match download::Tools::system() {
+        Ok(tools) => apply::run(
+            plan,
+            accepted,
+            ctx,
+            cancel,
+            on_event,
+            &apply::Runner {
+                tools,
+                brew: &apply::SystemBrew,
+            },
+        ),
+        Err(error) => failed_report(plan, &error),
+    }
 }
 
-/// Pura: no ejecuta nada.
-pub fn plan(_d: &Detection, p: &Profile, _c: &Catalog) -> Plan {
-    Plan {
-        id: String::new(),
-        scenario: p.scenario,
-        steps: Vec::new(),
+/// Solo aplica `fresh` (el plan recalculado ahora) si su `id` es `plan_id`,
+/// el que el usuario revisó. Si no, no ejecuta nada y devuelve `Stale`.
+pub fn apply_if_current(
+    plan_id: &str,
+    fresh: Plan,
+    accepted: &BTreeSet<String>,
+    ctx: &ApplyContext,
+    cancel: &AtomicBool,
+    on_event: &(dyn Fn(SetupProgress) + Sync),
+) -> ApplyOutcome {
+    match download::Tools::system() {
+        Ok(tools) => {
+            let runner = apply::Runner {
+                tools,
+                brew: &apply::SystemBrew,
+            };
+            apply::run_if_current(plan_id, fresh, accepted, ctx, cancel, on_event, &runner)
+        }
+        Err(_) if fresh.id != plan_id => ApplyOutcome::Stale { plan: fresh },
+        Err(error) => ApplyOutcome::Done {
+            report: failed_report(&fresh, &error),
+        },
+    }
+}
+
+/// La usa [`crate::ops::install_component`] para `composer`: el phar propio
+/// y, si falta, el selector `php` que lo ejecuta.
+pub fn install_composer(on_line: &mut dyn FnMut(&str)) -> Result<(), String> {
+    let tools = download::Tools::system()?;
+    let release = catalog(false)
+        .composer
+        .ok_or("No se ha podido consultar la versión estable de Composer.")?;
+    let shim = elephant_php::Layout::from_home(&tools.home).shim_path();
+    if !shim.is_file()
+        && let Some(source) = detect::default_shim_source()
+    {
+        download::install_shim(&tools, &source)?;
+    }
+    download::install_composer(&tools, &release, on_line)
+        .map_err(|e| apply::translate(&e).map_or(e, String::from))
+}
+
+/// Descarga una versión concreta del catálogo (sección PHP de la app).
+pub fn download_php(
+    version: &str,
+    on_event: &(dyn Fn(SetupProgress) + Sync),
+) -> Result<ApplyReport, String> {
+    if !cfg!(target_arch = "aarch64") {
+        return Err("Los PHP de Elephant son solo para Apple Silicon.".into());
+    }
+    let release = catalog(false)
+        .php
+        .into_iter()
+        .find(|release| release.version == version)
+        .ok_or_else(|| format!("PHP {version} no está en el catálogo de Elephant."))?;
+    let key = plan::download_key(version);
+    let single = Plan {
+        id: key.clone(),
+        scenario: ScenarioId::Custom,
+        steps: vec![Step {
+            key,
+            title: format!("Descargar PHP {version}"),
+            command: Some(format!("curl -fL {}", release.url)),
+            action: Action::DownloadPhp { release },
+            group: StepGroup::Download,
+            optional: false,
+            after: Vec::new(),
+            restarts_service: false,
+            since: SETUP_VERSION,
+        }],
         satisfied: Vec::new(),
         notices: Vec::new(),
         conflicts: Vec::new(),
         totals: Totals::default(),
-    }
-}
-
-pub fn apply(
-    _plan: &Plan,
-    _accepted: &BTreeSet<String>,
-    _ctx: &ApplyContext,
-    _cancel: &AtomicBool,
-    _on_event: &(dyn Fn(SetupProgress) + Sync),
-) -> ApplyReport {
-    ApplyReport::default()
-}
-
-/// La usa [`crate::ops::install_component`] para `composer`.
-pub fn install_composer(_on_line: &mut dyn FnMut(&str)) -> Result<(), String> {
-    Err(NOT_AVAILABLE.into())
-}
-
-pub fn download_php(
-    _version: &str,
-    _on_event: &(dyn Fn(SetupProgress) + Sync),
-) -> Result<ApplyReport, String> {
-    Err(NOT_AVAILABLE.into())
+    };
+    let no_launch = |_: bool| Ok(());
+    let ctx = ApplyContext {
+        shim_source: PathBuf::new(),
+        launch_at_login: &no_launch,
+    };
+    Ok(apply(
+        &single,
+        &BTreeSet::new(),
+        &ctx,
+        &AtomicBool::new(false),
+        on_event,
+    ))
 }
 
 #[cfg(test)]
@@ -453,21 +592,36 @@ mod tests {
     #[test]
     fn inputs_use_the_documented_tags() {
         let input: ProfileInput =
-            serde_json::from_str(r#"{"scenario":"laravel_services","database":"postgres"}"#).unwrap();
-        assert_eq!(input, ProfileInput::LaravelServices { database: Database::Postgres });
+            serde_json::from_str(r#"{"scenario":"laravel_services","database":"postgres"}"#)
+                .unwrap();
+        assert_eq!(
+            input,
+            ProfileInput::LaravelServices {
+                database: Database::Postgres
+            }
+        );
 
-        let want: PhpWant = serde_json::from_str(r#"{"kind":"branches","value":["8.5","8.4"]}"#).unwrap();
+        let want: PhpWant =
+            serde_json::from_str(r#"{"kind":"branches","value":["8.5","8.4"]}"#).unwrap();
         assert_eq!(want, PhpWant::Branches(vec!["8.5".into(), "8.4".into()]));
-        assert_eq!(serde_json::to_string(&PhpWant::AnyOwn).unwrap(), r#"{"kind":"any_own"}"#);
+        assert_eq!(
+            serde_json::to_string(&PhpWant::AnyOwn).unwrap(),
+            r#"{"kind":"any_own"}"#
+        );
     }
 
     #[test]
     fn outcomes_and_actions_are_tagged_by_kind() {
-        let outcome = ApplyOutcome::Done { report: ApplyReport::default() };
+        let outcome = ApplyOutcome::Done {
+            report: ApplyReport::default(),
+        };
         let json = serde_json::to_value(&outcome).unwrap();
         assert_eq!(json["kind"], "done");
 
-        let action = Action::Service { name: "redis".into(), op: Operation::TurnOnWithAutostart };
+        let action = Action::Service {
+            name: "redis".into(),
+            op: Operation::TurnOnWithAutostart,
+        };
         let json = serde_json::to_value(&action).unwrap();
         assert_eq!(json["kind"], "service");
         assert_eq!(json["op"], "turn_on_with_autostart");
@@ -475,9 +629,55 @@ mod tests {
 
     #[test]
     fn the_system_profile_plans_nothing() {
-        let detection = detect(true);
+        let detection = Detection {
+            arch_arm64: true,
+            launch_at_login: true,
+            ..Detection::default()
+        };
         let profile = profile_from_system(&detection);
         assert!(profile.launch_at_login);
-        assert!(plan(&detection, &profile, &catalog(false)).steps.is_empty());
+        assert!(
+            plan(&detection, &profile, &Catalog::default())
+                .steps
+                .is_empty()
+        );
+    }
+}
+
+#[cfg(test)]
+mod system_tests {
+    use super::*;
+
+    /// Imprime el plan real de este Mac para cada escenario (04 §5, fase 1).
+    /// Solo lee: el catálogo se consulta sin guardar la caché en disco.
+    /// `cargo test -p elephant-core system_tests -- --ignored --nocapture`
+    #[test]
+    #[ignore = "depende del Mac en el que se ejecuta y de la red"]
+    fn prints_the_real_plans() {
+        let detection = detect(false);
+        let (php, composer) = catalog::fetch(&download::curl_path());
+        let catalog = catalog::merge(php, composer, None);
+        for input in [
+            ProfileInput::Laravel,
+            ProfileInput::LaravelServices {
+                database: presets::preselected_database(&detection),
+            },
+            ProfileInput::Terminal,
+        ] {
+            let profile = resolve(&input, &detection, &catalog)
+                .expect("los escenarios fijos siempre resuelven");
+            let plan = plan_measured(&detection, &profile, &catalog);
+            println!("\n### {input:?}");
+            for step in &plan.steps {
+                let optional = if step.optional { " (opcional)" } else { "" };
+                println!("  paso {}: {}{optional}", step.key, step.title);
+            }
+            println!("  ya lo tienes: {:?}", plan.satisfied);
+            println!("  avisos: {:?}", plan.notices);
+            println!("  conflictos: {:?}", plan.conflicts);
+            println!("  totales: {:?}", plan.totals);
+        }
+        let system = profile_from_system(&detection);
+        assert!(plan(&detection, &system, &catalog).steps.is_empty());
     }
 }

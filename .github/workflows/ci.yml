@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # macOS arm64: la app y los sidecars solo se compilan para aarch64-apple-darwin.
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.20.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Dependencias de npm
+        run: pnpm install --frozen-lockfile
+
+      # Antes que `cargo test`, que vuelve a escribir src/lib/bindings (P01).
+      - name: Bindings de TypeScript al día
+        run: scripts/bindings.sh --check
+
+      - name: cargo test
+        run: cargo test --workspace
+
+      - name: Los tests no han cambiado los bindings
+        run: git diff --exit-code -- src/lib/bindings
+
+      - name: clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Catálogo del canal de agentes
+        run: |
+          home="$(mktemp -d)"
+          HOME="$home" target/debug/elephant schema --check
+          HOME="$home" target/debug/elephant schema --markdown --check
+
+      - name: Plugin de Claude Code
+        run: |
+          if ! command -v claude >/dev/null; then
+            echo "claude no está instalado en el runner: se omite la validación del plugin."
+            exit 0
+          fi
+          tmp="$(mktemp -d)"
+          HOME="$tmp" target/debug/elephant __write-plugin "$tmp/claude-plugin"
+          claude plugin validate --strict "$tmp/claude-plugin"
+          claude plugin validate --strict "$tmp/claude-plugin/elephant"
+
+      - name: svelte-check
+        run: pnpm check
+
+      - name: vitest
+        run: pnpm test
+
+      - name: Build del frontend
+        run: pnpm build
+
+      # 01 §11. El chunk inicial está ahora 0,1 KB por encima de 40 KB (docs/notes/P99.md):
+      # el paso avisa sin bloquear hasta que se decida cómo bajarlo.
+      - name: Presupuestos del bundle
+        continue-on-error: true
+        run: scripts/budget.sh bundle

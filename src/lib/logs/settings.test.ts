@@ -3,32 +3,41 @@ import { describe, expect, it } from "vitest";
 import { project } from "./fixtures";
 import {
   buildOverride,
+  groupRoots,
   guessHome,
-  inferRoots,
+  overrideFields,
   parseGlobs,
-  removalCandidates,
   tildePath,
   validateTimezone,
 } from "./settings";
 
-describe("inferRoots", () => {
-  it("agrupa los proyectos del usuario por carpeta padre e ignora los de Herd", () => {
-    const roots = inferRoots([
-      project({ id: "1", name: "b", root: "/Users/ana/Code/b", origin: "user" }),
-      project({ id: "2", name: "a", root: "/Users/ana/Code/a", origin: "user" }),
-      project({ id: "3", name: "c", root: "/Users/ana/Otros/c", origin: "user" }),
-      project({ id: "4", name: "herd", root: "/Users/ana/Herd/herd", origin: "herd_parked" }),
-    ]);
+describe("groupRoots", () => {
+  it("reparte los proyectos del usuario en la carpeta más concreta e ignora los de Herd", () => {
+    const roots = groupRoots(
+      ["/Users/ana/Otros", "/Users/ana/Code/", "/Users/ana/Code/tienda"],
+      [
+        project({ id: "1", name: "b", root: "/Users/ana/Code/b", origin: "user" }),
+        project({ id: "2", name: "a", root: "/Users/ana/Code/grupo/a", origin: "user" }),
+        project({ id: "3", name: "tienda", root: "/Users/ana/Code/tienda", origin: "user" }),
+        project({ id: "4", name: "herd", root: "/Users/ana/Code/herd", origin: "herd_parked" }),
+        project({ id: "5", name: "x", root: "/Users/ana/Codex/x", origin: "user" }),
+      ],
+    );
     expect(roots.map((r) => [r.path, r.projects.map((p) => p.name)])).toEqual([
-      ["/Users/ana/Code", ["a", "b"]],
-      ["/Users/ana/Otros", ["c"]],
+      ["/Users/ana/Otros", []],
+      ["/Users/ana/Code/", ["a", "b"]],
+      ["/Users/ana/Code/tienda", ["tienda"]],
     ]);
   });
+});
 
-  it("al quitar, prueba la carpeta y después cada proyecto", () => {
-    const [root] = inferRoots([project({ root: "/Users/ana/Code/a/", origin: "user" })]);
-    expect(root.path).toBe("/Users/ana/Code");
-    expect(removalCandidates(root)).toEqual(["/Users/ana/Code", "/Users/ana/Code/a/"]);
+describe("overrideFields", () => {
+  it("parte del ajuste guardado o de los valores automáticos", () => {
+    expect(overrideFields(null)).toEqual({ timezone: "", globsText: "" });
+    expect(overrideFields({ timezone: "UTC", log_globs: ["/a/*.log", "/b/x.log"] })).toEqual({
+      timezone: "UTC",
+      globsText: "/a/*.log\n/b/x.log",
+    });
   });
 });
 

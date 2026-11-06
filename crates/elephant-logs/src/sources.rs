@@ -9,6 +9,7 @@
 //!
 //! Las rutas salen de `HOME`; nunca se escriben a mano.
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
@@ -20,7 +21,7 @@ use jiff::tz::TimeZone;
 use crate::parse::{FileCtx, Format};
 use crate::projects::{self, Config};
 use crate::util::{glob_match, path_key};
-use crate::{LogSource, Project, SourceKind, SourceState, SourceStatus};
+use crate::{LogSource, Project, ProjectOverride, SourceKind, SourceState, SourceStatus};
 
 const HERD_DIR: &str = "Library/Application Support/Herd";
 const HERD_LOGS: &str = "Library/Application Support/Herd/Log";
@@ -34,6 +35,8 @@ pub(crate) struct Catalog {
     pub sources: Vec<SourceStatus>,
     /// `(índice de la fuente, ruta)`, en el orden de las fuentes.
     pub files: Vec<LogFile>,
+    /// Ajustes de `projects.json` por id de proyecto.
+    pub overrides: BTreeMap<String, ProjectOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +77,7 @@ impl Catalog {
             projects,
             sources,
             files,
+            overrides: config.overrides.clone(),
         }
     }
 

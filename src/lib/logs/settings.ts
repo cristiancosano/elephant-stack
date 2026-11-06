@@ -10,37 +10,37 @@ export interface RootFolder {
   projects: Project[];
 }
 
-function parentOf(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const slash = trimmed.lastIndexOf("/");
-  return slash <= 0 ? "/" : trimmed.slice(0, slash);
+function trimSlash(path: string): string {
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+function isInside(path: string, root: string): boolean {
+  const p = trimSlash(path);
+  const r = trimSlash(root);
+  return p === r || p.startsWith(r === "/" ? "/" : `${r}/`);
 }
 
 /**
- * Carpetas de las que salen los proyectos de origen `user`. El contrato de la ola 2 no
- * expone las raíces de `projects.json` (apuntado para P99), así que se deducen: cada
- * proyecto cuelga de su carpeta padre. Los que comparten padre van juntos.
+ * Las carpetas de `projects.json` (`logs_roots`), en su orden, con los proyectos de
+ * origen `user` que salen de cada una. Un proyecto va a la carpeta más concreta
+ * que lo contiene.
  */
-export function inferRoots(projects: readonly Project[]): RootFolder[] {
-  const byParent = new Map<string, Project[]>();
+export function groupRoots(roots: readonly string[], projects: readonly Project[]): RootFolder[] {
+  const folders = roots.map((path) => ({ path, projects: [] as Project[] }));
   for (const p of projects) {
     if (p.origin !== "user") continue;
-    const parent = parentOf(p.root);
-    const list = byParent.get(parent) ?? [];
-    list.push(p);
-    byParent.set(parent, list);
+    const best = folders
+      .filter((f) => isInside(p.root, f.path))
+      .sort((a, b) => trimSlash(b.path).length - trimSlash(a.path).length)[0];
+    best?.projects.push(p);
   }
-  return [...byParent.entries()]
-    .map(([path, list]) => ({ path, projects: list.sort((a, b) => a.name.localeCompare(b.name, "es")) }))
-    .sort((a, b) => a.path.localeCompare(b.path, "es"));
+  for (const f of folders) f.projects.sort((a, b) => a.name.localeCompare(b.name, "es"));
+  return folders;
 }
 
-/**
- * Rutas que se intentan, en orden, al quitar una carpeta deducida: la carpeta y,
- * si el usuario había añadido directamente un proyecto, la de cada proyecto.
- */
-export function removalCandidates(folder: RootFolder): string[] {
-  return [folder.path, ...folder.projects.map((p) => p.root)].filter((p, i, all) => all.indexOf(p) === i);
+/** Lo que muestra la hoja «Ajustar…» al abrirse: el ajuste guardado, si lo hay. */
+export function overrideFields(o: ProjectOverride | null): { timezone: string; globsText: string } {
+  return { timezone: o?.timezone ?? "", globsText: (o?.log_globs ?? []).join("\n") };
 }
 
 /** `/Users/ana/Code/tienda` → `~/Code/tienda`, si `home` es su prefijo. */

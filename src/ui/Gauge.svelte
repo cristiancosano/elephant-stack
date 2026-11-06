@@ -1,7 +1,4 @@
 <script lang="ts">
-  import { Tween, prefersReducedMotion } from "svelte/motion";
-  import { cubicOut } from "svelte/easing";
-
   // Anillo de 120 px. El color del arco es `currentColor` (por defecto el acento);
   // sobre el héroe se pone `color: var(--on-hero)` en el contenedor.
   let {
@@ -24,12 +21,8 @@
   const C = 2 * Math.PI * R;
 
   const fraction = $derived(max > 0 ? Math.min(1, Math.max(0, value / max)) : 0);
-
-  const shown = new Tween(0, { duration: 340, easing: cubicOut });
-
-  $effect(() => {
-    void shown.set(fraction, { duration: prefersReducedMotion.current ? 0 : 340 });
-  });
+  // El arco se anima con una transición de CSS (sin `Tween`, que pesa en el chunk
+  // inicial); «Reducir movimiento» la anula desde base.css.
 </script>
 
 <div
@@ -43,17 +36,16 @@
 >
   <svg viewBox="0 0 {SIZE} {SIZE}" aria-hidden="true">
     <circle class="track" cx={SIZE / 2} cy={SIZE / 2} r={R} stroke-width={STROKE} />
-    {#if shown.current > 0}
-      <circle
-        class="arc"
-        cx={SIZE / 2}
-        cy={SIZE / 2}
-        r={R}
-        stroke-width={STROKE}
-        stroke-dasharray="{C * shown.current} {C}"
-        transform="rotate(-90 {SIZE / 2} {SIZE / 2})"
-      />
-    {/if}
+    <circle
+      class="arc"
+      class:empty={fraction === 0}
+      cx={SIZE / 2}
+      cy={SIZE / 2}
+      r={R}
+      stroke-width={STROKE}
+      style:stroke-dasharray="{C * fraction} {C}"
+      transform="rotate(-90 {SIZE / 2} {SIZE / 2})"
+    />
   </svg>
   <span class="center" aria-hidden="true">
     <span class="value num">{label}</span>
@@ -84,6 +76,15 @@
 
   .track {
     opacity: 0.18;
+  }
+
+  .arc {
+    transition: stroke-dasharray var(--d-3) var(--ease);
+  }
+
+  /* Con 0, el extremo redondeado pintaría un punto. */
+  .arc.empty {
+    visibility: hidden;
   }
 
   .center {

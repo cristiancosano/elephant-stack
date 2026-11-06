@@ -48,5 +48,5 @@ export function project(overrides: Partial<Project> = {}): Project {
 }
 
 export function summary(p: Partial<Project> = {}, extra: Partial<ProjectSummary> = {}): ProjectSummary {
-  return { project: project(p), sources: [], errors_24h: 0, errors_capped: false, last_ms: null, ...extra };
+  return { project: project(p), sources: [], errors_24h: 0, errors_capped: false, last_ms: null, override: null, ...extra };
 }

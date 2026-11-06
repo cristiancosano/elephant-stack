@@ -10,7 +10,7 @@ use std::sync::{Mutex, mpsc};
 use std::time::{Duration, Instant};
 
 use elephant_logs::{
-    LogHub, LogLevel, LogQuery, ProjectKind, ProjectOrigin, SourceKind, StatusFilter, count_errors,
+    LogHub, LogLevel, LogQuery, ProjectKind, ProjectOrigin, ProjectOverride, SourceKind, StatusFilter, count_errors,
     entry, errors_summary, groups, parse_since, projects, query, sources, summaries, tail,
 };
 use jiff::tz::TimeZone;
@@ -790,4 +790,28 @@ fn the_hub_serves_queries_and_live_batches_and_stops_with_no_subscriptions() {
     );
     hub.unsubscribe(id);
     assert_eq!(hub.active_subscriptions(), 0);
+}
+
+#[test]
+fn summaries_carry_the_saved_override_and_the_hub_sees_it_after_invalidate() {
+    let home = Home::herd("override", false);
+    let hub = LogHub::new(home.path().to_path_buf());
+    let tienda = home.project_id("tienda");
+    let current = |hub: &LogHub| {
+        hub.summaries()
+            .into_iter()
+            .find(|s| s.project.id == tienda)
+            .unwrap()
+            .log_override
+    };
+    assert_eq!(current(&hub), None);
+
+    let o = ProjectOverride {
+        log_globs: Vec::new(),
+        timezone: Some("UTC".into()),
+    };
+    projects::set_override(home.path(), &tienda, o.clone()).unwrap();
+    assert_eq!(current(&hub), None, "el catálogo sigue en caché");
+    hub.invalidate();
+    assert_eq!(current(&hub), Some(o));
 }

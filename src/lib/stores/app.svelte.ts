@@ -128,6 +128,28 @@ export function problemFor(s: Snapshot, target: string): Problem | undefined {
   return s.problems.find((p) => p.target === target);
 }
 
+/** Nombre legible de un objetivo de `busy` o de un problema: el del proyecto, si lo es. */
+export function targetName(s: Snapshot, target: string): string {
+  return s.projects.find((p) => p.id === target)?.name ?? target;
+}
+
+/** Vista donde se ve un problema, como `problem_route` del menú de la barra. */
+export function problemRoute(s: Snapshot, target: string): "#/php" | "#/sitios" | "#/servicios" {
+  if (target === PHP_TARGET) return "#/php";
+  return s.projects.some((p) => p.id === target) ? "#/sitios" : "#/servicios";
+}
+
+/**
+ * Objetivos de los problemas `action_failed` que se quitan al abrir `view` (01 §9.4).
+ * Los `service_error` describen el estado real y no se quitan así.
+ */
+export function problemsClearedBy(s: Snapshot, view: string): string[] {
+  const targets = s.problems
+    .filter((p) => p.kind === "action_failed" && problemRoute(s, p.target) === `#/${view}`)
+    .map((p) => p.target);
+  return [...new Set(targets)];
+}
+
 /** Lo que se lee bajo el nombre del servicio: «En marcha · 84 MB · 12 % CPU · Al iniciar sesión». */
 export function serviceStatusText(service: Service, usage?: Usage): string {
   const parts: string[] = [];
@@ -307,7 +329,7 @@ export function hero(s: Snapshot, memoryKb: number): Hero {
     const title = busy
       ? busy.target === "services" || busy.target === PHP_TARGET
         ? busy.label
-        : `${busy.target}: ${lowerFirst(busy.label)}`
+        : `${targetName(s, busy.target)}: ${lowerFirst(busy.label)}`
       : jobText(job!);
     return { tone: "warn", title, detail, action: null };
   }

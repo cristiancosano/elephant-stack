@@ -7,15 +7,23 @@
   import type { ProjectSummary } from "../../lib/bindings/ProjectSummary";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
   import { plural } from "../../lib/format";
-  import { errorMessage, logsAddRoot, logsProjects, logsRemoveRoot, logsSetOverride, pickFolder } from "../../lib/ipc";
+  import {
+    errorMessage,
+    logsAddRoot,
+    logsProjects,
+    logsRemoveRoot,
+    logsRoots,
+    logsSetOverride,
+    pickFolder,
+  } from "../../lib/ipc";
   import { isNotAvailable, originLabel, sourceLabel } from "../../lib/logs/model";
   import {
     buildOverride,
+    groupRoots,
     guessHome,
-    inferRoots,
     knownTimezones,
+    overrideFields,
     parseGlobs,
-    removalCandidates,
     tildePath,
     validateTimezone,
     type RootFolder,
@@ -32,17 +40,27 @@
   let { snapshot }: { snapshot: Snapshot | null } = $props();
 
   let summaries = $state.raw<ProjectSummary[]>([]);
+  let rootPaths = $state.raw<string[]>([]);
   let status = $state<"loading" | "ready" | "unavailable" | "error">("loading");
   let loadError = $state<string | null>(null);
   let busyRoot = $state<string | null>(null);
   let adding = $state(false);
 
-  const roots = $derived(inferRoots(summaries.map((s) => s.project)));
+  const roots = $derived(groupRoots(rootPaths, summaries.map((s) => s.project)));
   const home = $derived(guessHome([...summaries.map((s) => s.project.root), ...(snapshot?.projects.map((p) => p.root) ?? [])]));
+
+  /** Las carpetas no van en el resumen: se piden aparte tras cada cambio. */
+  async function loadRoots() {
+    try {
+      rootPaths = await logsRoots();
+    } catch {
+      rootPaths = [];
+    }
+  }
 
   async function load() {
     try {
-      summaries = await logsProjects();
+      [summaries] = await Promise.all([logsProjects(), loadRoots()]);
       status = "ready";
     } catch (e) {
       const message = errorMessage(e);
@@ -65,6 +83,7 @@
     try {
       const before = new Set(summaries.map((s) => s.project.id));
       summaries = await logsAddRoot(path);
+      await loadRoots();
       status = "ready";
       const found = summaries.filter((s) => !before.has(s.project.id)).length;
       toast(found > 0 ? `Carpeta añadida: ${plural(found, "proyecto nuevo", "proyectos nuevos")}.` : "Carpeta añadida. No se han encontrado proyectos nuevos.", {
@@ -77,24 +96,14 @@
     }
   }
 
-  // Las raíces de projects.json no llegan a la interfaz (apuntado para P99): se
-  // prueba con la carpeta deducida y, si no era esa, con cada proyecto.
   async function removeRoot(folder: RootFolder) {
     busyRoot = folder.path;
-    let lastError: unknown = null;
     try {
-      for (const candidate of removalCandidates(folder)) {
-        try {
-          summaries = await logsRemoveRoot(candidate);
-          lastError = null;
-          if (!summaries.some((s) => folder.projects.some((p) => p.id === s.project.id))) break;
-        } catch (e) {
-          lastError = e;
-          if (isNotAvailable(errorMessage(e))) break;
-        }
-      }
-      if (lastError) showError(lastError, "Todavía no se pueden quitar carpetas.");
-      else toast(`Se ha dejado de buscar proyectos en ${tildePath(folder.path, home)}.`, { tone: "success" });
+      summaries = await logsRemoveRoot(folder.path);
+      await loadRoots();
+      toast(`Se ha dejado de buscar proyectos en ${tildePath(folder.path, home)}.`, { tone: "success" });
+    } catch (e) {
+      showError(e, "Todavía no se pueden quitar carpetas.");
     } finally {
       busyRoot = null;
     }
@@ -114,8 +123,7 @@
 
   function edit(s: ProjectSummary) {
     if (zones.length === 0) zones = knownTimezones();
-    timezone = "";
-    globsText = "";
+    ({ timezone, globsText } = overrideFields(s.override));
     editing = s;
   }
 
@@ -154,7 +162,7 @@
       footer="Además de los sitios de Herd, Elephant busca proyectos en estas carpetas, hasta dos niveles por debajo. Solo lee: no cambia nada en ellas."
     >
       {#each roots as folder (folder.path)}
-        <Row title={tildePath(folder.path, home)} subtitle={folder.projects.map((p) => p.name).join(", ")}>
+        <Row title={tildePath(folder.path, home)} subtitle={folder.projects.length > 0 ? folder.projects.map((p) => p.name).join(", ") : "Sin proyectos"}>
           {#snippet trailing()}
             <Button variant="plain" busy={busyRoot === folder.path} disabled={busyRoot !== null} onclick={() => void removeRoot(folder)}>Quitar</Button>
           {/snippet}
@@ -247,7 +255,6 @@
         </div>
       {/if}
 
-      <p class="hint">Al guardar se sustituyen la zona y las rutas que tuviera este proyecto.</p>
 
       <div class="actions">
         <Button onclick={() => (editing = null)}>Cancelar</Button>

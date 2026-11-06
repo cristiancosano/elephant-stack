@@ -353,6 +353,12 @@ pub fn project_for_host<'a>(projects: &'a [Project], host: &str) -> Option<&'a P
         .map(|(project, _)| project)
 }
 
+/// Carpetas raíz que ha añadido el usuario (`projects.json`), en el orden en
+/// que se añadieron.
+pub fn roots(home: &Path) -> Vec<PathBuf> {
+    load_config(home).roots
+}
+
 pub fn add_root(home: &Path, root: &Path) -> Result<(), String> {
     if !root.is_absolute() {
         return Err(format!(
@@ -542,6 +548,7 @@ mod tests {
         add_root(home.path(), &root).unwrap();
         add_root(home.path(), &root).unwrap();
         assert_eq!(load_config(home.path()).roots.len(), 1);
+        assert_eq!(roots(home.path()), [fs::canonicalize(&root).unwrap()]);
         assert_eq!(discover(home.path()).len(), 1);
         remove_root(home.path(), &root).unwrap();
         assert!(discover(home.path()).is_empty());

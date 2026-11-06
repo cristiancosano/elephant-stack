@@ -67,6 +67,27 @@ pub fn find_executable(name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
+/// Etiqueta de la segunda línea de los marcadores que crea `src-tauri/build.rs`
+/// en debug cuando falta un sidecar (C21). `tauri-build` los copia junto al
+/// ejecutable como si fueran el binario de verdad.
+pub const SIDECAR_MARKER: &str = "# elephant-stack: marcador de sidecar";
+
+/// `true` si `path` es uno de esos marcadores: un sidecar que no sirve.
+pub fn is_sidecar_marker(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 128];
+    let Ok(mut file) = fs::File::open(path) else {
+        return false;
+    };
+    let n = file.read(&mut head).unwrap_or(0);
+    String::from_utf8_lossy(&head[..n]).contains(SIDECAR_MARKER)
+}
+
+/// Un sidecar que se puede ejecutar: existe y no es un marcador.
+pub fn is_usable_sidecar(path: &Path) -> bool {
+    path.is_file() && !is_sidecar_marker(path)
+}
+
 /// Ejecutables que los tests pueden sustituir por uno falso.
 const OVERRIDABLE: [&str; 5] = ["BREW", "CURL", "OSASCRIPT", "COMPOSER", "CLAUDE"];
 
@@ -139,5 +160,18 @@ mod tests {
     fn only_known_tools_can_be_overridden() {
         assert_eq!(tool_override("php"), None);
         assert_eq!(tool_override("../BREW"), None);
+    }
+
+    #[test]
+    fn sidecar_markers_are_not_usable() {
+        let dir = crate::testutil::TempDir::new("sidecar-marker");
+        let marker = dir.path().join("cli");
+        fs::write(&marker, format!("#!/bin/sh\n{SIDECAR_MARKER}\nexit 1\n")).unwrap();
+        let real = dir.path().join("elephant");
+        fs::write(&real, b"\xcf\xfa\xed\xfe binario").unwrap();
+        assert!(is_sidecar_marker(&marker));
+        assert!(!is_usable_sidecar(&marker));
+        assert!(is_usable_sidecar(&real));
+        assert!(!is_usable_sidecar(&dir.path().join("no-existe")));
     }
 }

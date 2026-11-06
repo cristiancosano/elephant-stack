@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use elephant_core::brew::Operation;
-use elephant_core::ops;
+use elephant_core::{needs, ops};
 use elephant_core::settings::{self, Editor, Settings};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -76,6 +76,24 @@ pub fn set_global_php(app: &AppHandle, key: &str) -> Result<(), String> {
 
 pub fn set_project_php(app: &AppHandle, dir: &Path, key: &str) -> Result<(), String> {
     tracked(app, PHP, "Cambiando la versión de PHP…", || ops::set_project_php(dir, key))
+}
+
+/// Texto de `busy` mientras se arranca lo que necesita un proyecto (lo
+/// muestra también el submenú del sitio en el tray).
+pub const NEEDS_BUSY: &str = "Arrancando lo que necesita…";
+
+/// «Arrancar lo que necesita» un proyecto (04 §4.10), desde el tray o desde
+/// la ventana. El objetivo de `busy` y del problema es el id del proyecto, o
+/// la carpeta si no es un proyecto conocido. Devuelve los servicios arrancados.
+pub fn start_project_services(app: &AppHandle, dir: &Path) -> Result<Vec<String>, String> {
+    let target = app
+        .state::<AppState>()
+        .snapshot()
+        .projects
+        .into_iter()
+        .find(|project| project.root == dir)
+        .map_or_else(|| dir.display().to_string(), |project| project.id);
+    tracked(app, &target, NEEDS_BUSY, || needs::start_project_services(dir))
 }
 
 /// La interfaz no conoce `extra`: se conservan las claves guardadas que no

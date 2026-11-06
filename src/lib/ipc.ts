@@ -90,10 +90,16 @@ export const openTerminal = (dir: string) => invoke<void>("open_terminal", { dir
 export const siteAction = (projectId: string, action: SiteAction) =>
   invoke<void>("site_action", { projectId, action });
 export const openServiceLog = (name: string) => invoke<void>("open_service_log", { name });
+/** «Arrancar lo que necesita» un proyecto. Devuelve los servicios arrancados. */
+export const projectStartServices = (dir: string) => invoke<string[]>("project_start_services", { dir });
+/** Quita los problemas `action_failed` de un objetivo al abrir su vista (01 §9.4). */
+export const clearProblems = (target: string) => invoke<void>("clear_problems", { target });
 
 // ── Logs (commands/logs.rs) ─────────────────────────────────────────────────
 
 export const logsProjects = () => invoke<ProjectSummary[]>("logs_projects");
+/** Carpetas raíz que ha añadido el usuario (`projects.json`). */
+export const logsRoots = () => invoke<string[]>("logs_roots");
 export const logsQuery = (q: LogQuery) => invoke<LogPage>("logs_query", { q });
 export const logsEntry = (id: string) => invoke<EntryDetail>("logs_entry", { id });
 export const logsGroups = (q: LogQuery) => invoke<LogGroup[]>("logs_groups", { q });

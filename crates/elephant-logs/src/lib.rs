@@ -298,6 +298,10 @@ pub struct ProjectSummary {
     pub errors_capped: bool,
     #[cfg_attr(feature = "ts", ts(type = "number | null"))]
     pub last_ms: Option<i64>,
+    /// Ajuste guardado en `projects.json` (zona horaria y rutas extra), para
+    /// que Ajustes ▸ Logs parta de los valores actuales.
+    #[serde(rename = "override", default)]
+    pub log_override: Option<ProjectOverride>,
 }
 
 /// Lote del directo: como mucho cada 100 ms y 500 entradas.
@@ -492,6 +496,15 @@ impl LogHub {
     /// 0 → no queda hilo de sondeo.
     pub fn active_subscriptions(&self) -> usize {
         self.live.active()
+    }
+
+    /// Olvida el catálogo en caché: la siguiente consulta vuelve a mirar el
+    /// disco. Para después de cambiar `projects.json`.
+    pub fn invalidate(&self) {
+        *self
+            .catalog
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     }
 }
 

@@ -97,6 +97,7 @@ pub(crate) fn summaries(catalog: &Catalog, now_ms: i64) -> Vec<ProjectSummary> {
                 errors_24h: tally.errors,
                 errors_capped: tally.capped,
                 last_ms: tally.last_ms,
+                log_override: catalog.overrides.get(&project.id).cloned(),
             }
         })
         .collect()

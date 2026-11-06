@@ -14,12 +14,15 @@ import {
   missing,
   phpBranch,
   phpOptions,
+  problemRoute,
+  problemsClearedBy,
   resetApp,
   runningPids,
   serviceStatusText,
   services,
   sites,
   startableServices,
+  targetName,
   tildePath,
   tools,
   versionForProject,
@@ -281,6 +284,16 @@ describe("héroe del Panel", () => {
     expect(hero(snapshot({ jobs: [job()] }), 0).title).toBe("Instalando redis… · pedido por Claude Code");
   });
 
+  it("nombra el proyecto ocupado, no su id", () => {
+    const s = snapshot({
+      projects: [project("tienda", { id: "0123456789abcdef" })],
+      busy: [{ target: "0123456789abcdef", label: "Arrancando lo que necesita…" }],
+    });
+    expect(targetName(s, "0123456789abcdef")).toBe("tienda");
+    expect(targetName(s, "redis")).toBe("redis");
+    expect(hero(s, 0).title).toBe("tienda: arrancando lo que necesita…");
+  });
+
   it("sin nada en marcha propone arrancar lo que arranca al iniciar sesión", () => {
     const s = snapshot({ components: [stopped], php: { versions: [], active: { key: "k", id: "8.4.1", source: "Herd" } } });
     expect(startableServices(s)).toEqual(["mysql"]);
@@ -300,5 +313,30 @@ describe("héroe del Panel", () => {
     expect(gaugeMaxKb(700 * MB)).toBe(1024 * MB);
     expect(gaugeMaxKb(3000 * MB)).toBe(4096 * MB);
     expect(gaugeMaxKb(40000 * MB)).toBe(49152 * MB);
+  });
+});
+
+describe("problemas", () => {
+  const s = snapshot({
+    projects: [project("tienda", { id: "0123456789abcdef" })],
+    problems: [
+      { id: "action_failed:php", target: "php", message: "x", kind: "action_failed" },
+      { id: "action_failed:0123456789abcdef", target: "0123456789abcdef", message: "x", kind: "action_failed" },
+      { id: "action_failed:redis", target: "redis", message: "x", kind: "action_failed" },
+      { id: "service_error:mysql", target: "mysql", message: "x", kind: "service_error" },
+    ],
+  });
+
+  it("cada problema lleva a la vista de su objetivo, como en el menú de la barra", () => {
+    expect(problemRoute(s, "php")).toBe("#/php");
+    expect(problemRoute(s, "0123456789abcdef")).toBe("#/sitios");
+    expect(problemRoute(s, "redis")).toBe("#/servicios");
+  });
+
+  it("al abrir una vista se quitan sus fallos de acciones, no los errores de servicio", () => {
+    expect(problemsClearedBy(s, "servicios")).toEqual(["redis"]);
+    expect(problemsClearedBy(s, "sitios")).toEqual(["0123456789abcdef"]);
+    expect(problemsClearedBy(s, "php")).toEqual(["php"]);
+    expect(problemsClearedBy(s, "panel")).toEqual([]);
   });
 });

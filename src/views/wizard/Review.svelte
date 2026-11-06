@@ -4,7 +4,15 @@
   import { formatBytes } from "../../lib/format";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import { choiceLabel } from "../../lib/wizard/machine";
-  import { isEmptyPlan, optionalNote, optionalSteps, reviewSections, stepBytes, totalsLine } from "../../lib/wizard/review";
+  import {
+    isEmptyPlan,
+    optionalNote,
+    optionalSteps,
+    reviewSections,
+    stepBytes,
+    totalsLine,
+    visibleNotices,
+  } from "../../lib/wizard/review";
   import Button from "../../ui/Button.svelte";
   import EmptyState from "../../ui/EmptyState.svelte";
   import Group from "../../ui/Group.svelte";
@@ -118,9 +126,10 @@
       </Group>
     {/if}
 
-    {#if plan.notices.length}
+    {@const notices = visibleNotices(plan, wizard.shell !== null)}
+    {#if notices.length}
       <Group title="Avisos">
-        {#each plan.notices as notice (notice)}
+        {#each notices as notice (notice)}
           <Row title={notice}>
             {#snippet leading()}<span class="notice"><Icon name="info" /></span>{/snippet}
           </Row>

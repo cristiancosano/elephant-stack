@@ -27,6 +27,7 @@
     gaugeMaxKb,
     hero,
     phpOptions,
+    problemRoute,
     runningPids,
     serviceState,
     serviceStatusText,
@@ -70,7 +71,8 @@
   async function heroAction() {
     if (!snapshot || !heroState?.action) return;
     if (heroState.action.kind === "problem") {
-      go(snapshot.problems[0]?.target === "php" ? "#/php" : "#/servicios");
+      const problem = snapshot.problems[0];
+      go(problem ? problemRoute(snapshot, problem.target) : "#/servicios");
     } else if (heroState.action.kind === "services") {
       go("#/servicios");
     } else {

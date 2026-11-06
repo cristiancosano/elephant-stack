@@ -32,6 +32,23 @@ export default defineConfig(() => ({
 
   // El build parte solo de index.html; la galería (src/dev/gallery.html)
   // únicamente se sirve con `pnpm dev`.
+  //
+  // Chunks (presupuesto de 01 §11): todo lo que carga la ventana al abrirse va en
+  // un solo chunk inicial, y lo que solo comparten las vistas diferidas (Logs,
+  // asistente, Sitios y pestañas de Ajustes) en otro aparte. Sin esto, Rolldown
+  // mete en el chunk común piezas de Svelte que solo usan las vistas diferidas.
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: "app", tags: ["$initial" as const], priority: 2 },
+            { name: "shared", priority: 1, minShareCount: 2 },
+          ],
+        },
+      },
+    },
+  },
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",

@@ -10,8 +10,7 @@
   import EmptyState from "../ui/EmptyState.svelte";
   import Icon from "../ui/Icon.svelte";
   import { toast } from "../ui/toasts.svelte";
-  import * as ipc from "../lib/ipc";
-  import { errorMessage, revealInFinder, setProjectPhp, siteAction } from "../lib/ipc";
+  import { errorMessage, projectStartServices, revealInFinder, setProjectPhp, siteAction } from "../lib/ipc";
   import {
     below,
     busyFor,
@@ -46,16 +45,11 @@
     toast(errorMessage(e), { tone: "error" });
   }
 
-  // «Arrancar lo que necesita» (04 §4.10). El comando `project_start_services`
-  // lo registra P99 en `commands/core.rs` y `ipc.ts`; hasta entonces la opción
-  // no aparece. Devuelve los servicios de Homebrew que ha arrancado.
-  const startServices = (ipc as { projectStartServices?: (dir: string) => Promise<string[]> })
-    .projectStartServices;
-
+  // «Arrancar lo que necesita» (04 §4.10): devuelve los servicios de Homebrew
+  // que ha arrancado.
   async function startNeeds(p: Project) {
-    if (!startServices) return;
     try {
-      const started = await startServices(p.root);
+      const started = await projectStartServices(p.root);
       toast(
         started.length > 0
           ? `Arrancado para ${p.name}: ${started.join(", ")}.`
@@ -94,7 +88,6 @@
   }
 
   function needsEntry(p: Project): MenuEntry[] {
-    if (!startServices) return [];
     const busy = snapshot ? busyFor(snapshot, p.id) : undefined;
     return [
       busy

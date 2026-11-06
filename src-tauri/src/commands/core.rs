@@ -11,7 +11,7 @@ use tauri::{AppHandle, Manager, State, Window};
 use super::blocking;
 use crate::actions::{self, SiteAction};
 use crate::appearance::{self, Appearance};
-use crate::state::{self, AppState, Snapshot};
+use crate::state::{self, AppState, ProblemKind, Snapshot};
 use crate::tray;
 
 /// Con un snapshot de más de 2 s se refresca en segundo plano; el resultado
@@ -137,4 +137,23 @@ pub async fn site_action(app: AppHandle, project_id: String, action: SiteAction)
 #[tauri::command]
 pub async fn open_service_log(name: String) -> Result<(), String> {
     blocking(move || actions::open_service_log(&name)).await
+}
+
+/// «Arrancar lo que necesita» un proyecto (04 §4.10): lo mismo que el submenú
+/// del sitio en el tray. Devuelve los servicios arrancados.
+#[tauri::command]
+pub async fn project_start_services(app: AppHandle, dir: String) -> Result<Vec<String>, String> {
+    blocking(move || actions::start_project_services(&app, &PathBuf::from(dir))).await
+}
+
+/// Al abrir la vista de un objetivo se quitan sus problemas `ActionFailed`
+/// (01 §9.4). Los `ServiceError` describen el estado real: solo los quita un
+/// refresco en el que el servicio ya no falla.
+#[tauri::command]
+pub async fn clear_problems(app: AppHandle, target: String) -> Result<(), String> {
+    let failed = |p: &state::Problem| p.target == target && p.kind == ProblemKind::ActionFailed;
+    if app.state::<AppState>().snapshot().problems.iter().any(failed) {
+        state::update(&app, |s| s.problems.retain(|p| !failed(p)));
+    }
+    Ok(())
 }

@@ -25,6 +25,17 @@ const TITLES: Record<ReviewSection["id"], string> = {
 
 const ORDER: ReviewSection["id"][] = ["download", "brew_install", "configure", "start"];
 
+/** Aviso del plan que repite lo que ya dice el aviso «Añadirlo por mí» del PATH. */
+const PATH_NOTICE = "El selector php no está en el PATH";
+
+/**
+ * Avisos que se enseñan en la revisión. Si se muestra el aviso del PATH con su
+ * botón (`setup_shell_preview` con `needed`), el del plan sobra.
+ */
+export function visibleNotices(plan: Plan, pathNoticeShown: boolean): string[] {
+  return pathNoticeShown ? plan.notices.filter((n) => !n.startsWith(PATH_NOTICE)) : plan.notices;
+}
+
 /** Bytes que descarga un paso (solo las descargas de PHP traen tamaño). */
 export function stepBytes(step: Step): number {
   return step.action.kind === "download_php" ? step.action.release.size : 0;

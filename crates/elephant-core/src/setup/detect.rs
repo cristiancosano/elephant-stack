@@ -32,7 +32,7 @@ pub(crate) fn default_shim_source() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
         candidates.push(dir.join("php"));
     }
-    candidates.into_iter().find(|path| path.is_file())
+    candidates.into_iter().find(|path| paths::is_usable_sidecar(path))
 }
 
 pub(crate) fn detect(launch_at_login: bool) -> Detection {

@@ -2,7 +2,7 @@
   // Barra lateral más la vista de la ruta. Define también el armazón que comparten
   // todas las vistas (clases globales `.view`, `.toolbar`, `.scroll` y `.content`),
   // para que la barra superior respete el hueco de los botones de ventana.
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { prefersReducedMotion } from "svelte/motion";
@@ -13,7 +13,8 @@
   import Services from "./views/Services.svelte";
   import Php from "./views/Php.svelte";
   import Settings from "./views/Settings.svelte";
-  import { errorMessage, refresh } from "./lib/ipc";
+  import { clearProblems, errorMessage, refresh } from "./lib/ipc";
+  import { problemsClearedBy } from "./lib/stores/app.svelte";
   import { onUiCommand } from "./lib/events";
   import type { Route } from "./lib/route";
   import type { Snapshot } from "./lib/bindings/Snapshot";
@@ -72,6 +73,43 @@
       disposed = true;
       unlisten?.();
     };
+  });
+
+  // Los problemas `action_failed` de una vista se dan por vistos al abrirla (01 §9.4)
+  // y se quitan al salir de ella: así «Ver problema» todavía lo enseña. Uno que
+  // aparece con la vista abierta se queda hasta la siguiente visita o hasta que la
+  // siguiente operación sobre su objetivo salga bien.
+  const hasSnapshot = $derived(snapshot !== null);
+  let seen: { view: string; targets: string[] } | null = null;
+  $effect(() => {
+    const view = route.view;
+    if (!hasSnapshot) return;
+    const current = untrack(() => snapshot);
+    if (!current) return;
+    if (seen && seen.view !== view) {
+      for (const target of seen.targets) {
+        clearProblems(target).catch(() => {
+          // Sin el comando, el problema se queda hasta la siguiente operación.
+        });
+      }
+    }
+    if (!seen || seen.view !== view) seen = { view, targets: problemsClearedBy(current, view) };
+  });
+
+  // Un fallo de una acción (por ejemplo, desde el menú de la barra) se avisa también
+  // con un toast si la ventana está abierta (01 §9.4). Los que ya estaban al abrirla,
+  // no: se ven en el Panel y en su vista.
+  let knownProblems: Set<string> | null = null;
+  $effect(() => {
+    const problems = snapshot?.problems;
+    if (!problems) return;
+    const ids = new Set(problems.map((p) => p.id));
+    if (knownProblems) {
+      for (const p of problems) {
+        if (p.kind === "action_failed" && !knownProblems.has(p.id)) toast(p.message, { tone: "error" });
+      }
+    }
+    knownProblems = ids;
   });
 
   // Un error al arrancar se cuenta una vez; los siguientes snapshots lo borran.
@@ -188,14 +226,16 @@
     overflow-y: auto;
   }
 
-  .main :global(.content) {
+  /* Solo el contenido de la vista: `.content` también es el nombre de clases
+     internas de componentes (Button, Inspector). */
+  .main :global(.scroll > .content) {
     max-width: calc(var(--content-max) + 2 * var(--content-padding));
     margin: 0 auto;
     padding: var(--s-2) var(--content-padding) var(--content-padding);
   }
 
   /* Separación entre bloques: la misma que Group pone entre dos grupos seguidos. */
-  .main :global(.content > * + *) {
+  .main :global(.scroll > .content > * + *) {
     margin-top: var(--group-gap);
   }
 </style>

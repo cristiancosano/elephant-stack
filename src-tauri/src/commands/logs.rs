@@ -41,6 +41,14 @@ impl LogsState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Tras cambiar `projects.json`, para que el hub no sirva el catálogo
+    /// anterior durante sus 3 s de caché.
+    fn invalidate(&self) {
+        if let Some(hub) = self.lock().as_ref() {
+            hub.invalidate();
+        }
+    }
+
     fn with_hub<T>(&self, f: impl FnOnce(&LogHub) -> T) -> Result<T, String> {
         let home = paths::home()?;
         let mut guard = self.lock();
@@ -186,10 +194,23 @@ pub async fn logs_unsubscribe(app: AppHandle, id: u32) -> Result<(), String> {
     .await
 }
 
+/// Carpetas raíz que ha añadido el usuario, para Ajustes ▸ Logs.
 #[tauri::command]
-pub async fn logs_add_root(path: String) -> Result<Vec<ProjectSummary>, String> {
+pub async fn logs_roots() -> Result<Vec<String>, String> {
+    blocking(move || {
+        Ok(elephant_logs::projects::roots(&paths::home()?)
+            .into_iter()
+            .map(|root| root.display().to_string())
+            .collect())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn logs_add_root(app: AppHandle, path: String) -> Result<Vec<ProjectSummary>, String> {
     blocking(move || {
         elephant_logs::projects::add_root(&paths::home()?, &PathBuf::from(path))?;
+        app.state::<LogsState>().invalidate();
         elephant_core::stamp::touch("projects");
         summaries()
     })
@@ -197,9 +218,10 @@ pub async fn logs_add_root(path: String) -> Result<Vec<ProjectSummary>, String> 
 }
 
 #[tauri::command]
-pub async fn logs_remove_root(path: String) -> Result<Vec<ProjectSummary>, String> {
+pub async fn logs_remove_root(app: AppHandle, path: String) -> Result<Vec<ProjectSummary>, String> {
     blocking(move || {
         elephant_logs::projects::remove_root(&paths::home()?, &PathBuf::from(path))?;
+        app.state::<LogsState>().invalidate();
         elephant_core::stamp::touch("projects");
         summaries()
     })
@@ -208,11 +230,13 @@ pub async fn logs_remove_root(path: String) -> Result<Vec<ProjectSummary>, Strin
 
 #[tauri::command]
 pub async fn logs_set_override(
+    app: AppHandle,
     project: String,
     o: ProjectOverride,
 ) -> Result<Vec<ProjectSummary>, String> {
     blocking(move || {
         elephant_logs::projects::set_override(&paths::home()?, &project, o)?;
+        app.state::<LogsState>().invalidate();
         summaries()
     })
     .await

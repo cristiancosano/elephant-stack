@@ -169,6 +169,8 @@ fn cleanup_in(dir: &Path, max_age_days: u32, now_ms: i64) {
         if !job.state.is_active() && now_ms - finished > max_age_ms {
             let _ = fs::remove_file(dir.join(format!("{}.json", job.id)));
             let _ = fs::remove_file(dir.join(format!("{}.log", job.id)));
+            // El resultado que guarda `elephant __job` (elephant-api).
+            let _ = fs::remove_file(dir.join(format!("{}.result.json", job.id)));
         }
     }
 }
@@ -234,6 +236,7 @@ mod tests {
         old.finished_at_ms = Some(now - 8 * day);
         save_in(dir.path(), &old).unwrap();
         fs::write(dir.path().join(format!("{}.log", old.id)), "salida").unwrap();
+        fs::write(dir.path().join(format!("{}.result.json", old.id)), "{}").unwrap();
 
         let mut recent = create_in(dir.path(), "b", json!({}), None).unwrap();
         recent.state = JobState::Succeeded;
@@ -245,6 +248,7 @@ mod tests {
         cleanup_in(dir.path(), 7, now);
         assert!(read_in(dir.path(), &old.id).is_err());
         assert!(!dir.path().join(format!("{}.log", old.id)).exists());
+        assert!(!dir.path().join(format!("{}.result.json", old.id)).exists());
         assert!(read_in(dir.path(), &recent.id).is_ok());
         assert!(read_in(dir.path(), &running.id).is_ok());
     }

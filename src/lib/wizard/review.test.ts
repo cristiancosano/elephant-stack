@@ -10,6 +10,7 @@ import {
   reviewSections,
   sanitizeAccepted,
   totalsLine,
+  visibleNotices,
 } from "./review";
 
 /** Las cifras llevan espacio duro antes de la unidad. */
@@ -84,5 +85,15 @@ describe("totalsLine", () => {
   it("resume RAM, descarga y fórmulas", () => {
     expect(plain(totalsLine(p))).toBe("≈ 25 MB en reposo · 65 MB de descarga · 1 fórmula");
     expect(plain(totalsLine(plan()))).toBe("≈ 0 MB en reposo");
+  });
+});
+
+describe("avisos", () => {
+  it("no repite el aviso del PATH cuando se enseña el de «Añadirlo por mí»", () => {
+    const withPath = plan([], {
+      notices: ["El selector php no está en el PATH de tu terminal. Puedes añadirlo a ~/.zshrc.", "Herd sigue sirviendo tus sitios .test."],
+    });
+    expect(visibleNotices(withPath, true)).toEqual(["Herd sigue sirviendo tus sitios .test."]);
+    expect(visibleNotices(withPath, false)).toHaveLength(2);
   });
 });

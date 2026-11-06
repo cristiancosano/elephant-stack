@@ -13,13 +13,12 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use elephant_core::brew::Operation;
 use elephant_core::jobs::JobInfo;
-use elephant_core::needs;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -906,7 +905,7 @@ fn run(app: &AppHandle, action: TrayAction) {
         TrayAction::ServiceLog(name) => untracked(app, name, actions::open_service_log(name)),
         TrayAction::Site(project, site) => untracked(app, project, actions::site(app, project, *site)),
         TrayAction::SiteNeeds(project) => match project_root(app, project) {
-            Some(root) => start_project_services(app, &root).map(drop),
+            Some(root) => actions::start_project_services(app, &root).map(drop),
             None => untracked(app, project, Err(GONE.to_string())),
         },
         TrayAction::OpenMailpit => {
@@ -921,7 +920,6 @@ fn run(app: &AppHandle, action: TrayAction) {
 }
 
 const GONE: &str = "Ese proyecto ya no existe.";
-const NEEDS_BUSY: &str = "Arrancando lo que necesita…";
 
 fn project_root(app: &AppHandle, project_id: &str) -> Option<PathBuf> {
     app.state::<AppState>()
@@ -930,31 +928,6 @@ fn project_root(app: &AppHandle, project_id: &str) -> Option<PathBuf> {
         .into_iter()
         .find(|p| p.id == project_id)
         .map(|p| p.root)
-}
-
-/// «Arrancar lo que necesita» un proyecto, desde el tray o desde la ventana
-/// (comando `project_start_services`). Es lenta: llámala fuera del hilo
-/// principal. Mientras dura, el proyecto está `busy`; si falla, el problema
-/// queda en él y se ve en Sitios. Devuelve los servicios arrancados.
-pub fn start_project_services(app: &AppHandle, dir: &Path) -> Result<Vec<String>, String> {
-    let target = app
-        .state::<AppState>()
-        .snapshot()
-        .projects
-        .into_iter()
-        .find(|p| p.root == dir)
-        .map_or_else(|| dir.display().to_string(), |p| p.id);
-    state::set_busy(app, &target, NEEDS_BUSY);
-    let result = needs::start_project_services(dir);
-    if let Err(error) = state::refresh(app) {
-        eprintln!("No se pudo refrescar el estado: {error}");
-    }
-    state::clear_busy(app, &target);
-    match &result {
-        Ok(_) => state::clear_problems(app, &target),
-        Err(error) => state::add_problem(app, &target, error.clone(), ProblemKind::ActionFailed),
-    }
-    result
 }
 
 fn untracked(app: &AppHandle, target: &str, result: Result<(), String>) -> Result<(), String> {
@@ -1354,7 +1327,7 @@ mod tests {
         let before = entries(&snapshot, None);
         snapshot.busy = vec![Busy {
             target: "aaaa".into(),
-            label: NEEDS_BUSY.into(),
+            label: actions::NEEDS_BUSY.into(),
         }];
         let after = entries(&snapshot, None);
 
@@ -1364,7 +1337,7 @@ mod tests {
             .iter()
             .find(|e| e.id == Some(TrayAction::SiteNeeds("aaaa".into())))
             .unwrap();
-        assert_eq!(needs.text, NEEDS_BUSY);
+        assert_eq!(needs.text, actions::NEEDS_BUSY);
         assert!(!needs.enabled);
         assert_eq!(shape(&before), shape(&after), "se actualiza sin rehacer el menú");
     }

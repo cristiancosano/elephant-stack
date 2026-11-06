@@ -5,15 +5,19 @@
 import { entry, frame, summary } from "../lib/logs/fixtures";
 import { CARDS, detection } from "../lib/wizard/fixtures.test-helpers";
 import type { Catalog } from "../lib/bindings/Catalog";
+import type { BranchStatus } from "../lib/bindings/BranchStatus";
 import type { Component } from "../lib/bindings/Component";
 import type { EntryDetail } from "../lib/bindings/EntryDetail";
 import type { Locale } from "../lib/bindings/Locale";
 import type { LogEntry } from "../lib/bindings/LogEntry";
 import type { McpSnippets } from "../lib/bindings/McpSnippets";
+import type { ManagedService } from "../lib/bindings/ManagedService";
 import type { McpStatus } from "../lib/bindings/McpStatus";
 import type { Project } from "../lib/bindings/Project";
 import type { ProjectSummary } from "../lib/bindings/ProjectSummary";
 import type { Service } from "../lib/bindings/Service";
+import type { ServiceRelease } from "../lib/bindings/ServiceRelease";
+import type { ServicesCatalog } from "../lib/bindings/ServicesCatalog";
 import type { Snapshot } from "../lib/bindings/Snapshot";
 import type { Usage } from "../lib/bindings/Usage";
 
@@ -100,10 +104,77 @@ const projects: Project[] = [
   },
 ];
 
+const ES = "/Users/ana/.elephant-stack";
+
+function branch(b: string, version: string, over: Partial<BranchStatus> = {}): BranchStatus {
+  return {
+    branch: b,
+    version,
+    label: `sh.elephant.mysql.${b}`,
+    state: "stopped",
+    pid: null,
+    autostart: false,
+    error: null,
+    data_dir: `${ES}/data/mysql/${b}`,
+    data_ready: true,
+    log_path: `${ES}/logs/mysql-${b}.err`,
+    ...over,
+  };
+}
+
+/** MySQL propio: 8.4 en marcha (con un parche nuevo), 9.7 instalada y los datos de brew de 9.7. */
+const managed: ManagedService[] = [
+  {
+    service: "mysql",
+    name: "MySQL",
+    port: 3306,
+    versions: [
+      { version: "9.7.1", branch: "9.7", path: `${ES}/services/mysql/9.7.1` },
+      { version: "8.4.11", branch: "8.4", path: `${ES}/services/mysql/8.4.11` },
+    ],
+    branches: [
+      branch("9.7", "9.7.1", { data_ready: false }),
+      branch("8.4", "8.4.11", { state: "running", pid: 901, autostart: true }),
+    ],
+    import: {
+      source: "/opt/homebrew/var/mysql",
+      version: "9.7.1",
+      branch: "9.7",
+      size: 429_000_000,
+      blocked: null,
+      replaces: false,
+    },
+  },
+];
+
+function mysqlRelease(version: string, size: number, lts: boolean): ServiceRelease {
+  const branchName = version.split(".").slice(0, 2).join(".");
+  return {
+    service: "mysql",
+    version,
+    branch: branchName,
+    url: `https://cdn.mysql.com/Downloads/MySQL-${branchName}/mysql-${version}-macos15-arm64.tar.gz`,
+    sha256: "b96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009",
+    size,
+    lts,
+  };
+}
+
+export const servicesCatalog: ServicesCatalog = {
+  releases: [
+    mysqlRelease("26.10.0", 192_417_435, false),
+    mysqlRelease("9.7.1", 188_000_000, true),
+    mysqlRelease("8.4.12", 168_100_000, true),
+    mysqlRelease("8.4.11", 167_977_240, true),
+  ],
+  offline: false,
+};
+
 export const snapshot: Snapshot = {
   revision: 1,
   refreshed_at_ms: NOW,
   components,
+  managed,
   php: {
     versions: [
       { key: "own:8.4.27", id: "8.4.27", source: "Elephant" },
@@ -137,7 +208,12 @@ export const snapshot: Snapshot = {
 };
 
 export function usage(pids: number[]): Usage[] {
-  const table: Record<number, [number, number]> = { 812: [96_000, 0.4], 845: [14_200, 0.2], 873: [31_500, 6.1] };
+  const table: Record<number, [number, number]> = {
+    812: [96_000, 0.4],
+    845: [14_200, 0.2],
+    873: [31_500, 6.1],
+    901: [412_000, 0.3],
+  };
   return pids.map((pid) => {
     const [memory_kb, cpu_percent] = table[pid] ?? [10_000, 0];
     return { pid, memory_kb, cpu_percent, processes: pid === 812 ? 7 : 1 };

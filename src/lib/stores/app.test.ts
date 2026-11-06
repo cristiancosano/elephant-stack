@@ -17,6 +17,7 @@ import {
   problemRoute,
   problemsClearedBy,
   resetApp,
+  managedCounts,
   runningPids,
   serviceStatusText,
   services,
@@ -85,6 +86,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
     revision: 1,
     refreshed_at_ms: 0,
     components: [],
+    managed: [],
     php: { versions: [], active: null },
     projects: [],
     busy: [],
@@ -147,6 +149,35 @@ describe("servicios y herramientas", () => {
   it("pone primero los que están en marcha y conserva el orden del resto", () => {
     expect(services(s).map((c) => c.id)).toEqual(["redis", "nginx", "mysql"]);
     expect(runningPids(s)).toEqual([20, 10]);
+    const own = snapshot({
+      ...s,
+      managed: [
+        {
+          service: "mysql",
+          name: "MySQL",
+          port: 3306,
+          versions: [],
+          branches: [
+            {
+              branch: "8.4",
+              version: "8.4.11",
+              label: "sh.elephant.mysql.8.4",
+              state: "running",
+              pid: 30,
+              autostart: false,
+              error: null,
+              data_dir: "/d",
+              data_ready: true,
+              log_path: "/l",
+            },
+          ],
+          import: null,
+        },
+      ],
+    });
+    expect(runningPids(own)).toEqual([20, 10, 30]);
+    expect(managedCounts(own)).toEqual({ installed: 1, running: 1 });
+    expect(targetName(own, "sh.elephant.mysql.8.4")).toBe("MySQL 8.4");
   });
 
   it("deja PHP fuera de las herramientas si tiene versiones propias", () => {

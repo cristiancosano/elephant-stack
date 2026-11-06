@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Servicios (01 §7.3): servicios de Homebrew, herramientas y lo que falta por
-  // instalar. El estado sale siempre del snapshot; aquí solo se piden acciones.
+  // Servicios (01 §7.3): los propios de Elephant (06, ManagedServices), los de
+  // Homebrew, herramientas y lo que falta por instalar. El estado sale siempre del snapshot; aquí solo se piden acciones.
   import Group from "../ui/Group.svelte";
   import Row from "../ui/Row.svelte";
   import Switch from "../ui/Switch.svelte";
@@ -11,6 +11,7 @@
   import Skeleton from "../ui/Skeleton.svelte";
   import EmptyState from "../ui/EmptyState.svelte";
   import Icon from "../ui/Icon.svelte";
+  import ManagedServices from "./ManagedServices.svelte";
   import { toast } from "../ui/toasts.svelte";
   import {
     errorMessage,
@@ -192,7 +193,7 @@
     <div class="content">
       {#if !snapshot}
         <Skeleton lines={5} />
-      {:else if snapshot.components.length === 0}
+      {:else if snapshot.components.length === 0 && snapshot.managed.length === 0}
         <EmptyState
           icon="servicios"
           title={t("services.empty.title")}
@@ -209,6 +210,8 @@
             {/each}
           </Group>
         {/if}
+
+        <ManagedServices {snapshot} />
 
         {#if serviceList.length > 0}
           <div class="group-host" role="presentation" bind:this={serviceGroup} {oncontextmenu}>

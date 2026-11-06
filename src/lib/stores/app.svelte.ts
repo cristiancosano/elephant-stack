@@ -93,9 +93,16 @@ export function runningServices(s: Snapshot): Service[] {
   return s.components.flatMap((c) => (c.installed && c.service?.running ? [c.service] : []));
 }
 
-/** PIDs de los servicios en marcha, para medir su consumo. */
+/** Ramas de servicios propios instaladas y cuántas están en marcha. */
+export function managedCounts(s: Snapshot): { installed: number; running: number } {
+  const branches = s.managed.flatMap((m) => m.branches);
+  return { installed: branches.length, running: branches.filter((b) => b.state === "running").length };
+}
+
+/** PIDs de los servicios en marcha (de brew y propios), para medir su consumo. */
 export function runningPids(s: Snapshot): number[] {
-  return runningServices(s).flatMap((service) => (service.pid ? [service.pid] : []));
+  const own = s.managed.flatMap((m) => m.branches.flatMap((b) => (b.pid ? [b.pid] : [])));
+  return [...runningServices(s).flatMap((service) => (service.pid ? [service.pid] : [])), ...own];
 }
 
 /** Herramientas instaladas. Con versiones detectadas, PHP tiene su propia vista. */
@@ -131,6 +138,10 @@ export function problemFor(s: Snapshot, target: string): Problem | undefined {
 
 /** Nombre legible de un objetivo de `busy` o de un problema: el del proyecto, si lo es. */
 export function targetName(s: Snapshot, target: string): string {
+  for (const m of s.managed) {
+    const branch = m.branches.find((b) => b.label === target);
+    if (branch) return `${m.name} ${branch.branch}`;
+  }
   return s.projects.find((p) => p.id === target)?.name ?? target;
 }
 
@@ -308,8 +319,9 @@ export function startableServices(s: Snapshot): string[] {
 
 /** El héroe del Panel (01 §7.2): estado, una línea de resumen y una sola acción. */
 export function hero(s: Snapshot, memoryKb: number): Hero {
-  const running = runningServices(s).length;
-  const installed = services(s).length;
+  const own = managedCounts(s);
+  const running = runningServices(s).length + own.running;
+  const installed = services(s).length + own.installed;
   const detail = [
     running > 0
       ? t("panel.hero.running", { count: running })

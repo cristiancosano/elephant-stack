@@ -6,7 +6,7 @@
   import type { IconName } from "./ui/icons";
   import type { Route, View } from "./lib/route";
   import type { Snapshot } from "./lib/bindings/Snapshot";
-  import { phpBranch, runningPids, services, sites } from "./lib/stores/app.svelte";
+  import { managedCounts, phpBranch, runningPids, services, sites } from "./lib/stores/app.svelte";
   import { totalMemoryKb, usage } from "./lib/stores/usage.svelte";
   import { formatMemory, formatNumber } from "./lib/format";
   import { t } from "./lib/i18n/index.svelte";
@@ -32,7 +32,7 @@
 
   const running = $derived(snapshot ? runningPids(snapshot) : []);
   const runningCount = $derived(
-    snapshot ? services(snapshot).filter((c) => c.service?.running).length : 0,
+    snapshot ? services(snapshot).filter((c) => c.service?.running).length + managedCounts(snapshot).running : 0,
   );
   const memoryKb = $derived(totalMemoryKb(running, usage.byPid));
 
@@ -52,7 +52,7 @@
   const main: Item[] = $derived.by(() => {
     const s = snapshot;
     const siteCount = s ? sites(s).length : 0;
-    const installed = s ? services(s).length : 0;
+    const installed = s ? services(s).length + managedCounts(s).installed : 0;
     const php = s ? phpBranch(s) : null;
     const unseen = s?.logs.unseen_errors ?? 0;
     return [

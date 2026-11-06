@@ -33,7 +33,13 @@ import type { SetupStatus } from "./bindings/SetupStatus";
 import type { ShellPreview } from "./bindings/ShellPreview";
 import type { SiteAction } from "./bindings/SiteAction";
 import type { Snapshot } from "./bindings/Snapshot";
+import type { ImportReport } from "./bindings/ImportReport";
+import type { InstallProgress } from "./bindings/InstallProgress";
+import type { ServiceKind } from "./bindings/ServiceKind";
+import type { ServicesCatalog } from "./bindings/ServicesCatalog";
 import type { SourceCheck } from "./bindings/SourceCheck";
+import type { StartReport } from "./bindings/StartReport";
+import type { UpdateReport } from "./bindings/UpdateReport";
 import type { Usage } from "./bindings/Usage";
 
 /** Canal de Tauri que entrega cada mensaje a `cb`. */
@@ -150,6 +156,32 @@ export const phpSourceCheck = (source: string) => invoke<SourceCheck>("php_sourc
 export function phpDownload(version: string, onEvent: (e: SetupProgress) => void): Promise<ApplyReport> {
   return invoke<ApplyReport>("php_download", { version, onEvent: channel(onEvent) });
 }
+
+// ── Servicios propios (commands/services.rs, 06) ────────────────────────────
+
+export const serviceCatalog = (force = false) => invoke<ServicesCatalog>("service_catalog", { force });
+
+export function serviceInstall(service: ServiceKind, version: string, onEvent: (e: InstallProgress) => void): Promise<void> {
+  return invoke<void>("service_install", { service, version, onEvent: channel(onEvent) });
+}
+
+export function serviceUpdate(
+  service: ServiceKind,
+  from: string,
+  to: string,
+  onEvent: (e: InstallProgress) => void,
+): Promise<UpdateReport> {
+  return invoke<UpdateReport>("service_update", { service, from, to, onEvent: channel(onEvent) });
+}
+
+export const serviceUninstall = (service: ServiceKind, version: string) =>
+  invoke<void>("service_uninstall", { service, version });
+export const servicePower = (service: ServiceKind, branch: string, on: boolean) =>
+  invoke<StartReport>("service_power", { service, branch, on });
+export const serviceAutostart = (service: ServiceKind, branch: string, on: boolean) =>
+  invoke<void>("service_autostart", { service, branch, on });
+export const serviceImport = (service: ServiceKind, branch: string) =>
+  invoke<ImportReport>("service_import", { service, branch });
 
 // ── Canal de agentes (commands/mcp.rs; conserva los nombres, C26) ───────────
 

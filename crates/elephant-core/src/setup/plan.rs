@@ -659,7 +659,7 @@ mod tests {
                 PortUse {
                     port: 5432,
                     busy: true,
-                    owner_hint: Some("lo usa PostgreSQL 18 de Homebrew".into()),
+                    owner_hint: Some("PostgreSQL 18 de Homebrew".into()),
                 },
             ],
             herd: Some(HerdInfo {
@@ -867,7 +867,7 @@ mod tests {
         d.ports.push(PortUse {
             port: 3306,
             busy: true,
-            owner_hint: Some("lo usa mysqld de cristian-smw".into()),
+            owner_hint: Some("mysqld de cristian-smw".into()),
         });
         let mut profile = presets::profile_from_system(&d);
         profile

@@ -32,7 +32,9 @@ pub(crate) fn default_shim_source() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
         candidates.push(dir.join("php"));
     }
-    candidates.into_iter().find(|path| paths::is_usable_sidecar(path))
+    candidates
+        .into_iter()
+        .find(|path| paths::is_usable_sidecar(path))
 }
 
 pub(crate) fn detect(launch_at_login: bool) -> Detection {
@@ -178,10 +180,7 @@ pub(crate) fn owner_hint(
         .iter()
         .find(|s| s.running && presets::engine(&s.name) == engine)
     {
-        return Some(format!(
-            "lo usa {} de Homebrew",
-            presets::label(&service.name)
-        ));
+        return Some(format!("{} de Homebrew", presets::label(&service.name)));
     }
     let known: &[&str] = match engine {
         Engine::Mysql => &["mysqld", "mariadbd"],
@@ -191,9 +190,9 @@ pub(crate) fn owner_hint(
     };
     let mentions = |owner: &str, name: &str| {
         if owner == user || owner.is_empty() {
-            format!("lo usa {name}")
+            name.to_string()
         } else {
-            format!("lo usa {name} de {owner}")
+            format!("{name} de {owner}")
         }
     };
     // Primero un proceso con el nombre del motor; después las apps que lo
@@ -507,20 +506,20 @@ mod tests {
         );
         assert_eq!(
             owner_hint(3306, &[], &ps, "cristian").as_deref(),
-            Some("lo usa mysqld de cristian-smw")
+            Some("mysqld de cristian-smw")
         );
         let services = [svc("postgresql@18", true, true)];
         assert_eq!(
             owner_hint(5432, &services, &ps, "cristian").as_deref(),
-            Some("lo usa PostgreSQL 18 de Homebrew")
+            Some("PostgreSQL 18 de Homebrew")
         );
         assert_eq!(
             owner_hint(5432, &[], &ps, "cristian").as_deref(),
-            Some("lo usa postgres")
+            Some("postgres")
         );
         assert_eq!(
             owner_hint(6379, &[], &ps, "cristian").as_deref(),
-            Some("lo usa Herd de nobody")
+            Some("Herd de nobody")
         );
         assert_eq!(owner_hint(6379, &[], &[], "cristian"), None);
     }

@@ -155,6 +155,28 @@ desde la cuenta `cristian` gracias al grupo `admin`, sin `sudo`.
 
 Cada fase deja la app funcionando, con sus tests y capturas en los dos idiomas.
 
+### Fase 1: cómo ha quedado
+
+- **Código:** `elephant-core::services` (`catalog`, `install`, `mysql` y el
+  supervisor en `mod.rs`). Sin traits: un `enum ServiceKind` con un `match` por
+  servicio. La caché del índice comparte `MemoryCache` con el de PHP.
+- **Rutas:** binarios en `services/mysql/<versión>`, datos en
+  `data/mysql/<rama>` (la rama de MySQL es `X.Y`: 8.4, 9.7, 26.10), socket y
+  pid en `run/`, log en `logs/mysql-<rama>.err` (también la salida de launchd).
+- **mysqld:** directo, con `--no-defaults` (no lee el `my.cnf` de brew ni de
+  `/etc`), `--bind-address=127.0.0.1` y `--mysqlx=OFF` (el puerto 33060 y el
+  socket de `/tmp` chocarían con otras versiones y con brew).
+- **launchd:** `KeepAlive` solo si termina mal (`SuccessfulExit = false`).
+  Encender = `bootstrap` + `kickstart`; si la comprobación de arranque falla,
+  el agente se descarga (si no, launchd lo reintentaría cada 10 s) y el motivo
+  queda en `run/mysql-<rama>.error` hasta el siguiente intento o apagado.
+- **Importar de brew:** copia sin `*.pem` (mysqld los regenera; en este Mac
+  las claves de brew son `-rw-------` de otra cuenta). Si la rama ya tenía
+  datos, se apartan como `<rama>.pre-import-<fecha>`. Una marca
+  `data/mysql/<rama>.imported` evita volver a ofrecerla.
+- **Superficies:** comandos `service_*` (00 §5.6), `Snapshot.managed`, la vista
+  Servicios y las órdenes `elephant stack list|control|install`.
+
 ## Riesgos
 
 - **Página de MySQL:** si cambia, el job falla y se avisa en GitHub. La app sigue

@@ -766,6 +766,9 @@ Un **único catálogo tipado** en `crates/elephant-api` con dos fachadas: la CLI
 | `component_install` | `component install ID [--detach]` | mutación (tarea larga) | `id`, `detach?` | `ops::install_component` |
 | `project_start_services` | `project start-services [--dir D]` | mutación | `dir?` | `needs::start_project_services` |
 | `project_create` | `project create NAME [--template laravel\|blank] [--php V] [--detach]` | mutación (tarea larga) | `name`, `template = laravel`, `php?`, `detach?` | `project::create` (C23) |
+| `stack_list` | `stack list` | lectura | — | `services::status` + `services::catalog` (servicios propios, 06 fase 1) |
+| `stack_control` | `stack control start\|stop\|autostart-on\|autostart-off SERVICE BRANCH` | mutación | `operation`, `service`, `branch` | `services::set_running` / `services::set_autostart` |
+| `stack_install` | `stack install SERVICE VERSION [--detach]` | mutación (tarea larga) | `service`, `version`, `detach?` | `services::install` |
 
 **Interfaz de `elephant-api`** (05 §6.1; P01 deja los tipos y un catálogo vacío, P09 lo llena):
 

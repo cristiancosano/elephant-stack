@@ -4,6 +4,7 @@
 pub mod core;
 pub mod logs;
 pub mod mcp;
+pub mod services;
 pub mod setup;
 
 /// Ejecuta trabajo bloqueante fuera del hilo principal para no congelar la UI.

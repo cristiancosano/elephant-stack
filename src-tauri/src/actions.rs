@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use elephant_core::brew::Operation;
+use elephant_core::services::{self, ServiceKind};
 use elephant_core::{i18n, needs, ops, tr, tr_str};
 use elephant_core::settings::{self, Editor, Settings};
 use serde::{Deserialize, Serialize};
@@ -101,6 +102,44 @@ pub fn replace_php(
         .map(|project| project.root)
         .collect();
     tracked(app, PHP, tr_str!("Actualizando PHP…", "Updating PHP…"), || ops::replace_php(old, new, &roots))
+}
+
+// ── Servicios propios (06) ──────────────────────────────────────────────────
+// El objetivo de `busy` y de los problemas es la etiqueta de launchd de la
+// rama (`sh.elephant.mysql.8.4`), la misma que lleva `BranchStatus.label`.
+
+fn branch_target(kind: ServiceKind, branch: &str) -> String {
+    services::label(kind, branch)
+}
+
+pub fn managed_power(
+    app: &AppHandle,
+    kind: ServiceKind,
+    branch: &str,
+    on: bool,
+) -> Result<services::StartReport, String> {
+    let label = if on { tr_str!("Arrancando…", "Starting…") } else { tr_str!("Deteniendo…", "Stopping…") };
+    tracked(app, &branch_target(kind, branch), label, || services::set_running(kind, branch, on, &mut |_| {}))
+}
+
+pub fn managed_autostart(app: &AppHandle, kind: ServiceKind, branch: &str, on: bool) -> Result<(), String> {
+    let label = if on {
+        tr_str!("Activando el arranque al iniciar sesión…", "Turning on start at login…")
+    } else {
+        tr_str!("Quitando el arranque al iniciar sesión…", "Turning off start at login…")
+    };
+    tracked(app, &branch_target(kind, branch), label, || services::set_autostart(kind, branch, on))
+}
+
+pub fn managed_uninstall(app: &AppHandle, kind: ServiceKind, version: &str) -> Result<(), String> {
+    let target = branch_target(kind, &kind.branch_of(version));
+    tracked(app, &target, tr_str!("Desinstalando…", "Uninstalling…"), || services::uninstall(kind, version))
+}
+
+pub fn managed_import(app: &AppHandle, kind: ServiceKind, branch: &str) -> Result<services::ImportReport, String> {
+    tracked(app, &branch_target(kind, branch), tr_str!("Copiando los datos…", "Copying the data…"), || {
+        services::import_brew_data(kind, &mut |_| {}, &mut |_, _| {})
+    })
 }
 
 /// Texto de `busy` mientras se arranca lo que necesita un proyecto (lo
@@ -281,8 +320,12 @@ pub fn service_log_path(name: &str) -> Option<PathBuf> {
         .find(|path| path.is_file())
 }
 
+/// `name` es un servicio de brew o la etiqueta de launchd de una rama propia
+/// (`sh.elephant.mysql.8.4`), que ningún nombre de brew puede tener.
 pub fn open_service_log(name: &str) -> Result<(), String> {
-    let path = service_log_path(name).ok_or_else(|| tr!("{name} no tiene un archivo de log.", "{name} has no log file."))?;
+    let own = name.starts_with(services::LABEL_PREFIX).then(|| services::log_for_label(name)).flatten();
+    let path = own
+        .or_else(|| service_log_path(name)).ok_or_else(|| tr!("{name} no tiene un archivo de log.", "{name} has no log file."))?;
     open(&[OsStr::new("-a"), OsStr::new("Console"), path.as_os_str()])
 }
 

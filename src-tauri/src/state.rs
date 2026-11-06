@@ -12,6 +12,7 @@ use elephant_core::monitor::Usage;
 use elephant_core::php::{self, PhpStatus};
 use elephant_core::settings::{McpMode, Settings};
 use elephant_core::i18n::{self, Locale};
+use elephant_core::services::{self, ManagedService, RunState};
 use elephant_core::{paths, setup, tr};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -27,6 +28,8 @@ pub struct Snapshot {
     #[cfg_attr(test, ts(type = "number"))]
     pub refreshed_at_ms: u64,
     pub components: Vec<Component>,
+    /// Servicios propios de Elephant (06): versiones, ramas y su estado.
+    pub managed: Vec<ManagedService>,
     pub php: PhpStatus,
     /// Lo que descubre `elephant-logs`, incluidos los sitios de Herd (C17).
     pub projects: Vec<elephant_logs::Project>,
@@ -154,6 +157,7 @@ impl AppState {
             revision: 0,
             refreshed_at_ms: 0,
             components: Vec::new(),
+            managed: Vec::new(),
             php: PhpStatus::default(),
             projects: Vec::new(),
             busy: Vec::new(),
@@ -266,6 +270,7 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
         .as_ref()
         .map(|list| list.iter().filter_map(|c| c.service.clone()).collect())
         .unwrap_or_default();
+    let managed = services::status();
     let php = php::status().unwrap_or_default();
     let projects = elephant_logs::projects::discover(&home);
     let jobs = jobs::list_active();
@@ -275,11 +280,15 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
 
     let error = components.as_ref().err().cloned();
     let snapshot = update(app, |s| {
+        let own = |p: &Problem| p.target.starts_with(services::LABEL_PREFIX);
         if let Ok(list) = components {
-            s.problems.retain(|p| p.kind != ProblemKind::ServiceError);
+            s.problems.retain(|p| p.kind != ProblemKind::ServiceError || own(p));
             s.problems.extend(service_problems(&list));
             s.components = list;
         }
+        s.problems.retain(|p| p.kind != ProblemKind::ServiceError || !own(p));
+        s.problems.extend(managed_problems(&managed));
+        s.managed = managed;
         if let Some(mailpit) = mailpit {
             s.mailpit = mailpit;
         }
@@ -356,6 +365,21 @@ pub fn add_problem(app: &AppHandle, target: &str, message: String, kind: Problem
 
 pub fn clear_problems(app: &AppHandle, target: &str) {
     update(app, |s| s.problems.retain(|p| p.target != target));
+}
+
+/// Ramas de servicios propios en `error`. El objetivo es su etiqueta de launchd.
+fn managed_problems(managed: &[ManagedService]) -> Vec<Problem> {
+    managed
+        .iter()
+        .flat_map(|s| &s.branches)
+        .filter(|b| b.state == RunState::Error)
+        .map(|b| Problem {
+            id: format!("{}:{}", ProblemKind::ServiceError.slug(), b.label),
+            target: b.label.clone(),
+            message: b.error.clone().unwrap_or_default(),
+            kind: ProblemKind::ServiceError,
+        })
+        .collect()
 }
 
 /// Servicios que Homebrew marca como fallidos.

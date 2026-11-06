@@ -637,6 +637,13 @@ Todos son `async`, devuelven `Result<_, String>` y hacen el trabajo en `spawn_bl
 | | `php_catalog` | — | `Catalog` |
 | | `php_source_check` | `source: String` | `SourceCheck` |
 | | `php_download` | `version: String, on_event: Channel<SetupProgress>` | `ApplyReport` |
+| `services.rs` · 06 fase 1 | `service_catalog` | `force: bool` | `ServicesCatalog` (versiones de `services.json` para esta plataforma; el estado de lo instalado va en `Snapshot.managed`) |
+| | `service_install` | `service: ServiceKind, version: String, on_event: Channel<InstallProgress>` | `()` |
+| | `service_update` | `service: ServiceKind, from: String, to: String, on_event: Channel<InstallProgress>` | `UpdateReport` (instala `to`, la enciende si la rama estaba en marcha y borra `from`) |
+| | `service_uninstall` | `service: ServiceKind, version: String` | `()` (los datos no se tocan) |
+| | `service_power` | `service: ServiceKind, branch: String, on: bool` | `StartReport` (encender apaga las otras ramas del servicio y comprueba que arranca) |
+| | `service_autostart` | `service: ServiceKind, branch: String, on: bool` | `()` (`RunAtLoad`; solo una rama por servicio) |
+| | `service_import` | `service: ServiceKind, branch: String` | `ImportReport` (copia los datos de Homebrew; nunca los mueve) |
 | `mcp.rs` · P09 | `mcp_status` | — | `McpStatus { linked, link_path, target, mode, claude_path: Option<String>, claude_registered: bool, last_used_ms }` (`claude_registered` = plugin `elephant@elephant-stack` instalado, según `claude plugin list --json`) |
 | | `mcp_enable` / `mcp_disable` | — | `McpStatus` (crea o quita el enlace `~/.elephant-stack/bin/elephant` → `sidecar::path("cli")`; `mcp_disable` además ejecuta `claude plugin uninstall elephant@elephant-stack` si el plugin está instalado) |
 | | `mcp_connect_claude` | — | `McpStatus` (escribe el plugin con `elephant __write-plugin` y ejecuta, con argumentos separados y sin shell, `claude plugin marketplace add ~/.elephant-stack/share/claude-plugin` y `claude plugin install elephant@elephant-stack -s user`; 05 §6.4) |

@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use elephant_core::components::Component;
 use elephant_core::launchd::{self, LaunchJob};
 use elephant_core::stamp::{self, Stamp};
+use elephant_core::services::{self, ManagedService};
 use elephant_core::{jobs, monitor, paths};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Manager};
@@ -135,10 +136,14 @@ fn tick(app: &AppHandle) {
         return;
     }
     let known = known_services(&snapshot.components);
-    let now = jobs_fingerprint(&jobs, &known);
+    let mut now = jobs_fingerprint(&jobs, &known);
+    let own_jobs = launchd::jobs_with_prefix(services::LABEL_PREFIX).unwrap_or_default();
+    now.extend(own_fingerprint(&own_jobs));
+    let mut before = services_fingerprint(&snapshot.components);
+    before.extend(managed_fingerprint(&snapshot.managed));
     let refresh = {
         let mut inner = watch.lock();
-        let (refresh, remember) = decide_refresh(&now, &services_fingerprint(&snapshot.components), inner.refreshed_for.as_ref());
+        let (refresh, remember) = decide_refresh(&now, &before, inner.refreshed_for.as_ref());
         inner.refreshed_for = remember;
         refresh
     };
@@ -146,7 +151,8 @@ fn tick(app: &AppHandle) {
         state::refresh_in_background(app);
     }
 
-    let pids = running_pids(&jobs, &known);
+    let mut pids = running_pids(&jobs, &known);
+    pids.extend(own_jobs.iter().filter_map(|job| job.pid));
     let had_usage = state.usage_kb().is_some_and(|kb| kb > 0);
     if pids.is_empty() {
         if had_usage {
@@ -188,6 +194,22 @@ fn jobs_fingerprint(jobs: &[LaunchJob], known: &BTreeSet<&str>) -> Fingerprint {
             }
             Some((name.to_string(), normalized(job.pid, job.last_exit)?))
         })
+        .collect()
+}
+
+/// Los servicios propios en marcha, por etiqueta: si uno se cae o arranca
+/// fuera de la app, cambia.
+fn own_fingerprint(jobs: &[LaunchJob]) -> Fingerprint {
+    jobs.iter()
+        .filter_map(|job| Some((job.label.clone(), (Some(job.pid?), None))))
+        .collect()
+}
+
+fn managed_fingerprint(managed: &[ManagedService]) -> Fingerprint {
+    managed
+        .iter()
+        .flat_map(|s| &s.branches)
+        .filter_map(|b| Some((b.label.clone(), (Some(b.pid?), None))))
         .collect()
 }
 

@@ -38,6 +38,21 @@ pub use mysql::ImportOffer;
 /// Prefijo de las etiquetas de launchd de Elephant.
 pub const LABEL_PREFIX: &str = "sh.elephant.";
 
+/// Etiqueta de launchd de una rama: `sh.elephant.mysql.8.4`.
+pub fn label(kind: ServiceKind, branch: &str) -> String {
+    format!("{LABEL_PREFIX}{}.{branch}", kind.id())
+}
+
+/// Progreso de una instalación o una copia de datos.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+pub struct InstallProgress {
+    pub line: Option<String>,
+    /// Bytes hechos y totales.
+    #[cfg_attr(feature = "ts", ts(type = "[number, number] | null"))]
+    pub bytes: Option<(u64, u64)>,
+}
+
 /// Un servicio que Elephant sabe instalar y ejecutar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -146,7 +161,7 @@ impl Env {
     }
 
     fn label(&self, kind: ServiceKind, branch: &str) -> String {
-        format!("{LABEL_PREFIX}{}.{branch}{}", kind.id(), self.label_suffix)
+        format!("{}{}", label(kind, branch), self.label_suffix)
     }
 
     fn plist_path(&self, label: &str) -> PathBuf {

@@ -5,6 +5,7 @@ import type { JobInfo } from "./JobInfo";
 import type { Locale } from "./Locale";
 import type { LogsBrief } from "./LogsBrief";
 import type { MailpitInfo } from "./MailpitInfo";
+import type { ManagedService } from "./ManagedService";
 import type { McpBrief } from "./McpBrief";
 import type { PhpStatus } from "./PhpStatus";
 import type { Problem } from "./Problem";
@@ -15,7 +16,11 @@ export type Snapshot = {
 /**
  * Crece en cada cambio: la interfaz descarta los antiguos.
  */
-revision: number, refreshed_at_ms: number, components: Array<Component>, php: PhpStatus, 
+revision: number, refreshed_at_ms: number, components: Array<Component>, 
+/**
+ * Servicios propios de Elephant (06): versiones, ramas y su estado.
+ */
+managed: Array<ManagedService>, php: PhpStatus, 
 /**
  * Lo que descubre `elephant-logs`, incluidos los sitios de Herd (C17).
  */

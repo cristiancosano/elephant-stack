@@ -988,6 +988,7 @@ mod tests {
             revision: 1,
             refreshed_at_ms: 1,
             components: Vec::new(),
+            managed: Vec::new(),
             php: PhpStatus::default(),
             projects: Vec::new(),
             busy: Vec::new(),

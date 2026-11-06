@@ -1,0 +1,4 @@
+[06-Nov-2026 08:00:00] NOTICE: fpm is running, pid 18490
+[06-Nov-2026 08:00:00] NOTICE: ready to handle connections
+[06-Nov-2026 10:30:00] WARNING: [pool herd] child 18501 said into stderr: "PHP Warning:  Undefined array key "id" in /HOME/Herd/tienda/app/Legacy.php on line 9"
+[06-Nov-2026 10:31:00] ERROR: unable to read what child say: Bad file descriptor (9)

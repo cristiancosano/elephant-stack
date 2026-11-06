@@ -1,0 +1,3 @@
+[2026-11-06 23:45:00] local.WARNING: Escrita en el archivo del día siguiente por la zona horaria
+[2026-11-07 00:00:01] local.INFO: Nuevo día
+[2026-11-07 00:10:00] local.ERROR: Cierre de caja fallido: descuadre de 7 euros

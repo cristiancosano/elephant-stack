@@ -1,0 +1,4 @@
+2026/11/06 08:00:00 [notice] 18493#0: signal process started
+2026/11/06 10:10:31 [error] 18493#1061392: *88 connect() to unix:/HOME/Library/Application Support/Herd/herd.sock failed (61: Connection refused) while connecting to upstream, client: 127.0.0.1, server: , request: "POST /carrito HTTP/1.1", upstream: "fastcgi://unix:/HOME/Library/Application Support/Herd/herd.sock:", host: "tienda.test"
+2026/11/06 10:11:00 [error] 18493#1061392: *91 connect() to unix:/HOME/Library/Application Support/Herd/herd.sock failed (61: Connection refused) while connecting to upstream, client: 127.0.0.1, server: , request: "GET /?herd=preview HTTP/1.1", upstream: "fastcgi://unix:/HOME/Library/Application Support/Herd/herd.sock:", host: "desconocido.test"
+2026/11/06 10:12:00 [warn] 18493#1061392: *92 an upstream response is buffered to a temporary file, client: 127.0.0.1, server: , request: "GET /api/v1/pedidos?page=2 HTTP/1.1", host: "api.tienda.test"

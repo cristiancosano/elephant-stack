@@ -1,0 +1,9 @@
+{
+  "share-tool" : "expose",
+  "paths" : [
+    "\/HOME\/Library\/Application Support\/Herd\/config\/valet\/Sites\/",
+    "\/HOME\/Herd\/"
+  ],
+  "tld" : "test",
+  "loopback" : "127.0.0.1"
+}

@@ -28,7 +28,7 @@
     versionForProject,
   } from "../lib/stores/app.svelte";
   import { formatBytes } from "../lib/format";
-  import { go } from "../lib/router.svelte";
+  import { mergePhpVersions } from "../lib/php-versions";
   import type { Catalog } from "../lib/bindings/Catalog";
   import type { Project } from "../lib/bindings/Project";
   import type { Snapshot } from "../lib/bindings/Snapshot";
@@ -111,7 +111,12 @@
   });
 
   const releases = $derived(catalog?.php ?? []);
-  const installedIds = $derived(new Set(versions.map((v) => v.id)));
+  const entries = $derived(mergePhpVersions(versions, releases));
+  const footer = $derived(
+    catalog?.offline
+      ? "Sin conexión: las versiones no instaladas son las de la última consulta."
+      : "La marcada es la versión por defecto, la que se usa fuera de cualquier proyecto con .php-version. Las no instaladas se descargan de php-builds.",
+  );
 
   async function download(version: string) {
     downloading[version] = undefined;
@@ -141,38 +146,70 @@
     <div class="content">
       {#if !snapshot}
         <Skeleton lines={4} />
-      {:else if versions.length === 0}
-        <EmptyState
-          icon="php"
-          title="No hay ninguna versión de PHP"
-          message="Instala una de las versiones disponibles de abajo o usa el asistente."
-          action={{ label: "Abrir el asistente", onclick: () => go("#/asistente") }}
-        />
       {:else}
-        <Group
-          title="Versiones instaladas"
-          footer="La versión por defecto es la que se usa fuera de cualquier proyecto con .php-version."
-        >
-          {#each versions as v (v.key)}
-            {@const active = v.key === activeKey}
-            <Row
-              title={v.id}
-              subtitle={active ? `${v.source} · Por defecto` : v.source}
-              selected={active}
-              onactivate={() => void makeDefault(v)}
-            >
-              {#snippet leading()}
-                <span class="mark" class:on={active}><Icon name="check" /></span>
-              {/snippet}
-              {#snippet trailing()}
-                {#if active}<Badge tone="accent" label="Por defecto" />{/if}
-                <Button onclick={() => void useInProject(v)}>
-                  Usar en proyecto…<span class="visually-hidden"> (PHP {v.id})</span>
-                </Button>
-              {/snippet}
-            </Row>
-          {/each}
-        </Group>
+        {#if entries.length === 0 && !catalogLoading}
+          <EmptyState
+            icon="php"
+            title="No hay ninguna versión de PHP"
+            message="No hay versiones instaladas y no se ha podido consultar las disponibles."
+            action={{ label: "Reintentar", onclick: () => void loadCatalog() }}
+          />
+        {:else}
+          <Group title="Versiones" footer={footer}>
+            {#each entries as e (e.key)}
+              {#if e.kind === "installed"}
+                {@const v = e.version}
+                {@const active = v.key === activeKey}
+                <Row
+                  title={v.id}
+                  subtitle={active ? `${v.source} · Por defecto` : v.source}
+                  selected={active}
+                  onactivate={() => void makeDefault(v)}
+                >
+                  {#snippet leading()}
+                    <span class="mark" class:on={active}><Icon name="check" /></span>
+                  {/snippet}
+                  {#snippet trailing()}
+                    {#if active}<Badge tone="accent" label="Por defecto" />{/if}
+                    <Button onclick={() => void useInProject(v)}>
+                      Usar en proyecto…<span class="visually-hidden"> (PHP {v.id})</span>
+                    </Button>
+                  {/snippet}
+                </Row>
+              {:else}
+                {@const r = e.release}
+                <Row title={r.version} subtitle={`No instalada · ${formatBytes(r.size)}`}>
+                  {#snippet leading()}
+                    <span class="mark"><Icon name="check" /></span>
+                  {/snippet}
+                  {#snippet trailing()}
+                    {#if r.version in downloading}
+                      <ProgressRing value={downloading[r.version]} label={`Instalando PHP ${r.version}`} />
+                    {:else}
+                      <Button onclick={() => void download(r.version)}>
+                        Instalar<span class="visually-hidden"> PHP {r.version}</span>
+                      </Button>
+                    {/if}
+                  {/snippet}
+                </Row>
+              {/if}
+            {/each}
+            {#if releases.length === 0}
+              {#if catalogLoading}
+                <Skeleton lines={1} />
+              {:else}
+                <Row
+                  title="No se pudo consultar las versiones disponibles"
+                  subtitle="Comprueba la conexión y vuelve a intentarlo en unos minutos."
+                >
+                  {#snippet trailing()}
+                    <Button onclick={() => void loadCatalog()}>Reintentar</Button>
+                  {/snippet}
+                </Row>
+              {/if}
+            {/if}
+          </Group>
+        {/if}
 
         {#if projects.length > 0}
           <Group title="Proyectos" footer="Elegir una versión escribe .php-version en la carpeta del proyecto.">
@@ -191,48 +228,6 @@
             {/each}
           </Group>
         {/if}
-      {/if}
-
-      {#if snapshot}
-        <Group
-          title="Disponibles para instalar"
-          footer={catalog?.offline
-            ? "Sin conexión: se muestran las versiones que había la última vez."
-            : "Versiones de php-builds, con las extensiones que necesita Laravel."}
-        >
-          {#if releases.length === 0}
-            {#if catalogLoading}
-              <Skeleton lines={3} />
-            {:else}
-              <Row
-                title="No se pudo consultar las versiones"
-                subtitle="Comprueba la conexión y vuelve a intentarlo en unos minutos."
-              >
-                {#snippet trailing()}
-                  <Button onclick={() => void loadCatalog()}>Reintentar</Button>
-                {/snippet}
-              </Row>
-            {/if}
-          {:else}
-            {#each releases as r (r.version)}
-              {@const installed = installedIds.has(r.version)}
-              {@const progress = r.version in downloading}
-              <Row title={`PHP ${r.version}`} subtitle={formatBytes(r.size)}>
-                {#snippet trailing()}
-                  {#if installed}
-                    <Badge tone="green" label="Instalada" />
-                  {:else if progress}
-                    <ProgressRing value={downloading[r.version]} label={`Instalando PHP ${r.version}`} />
-                  {:else}
-                    <Button onclick={() => void download(r.version)}>
-                      Instalar<span class="visually-hidden"> PHP {r.version}</span>
-                    </Button>
-                  {/if}
-                {/snippet}
-              </Row>
-            {/each}
-          {/if}
-        </Group>
       {/if}
     </div>
   </div>

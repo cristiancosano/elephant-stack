@@ -4,6 +4,7 @@
 
 import { entry, frame, summary } from "../lib/logs/fixtures";
 import { CARDS, detection } from "../lib/wizard/fixtures.test-helpers";
+import type { Catalog } from "../lib/bindings/Catalog";
 import type { Component } from "../lib/bindings/Component";
 import type { EntryDetail } from "../lib/bindings/EntryDetail";
 import type { LogEntry } from "../lib/bindings/LogEntry";
@@ -285,3 +286,18 @@ export const wizardDetection = detection({
   herd: { running: true, tld: "test", sites: 2 },
   launch_at_login: true,
 });
+
+const release = (version: string, size: number) => ({
+  version,
+  url: `https://github.com/cristiancosano/php-builds/releases/download/php-${version}/php-${version}-macos-arm64.tar.gz`,
+  size,
+  checksum_url: `https://github.com/cristiancosano/php-builds/releases/download/php-${version}/php-${version}-macos-arm64.tar.gz.sha256`,
+});
+
+// Catálogo de php-builds: la 8.5.12 aparece como no instalada y la 8.4.27 y la
+// 8.3.36 se funden con las instaladas.
+export const catalog: Catalog = {
+  php: [release("8.5.12", 67_413_472), release("8.4.27", 66_592_142), release("8.3.36", 64_000_000)],
+  composer: null,
+  offline: false,
+};

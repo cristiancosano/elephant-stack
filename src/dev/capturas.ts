@@ -41,7 +41,7 @@ const handlers: Record<string, (args: Args) => unknown> = {
   mcp_status: () => datos.mcpStatus,
   mcp_snippets: () => datos.mcpSnippets,
   mcp_activity: () => [],
-  php_catalog: () => Promise.reject(NOT_AVAILABLE),
+  php_catalog: () => datos.catalog,
 };
 
 mockIPC(

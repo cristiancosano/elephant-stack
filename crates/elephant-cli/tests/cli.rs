@@ -536,7 +536,7 @@ fn doctor_and_plugin() {
     let out = s.run(&["doctor", "--json"], AGENT);
     assert_eq!(code(&out), 0, "{}", stderr(&out));
     let value: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(value["operations"], 17);
+    assert_eq!(value["operations"], 20);
     assert_eq!(value["mode"], "confirm");
     assert_eq!(value["linked"], false);
     assert_eq!(value["plugin_version"], format!("elephant {} (api 1)", env!("CARGO_PKG_VERSION")));
@@ -552,10 +552,10 @@ fn doctor_speaks_the_locale() {
     let s = Sandbox::new();
     let es = s.run(&["doctor"], &[]);
     assert_eq!(code(&es), 0, "{}", stderr(&es));
-    assert!(stdout(&es).contains("· modo confirmar · 17 operaciones"), "{}", stdout(&es));
+    assert!(stdout(&es).contains("· modo confirmar · 20 operaciones"), "{}", stdout(&es));
 
     let en = s.run(&["doctor"], &[("ELEPHANT_STACK_LANG", "en")]);
-    assert!(stdout(&en).contains("· confirm mode · 17 operations"), "{}", stdout(&en));
+    assert!(stdout(&en).contains("· confirm mode · 20 operations"), "{}", stdout(&en));
     assert!(stdout(&en).contains("not found (turn it on in Elephant Stack > Settings > Agents)"), "{}", stdout(&en));
 
     let json_es = s.run(&["doctor", "--json"], &[]);
@@ -663,7 +663,7 @@ fn cli_json_equals_mcp_structured_content_for_every_read() {
     let mut mcp = Mcp::start(&s, false);
     let listed = mcp.request("tools/list", json!({}));
     let names: Vec<&str> = listed["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names.len(), 17);
+    assert_eq!(names.len(), 20);
     assert_eq!(names[0], "elephant_status");
     for (argv, tool, arguments) in cases {
         let mut args: Vec<&str> = argv.iter().map(String::as_str).collect();

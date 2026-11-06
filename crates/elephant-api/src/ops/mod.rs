@@ -1,4 +1,4 @@
-//! Las 17 operaciones de 00 §5.9. Cada una es un tipo que implementa [`Op`];
+//! Las 20 operaciones de 00 §5.9 (las 17 del plan y las 3 de `stack`, 06). Cada una es un tipo que implementa [`Op`];
 //! [`meta`] la convierte en una fila del catálogo con punteros a funciones
 //! genéricas, así que no hace falta macro ni `match` a mano.
 
@@ -16,12 +16,14 @@ pub(crate) mod logs;
 mod php;
 mod projects;
 mod services;
+mod stack;
 mod status;
 
 /// En el orden de la tabla de 00 §5.9: lecturas primero y después mutaciones.
 pub(crate) static CATALOG: &[OpMeta] = &[
     meta::<status::Status>(),
     meta::<status::ComponentsList>(),
+    meta::<stack::StackList>(),
     meta::<php::PhpVersions>(),
     meta::<projects::ProjectsList>(),
     meta::<projects::ProjectNeeds>(),
@@ -32,9 +34,11 @@ pub(crate) static CATALOG: &[OpMeta] = &[
     meta::<logs::LogsEntry>(),
     meta::<jobs::JobStatus>(),
     meta::<services::ServiceControl>(),
+    meta::<stack::StackControl>(),
     meta::<php::PhpSetGlobal>(),
     meta::<php::PhpSetProject>(),
     meta::<services::ComponentInstall>(),
+    meta::<stack::StackInstall>(),
     meta::<projects::ProjectStartServices>(),
     meta::<projects::ProjectCreate>(),
 ];

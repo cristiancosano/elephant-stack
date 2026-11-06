@@ -403,3 +403,66 @@ fn real_mysql_installs_starts_answers_and_stops() {
         std::panic::resume_unwind(panic);
     }
 }
+
+/// El caso de este Mac: los datos de MySQL de Homebrew (de otra cuenta, que
+/// se pueden leer por el grupo `admin`) se copian a un HOME temporal, se
+/// instala su misma versión desde el `services.json` real y arranca con
+/// launchd (etiqueta `.test`, puerto 3399). El original solo se lee.
+///
+/// `cargo test -p elephant-core real_brew_data -- --ignored --nocapture`
+#[test]
+#[ignore = "lee los datos reales de brew, descarga MySQL y usa el launchd real con una etiqueta .test"]
+fn real_brew_data_is_copied_and_starts() {
+    let home = PathBuf::from(format!("/tmp/es-import-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(&home).unwrap();
+    let home = home.canonicalize().unwrap();
+    let env = Env {
+        tools: Tools { home: home.clone(), curl: PathBuf::from("/usr/bin/curl"), tar: PathBuf::from(download::SYSTEM_TAR) },
+        agents_dir: home.join("Library/LaunchAgents"),
+        label_suffix: ".test".into(),
+        port: Some(3399),
+        brew_prefix: PathBuf::from("/opt/homebrew"),
+        brew_in_use: None,
+        start_timeout: Duration::from_secs(120),
+    };
+    let Some(offer) = mysql::brew_offer(&env) else {
+        println!("No hay datos de MySQL de Homebrew legibles.");
+        return;
+    };
+    println!("{offer:#?}");
+    let mut branch_label = None;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        assert_eq!(offer.blocked, None);
+        // Sin pasar por `catalog()`, que guardaría la caché en el HOME real.
+        let json = download::fetch_text(&env.tools.curl, catalog::CATALOG_URL).unwrap();
+        let catalog = catalog::parse(&json, current_platform()).unwrap();
+        let release = catalog
+            .releases
+            .iter()
+            .find(|r| r.service == ServiceKind::Mysql && r.branch == offer.branch)
+            .unwrap_or_else(|| panic!("el catálogo no tiene MySQL {}", offer.branch))
+            .clone();
+        let mut log = |line: &str| println!("{line}");
+        install::install(&env, &release, &mut log, &mut |_, _| {}).unwrap();
+        let report = import_in(&env, ServiceKind::Mysql, &mut log, &mut |_, _| {}).unwrap();
+        println!("{report:#?}");
+        assert!(report.bytes > 0 && report.backup.is_none());
+        branch_label = Some(env.label(ServiceKind::Mysql, &offer.branch));
+        // Los datos copiados son del usuario actual.
+        check_owned_and_writable(&env.data_dir(ServiceKind::Mysql, &offer.branch)).unwrap();
+        let started = start_in(&env, ServiceKind::Mysql, &offer.branch, &mut log).unwrap();
+        assert!(!started.initialized, "debe usar los datos copiados");
+        assert!(port_open(3399));
+        stop_in(&env, ServiceKind::Mysql, &offer.branch).unwrap();
+        // Ya copiados: no se vuelven a ofrecer.
+        assert!(mysql::brew_offer(&env).is_none());
+    }));
+    if let Some(label) = branch_label {
+        let _ = launchd::bootout(&label);
+    }
+    let _ = fs::remove_dir_all(&home);
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}

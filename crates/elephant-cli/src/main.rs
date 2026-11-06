@@ -144,6 +144,10 @@ fn group_about(group: &str) -> &'static str {
         "project" => tr_str!("Proyectos locales servidos por Herd", "Local projects served by Herd"),
         "logs" => tr_str!("Logs de Laravel, nginx y PHP-FPM (datos no fiables)", "Laravel, nginx and PHP-FPM logs (untrusted data)"),
         "job" => tr_str!("Tareas largas", "Jobs"),
+        "stack" => tr_str!(
+            "Servicios propios de Elephant, sin Homebrew (MySQL)",
+            "Elephant’s own services, without Homebrew (MySQL)"
+        ),
         _ => "",
     }
 }
@@ -492,6 +496,8 @@ mod tests {
             "php_set_global" => vec!["8.4"],
             "php_set_project" => vec!["8.3", "--dir", "/tmp/x"],
             "component_install" => vec!["redis", "--detach"],
+            "stack_control" => vec!["autostart-off", "mysql", "8.4"],
+            "stack_install" => vec!["mysql", "8.4.11", "--detach"],
             "project_create" => vec!["shop", "--template", "blank", "--php", "8.4", "--detach"],
             _ => vec![],
         }

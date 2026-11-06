@@ -469,6 +469,267 @@
       }
     },
     {
+      "about": "Servicios propios de Elephant (sin Homebrew; hoy, MySQL): versiones instaladas, cada rama con su estado (running, stopped o error con el motivo), puerto, y versiones que se pueden instalar.",
+      "cli": "elephant stack list",
+      "id": "stack_list",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "ListArgs",
+        "type": "object"
+      },
+      "kind": "read",
+      "long": false,
+      "output_schema": {
+        "$defs": {
+          "BranchStatus": {
+            "description": "Una rama instalada: la ejecuta su versión más reciente.",
+            "properties": {
+              "autostart": {
+                "description": "Arranca al iniciar sesión.",
+                "type": "boolean"
+              },
+              "branch": {
+                "type": "string"
+              },
+              "data_dir": {
+                "type": "string"
+              },
+              "data_ready": {
+                "description": "Los datos ya están preparados (el primer arranque los crea).",
+                "type": "boolean"
+              },
+              "error": {
+                "description": "Motivo de `error`, ya traducido.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "description": "Etiqueta de launchd.",
+                "type": "string"
+              },
+              "log_path": {
+                "type": "string"
+              },
+              "pid": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "state": {
+                "$ref": "#/$defs/RunState"
+              },
+              "version": {
+                "description": "La versión que se ejecuta.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "branch",
+              "version",
+              "label",
+              "state",
+              "autostart",
+              "data_dir",
+              "data_ready",
+              "log_path"
+            ],
+            "type": "object"
+          },
+          "ImportOffer": {
+            "description": "Datos de MySQL de Homebrew que se pueden copiar a una rama propia.",
+            "properties": {
+              "blocked": {
+                "description": "Por qué no se puede copiar ahora (un mysqld los está usando, un\narchivo no se puede leer…).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "branch": {
+                "description": "Rama a la que se pueden copiar (la misma que la de `version`).",
+                "type": "string"
+              },
+              "replaces": {
+                "description": "La rama ya tiene datos: se guardarían aparte antes de copiar.",
+                "type": "boolean"
+              },
+              "size": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "source": {
+                "description": "`/opt/homebrew/var/mysql`.",
+                "type": "string"
+              },
+              "version": {
+                "description": "Última versión que usó esos datos.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "version",
+              "branch",
+              "size",
+              "replaces"
+            ],
+            "type": "object"
+          },
+          "InstalledVersion": {
+            "properties": {
+              "branch": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "branch",
+              "path"
+            ],
+            "type": "object"
+          },
+          "ManagedService": {
+            "properties": {
+              "branches": {
+                "items": {
+                  "$ref": "#/$defs/BranchStatus"
+                },
+                "type": "array"
+              },
+              "import": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ImportOffer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Datos de Homebrew que se pueden copiar."
+              },
+              "name": {
+                "type": "string"
+              },
+              "port": {
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "service": {
+                "$ref": "#/$defs/ServiceKind"
+              },
+              "versions": {
+                "description": "De la más reciente a la más antigua.",
+                "items": {
+                  "$ref": "#/$defs/InstalledVersion"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "service",
+              "name",
+              "port",
+              "versions",
+              "branches"
+            ],
+            "type": "object"
+          },
+          "RunState": {
+            "enum": [
+              "running",
+              "stopped",
+              "error"
+            ],
+            "type": "string"
+          },
+          "ServiceKind": {
+            "description": "Un servicio que Elephant sabe instalar y ejecutar.",
+            "enum": [
+              "mysql"
+            ],
+            "type": "string"
+          },
+          "ServiceRelease": {
+            "description": "Una versión que se puede descargar.",
+            "properties": {
+              "branch": {
+                "description": "Rama que comparte los datos: `8.4` para MySQL 8.4.7.",
+                "type": "string"
+              },
+              "lts": {
+                "type": "boolean"
+              },
+              "service": {
+                "$ref": "#/$defs/ServiceKind"
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "url": {
+                "description": "URL oficial del proyecto (no redistribuimos binarios).",
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "service",
+              "version",
+              "branch",
+              "url",
+              "sha256",
+              "size",
+              "lts"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "available": {
+            "description": "Versiones que se pueden instalar en este Mac y no lo están (vacío sin red ni caché).",
+            "items": {
+              "$ref": "#/$defs/ServiceRelease"
+            },
+            "type": "array"
+          },
+          "services": {
+            "description": "Lo instalado por servicio: versiones, ramas con su estado y datos de Homebrew que se pueden copiar.",
+            "items": {
+              "$ref": "#/$defs/ManagedService"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "services",
+          "available"
+        ],
+        "title": "ListOut",
+        "type": "object"
+      }
+    },
+    {
       "about": "Versiones de PHP instaladas (Elephant Stack y Herd), la global y la que usa una carpeta de proyecto, con el motivo: .php-version, ajuste global o la más reciente.",
       "cli": "elephant php list",
       "id": "php_versions",
@@ -2199,6 +2460,166 @@
       }
     },
     {
+      "about": "Arranca o detiene una rama de un servicio propio de Elephant (mysql 8.4…), o activa o quita su arranque al iniciar sesión. Arrancar comprueba que responde y apaga las otras ramas del servicio.",
+      "cli": "elephant stack control",
+      "id": "stack_control",
+      "idempotent": true,
+      "input_schema": {
+        "$defs": {
+          "StackOp": {
+            "enum": [
+              "start",
+              "stop",
+              "autostart_on",
+              "autostart_off"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "branch": {
+            "description": "Rama instalada: 8.4, 9.7…",
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/$defs/StackOp",
+            "description": "start, stop, autostart-on o autostart-off."
+          },
+          "service": {
+            "description": "Servicio: mysql.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "service",
+          "branch"
+        ],
+        "title": "ControlArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": false,
+      "output_schema": {
+        "$defs": {
+          "BranchStatus": {
+            "description": "Una rama instalada: la ejecuta su versión más reciente.",
+            "properties": {
+              "autostart": {
+                "description": "Arranca al iniciar sesión.",
+                "type": "boolean"
+              },
+              "branch": {
+                "type": "string"
+              },
+              "data_dir": {
+                "type": "string"
+              },
+              "data_ready": {
+                "description": "Los datos ya están preparados (el primer arranque los crea).",
+                "type": "boolean"
+              },
+              "error": {
+                "description": "Motivo de `error`, ya traducido.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "description": "Etiqueta de launchd.",
+                "type": "string"
+              },
+              "log_path": {
+                "type": "string"
+              },
+              "pid": {
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "state": {
+                "$ref": "#/$defs/RunState"
+              },
+              "version": {
+                "description": "La versión que se ejecuta.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "branch",
+              "version",
+              "label",
+              "state",
+              "autostart",
+              "data_dir",
+              "data_ready",
+              "log_path"
+            ],
+            "type": "object"
+          },
+          "RunState": {
+            "enum": [
+              "running",
+              "stopped",
+              "error"
+            ],
+            "type": "string"
+          },
+          "StackOp": {
+            "enum": [
+              "start",
+              "stop",
+              "autostart_on",
+              "autostart_off"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "branch": {
+            "type": "string"
+          },
+          "operation": {
+            "$ref": "#/$defs/StackOp"
+          },
+          "service": {
+            "type": "string"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/BranchStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Su estado después de la operación."
+          },
+          "stopped": {
+            "description": "Otras ramas del servicio que se han apagado al arrancar esta.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "service",
+          "branch",
+          "operation",
+          "stopped"
+        ],
+        "title": "ControlOut",
+        "type": "object"
+      }
+    },
+    {
       "about": "Cambia la versión de PHP global (la que se usa fuera de un proyecto con .php-version). Solo versiones ya instaladas; la app y la barra de menús lo ven al momento.",
       "cli": "elephant php use",
       "id": "php_set_global",
@@ -2345,6 +2766,55 @@
         "required": [
           "id",
           "installed"
+        ],
+        "title": "InstallOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Descarga e instala una versión de un servicio propio de Elephant (binario oficial con su sha256) sin Homebrew. No lo arranca. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.",
+      "cli": "elephant stack install",
+      "id": "stack_install",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "detach": {
+            "default": false,
+            "description": "No esperar: devuelve el id de la tarea al momento.",
+            "type": "boolean"
+          },
+          "service": {
+            "description": "Servicio: mysql.",
+            "type": "string"
+          },
+          "version": {
+            "description": "Versión del catálogo (stack list): 8.4.11…",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "version"
+        ],
+        "title": "InstallArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": true,
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "service": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "version"
         ],
         "title": "InstallOut",
         "type": "object"

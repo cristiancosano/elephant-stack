@@ -13,7 +13,9 @@ pub fn service_control(name: &str, op: Operation) -> Result<Vec<Service>, String
     let lock = lock::brew()?;
     let services = brew::apply(&lock, name, op)?;
     stamp::touch("services");
-    if matches!(op, Operation::TurnOn | Operation::Restart | Operation::TurnOnWithAutostart) {
+    // Con un brew falso (tests) no hay nada en launchd que comprobar.
+    let real_brew = paths::tool_override("brew").is_none();
+    if real_brew && matches!(op, Operation::TurnOn | Operation::Restart | Operation::TurnOnWithAutostart) {
         verify_brew_start(name)?;
     }
     Ok(services)

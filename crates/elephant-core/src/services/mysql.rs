@@ -138,6 +138,13 @@ fn ps_commands() -> String {
         .unwrap_or_default()
 }
 
+/// Lo que no se copia: `*.pem` (certificados y claves RSA, que mysqld vuelve a
+/// generar al arrancar sin ellos; en brew las claves son `-rw-------` y otra
+/// cuenta no las puede leer), sockets y `.pid`.
+fn skipped(name: &str) -> bool {
+    name.ends_with(".pem") || name.ends_with(".pid") || name.starts_with("mysql.sock")
+}
+
 /// Lo que ocupa `dir` y el primer archivo que no se puede leer, si lo hay.
 pub(crate) fn readable_size(dir: &Path) -> Result<u64, String> {
     let mut total = 0;
@@ -149,7 +156,7 @@ pub(crate) fn readable_size(dir: &Path) -> Result<u64, String> {
         };
         if meta.is_dir() {
             total += readable_size(&path)?;
-        } else if meta.is_file() {
+        } else if meta.is_file() && !skipped(&entry.file_name().to_string_lossy()) {
             fs::File::open(&path).map_err(|_| path.display().to_string())?;
             total += meta.len();
         }
@@ -203,7 +210,7 @@ pub(crate) fn brew_offer_with(env: &Env, in_use: &dyn Fn(&Path) -> bool) -> Opti
 }
 
 /// Copia de `from` a `to` (que no existe): carpetas y archivos normales,
-/// sin sockets, enlaces ni `.pid`. Lo copiado es del usuario actual.
+/// sin enlaces ni lo que dice [`skipped`]. Lo copiado es del usuario actual.
 pub(crate) fn copy_tree(from: &Path, to: &Path, done: &mut u64, on_bytes: &mut dyn FnMut(u64)) -> Result<(), String> {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
     fs::DirBuilder::new().mode(0o750).create(to).map_err(|error| {
@@ -222,7 +229,7 @@ pub(crate) fn copy_tree(from: &Path, to: &Path, done: &mut u64, on_bytes: &mut d
         let meta = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
         if meta.is_dir() {
             copy_tree(&path, &to.join(&name), done, on_bytes)?;
-        } else if meta.is_file() && !text.ends_with(".pid") && !text.starts_with("mysql.sock") {
+        } else if meta.is_file() && !skipped(&text) {
             let target = to.join(&name);
             fs::copy(&path, &target).map_err(|error| {
                 let file = path.display();
@@ -284,6 +291,7 @@ mod tests {
         fs::write(from.join("ibdata1"), "1234").unwrap();
         fs::write(from.join("shop/orders.ibd"), "56").unwrap();
         fs::write(from.join("host.pid"), "99").unwrap();
+        fs::write(from.join("private_key.pem"), "clave").unwrap();
         std::os::unix::fs::symlink("/etc/passwd", from.join("enlace")).unwrap();
         let to = dir.path().join("to");
         let mut done = 0;
@@ -291,6 +299,7 @@ mod tests {
         assert_eq!(done, 6);
         assert!(to.join("shop/orders.ibd").is_file());
         assert!(!to.join("host.pid").exists() && !to.join("enlace").exists());
+        assert!(!to.join("private_key.pem").exists());
         assert_eq!(readable_size(&to).unwrap(), 6);
     }
 }

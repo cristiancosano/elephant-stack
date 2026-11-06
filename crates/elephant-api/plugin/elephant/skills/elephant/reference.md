@@ -27,6 +27,12 @@ Componentes del entorno (mysql, postgresql, redis, mailpit, nginx, php, composer
 | `--kind` | `kind` | Solo servicios o solo herramientas. Valores: service, tool. |
 | `--installed` | `installed` | Solo los instalados. |
 
+### `elephant stack list`
+
+MCP: `stack_list`.
+
+Servicios propios de Elephant (sin Homebrew; hoy, MySQL): versiones instaladas, cada rama con su estado (running, stopped o error con el motivo), puerto, y versiones que se pueden instalar.
+
 ### `elephant php list`
 
 MCP: `php_versions`.
@@ -138,6 +144,18 @@ Arranca, detiene o reinicia un servicio de Homebrew (mysql, postgresql, redis, m
 | `OPERACION` | `operation` | start, stop, restart, autostart-on o autostart-off. Valores: start, stop, restart, autostart-on, autostart-off. |
 | `NAME` | `name` | Servicio de Homebrew: mysql, postgresql@18, redis…. |
 
+### `elephant stack control OPERACION SERVICE BRANCH`
+
+MCP: `stack_control`.
+
+Arranca o detiene una rama de un servicio propio de Elephant (mysql 8.4…), o activa o quita su arranque al iniciar sesión. Arrancar comprueba que responde y apaga las otras ramas del servicio.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `OPERACION` | `operation` | start, stop, autostart-on o autostart-off. Valores: start, stop, autostart-on, autostart-off. |
+| `SERVICE` | `service` | Servicio: mysql. |
+| `BRANCH` | `branch` | Rama instalada: 8.4, 9.7…. |
+
 ### `elephant php use VERSION`
 
 MCP: `php_set_global`.
@@ -168,6 +186,18 @@ Instala un componente con Homebrew (mysql, postgresql@18, redis, mailpit, nginx,
 | CLI | MCP | Descripción |
 |---|---|---|
 | `ID` | `id` | mysql, postgresql@18, redis, mailpit, nginx, dnsmasq o composer. |
+| `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
+
+### `elephant stack install SERVICE VERSION`
+
+MCP: `stack_install` · tarea larga (espera 45 s; después, código 75 y `job show`).
+
+Descarga e instala una versión de un servicio propio de Elephant (binario oficial con su sha256) sin Homebrew. No lo arranca. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `SERVICE` | `service` | Servicio: mysql. |
+| `VERSION` | `version` | Versión del catálogo (stack list): 8.4.11…. |
 | `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
 
 ### `elephant project start-services`

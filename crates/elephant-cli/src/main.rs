@@ -1,6 +1,429 @@
 //! CLI `elephant`: el canal principal entre los agentes y Elephant Stack
-//! (05 §4). Traduce `elephant <recurso> <verbo>` a `elephant_api::invoke_json`.
-//!
-//! Esqueleto de P01: termina con el código 0. P09 implementa las órdenes.
+//! (05 §4). El árbol de órdenes se genera recorriendo el catálogo de
+//! `elephant-api`, y cada orden acaba en `elephant_api::invoke_with`, que
+//! aplica toda la política. Aquí solo se traduce la entrada y la salida.
 
-fn main() {}
+use std::io::{IsTerminal, Write};
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use clap::{Arg, ArgAction, ArgMatches, Command};
+use elephant_api::{ApiError, DialogConfirmer, ErrorCode, OpMeta, SystemRuntime, catalog, plugin, schema, watch};
+use elephant_api::elephant_core::audit::{self, AuditEntry};
+use elephant_api::elephant_core::{self, paths, settings};
+
+/// `elephant --version` → `elephant 0.1.0 (api 1)`.
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (api 1)");
+const DOCS_SCHEMA: &str = "docs/agent-api.json";
+const DOCS_REFERENCE: &str = "crates/elephant-api/plugin/elephant/skills/elephant/reference.md";
+
+fn main() -> ExitCode {
+    let matches = match cli().try_get_matches() {
+        Ok(matches) => matches,
+        Err(error) => {
+            // --help y --version salen con 0; el uso incorrecto, con 2.
+            let _ = error.print();
+            return ExitCode::from(error.exit_code() as u8);
+        }
+    };
+    let json = matches.get_flag("json");
+    let Some((name, sub)) = matches.subcommand() else {
+        return ExitCode::from(2);
+    };
+    let result = match name {
+        "doctor" => doctor(json),
+        "schema" => schema_command(sub),
+        "guide" => print_text(&plugin::guide()),
+        "mcp" => mcp(),
+        "__job" => hidden_job(sub),
+        "__write-plugin" => hidden_write_plugin(sub),
+        "logs" if sub.subcommand_name() == Some("watch") => {
+            logs_watch(sub.subcommand_matches("watch").unwrap_or(sub))
+        }
+        _ => return run_operation(name, sub, json),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => fail(&error, json),
+    }
+}
+
+/// `elephant <recurso> <verbo>`, generado del catálogo, más las órdenes que
+/// solo existen en la CLI.
+fn cli() -> Command {
+    let mut root = Command::new("elephant")
+        .bin_name("elephant")
+        .version(VERSION)
+        .about("Elephant Stack para agentes y para la terminal: logs, servicios, PHP y proyectos")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .arg(
+            Arg::new("json")
+                .long("json")
+                .global(true)
+                .action(ArgAction::SetTrue)
+                .help("Imprime JSON: exactamente el structuredContent de elephant mcp"),
+        );
+
+    let mut groups: Vec<(&'static str, Command)> = Vec::new();
+    for op in catalog() {
+        let leaf = (op.augment)(Command::new(op.cli[op.cli.len() - 1]).about((op.about)()));
+        if op.cli.len() == 1 {
+            root = root.subcommand(leaf);
+            continue;
+        }
+        let group = op.cli[0];
+        match groups.iter_mut().find(|(name, _)| *name == group) {
+            Some((_, command)) => *command = command.clone().subcommand(leaf),
+            None => groups.push((group, Command::new(group).about(group_about(group)).subcommand_required(true).subcommand(leaf))),
+        }
+    }
+    for (name, mut command) in groups {
+        if name == "logs" {
+            command = command.subcommand(watch_command());
+        }
+        root = root.subcommand(command);
+    }
+
+    root.subcommand(
+        Command::new("doctor").about("Estado del enlace, versión de la API, modo y número de operaciones"),
+    )
+    .subcommand(
+        Command::new("schema")
+            .about("Vuelca el catálogo (argumentos y salidas como JSON Schema)")
+            .arg(Arg::new("check").long("check").action(ArgAction::SetTrue).help("Compara con el archivo del repositorio"))
+            .arg(Arg::new("markdown").long("markdown").action(ArgAction::SetTrue).help("La referencia en Markdown de la skill"))
+            .arg(Arg::new("file").long("file").value_name("RUTA").help("El archivo con el que comparar")),
+    )
+    .subcommand(Command::new("guide").about("Imprime la guía para AGENTS.md o las reglas de otros agentes"))
+    .subcommand(Command::new("mcp").about("Sirve el catálogo como servidor MCP por stdio"))
+    .subcommand(Command::new("__job").hide(true).arg(Arg::new("id").required(true)))
+    .subcommand(Command::new("__write-plugin").hide(true).arg(Arg::new("dir").required(true)))
+}
+
+fn group_about(group: &str) -> &'static str {
+    match group {
+        "component" => "Componentes: mysql, postgresql, redis, mailpit, composer…",
+        "php" => "Versiones de PHP: la global y la de cada proyecto",
+        "project" => "Proyectos locales servidos por Herd",
+        "logs" => "Logs de Laravel, nginx y PHP-FPM (datos no fiables)",
+        "job" => "Tareas largas",
+        _ => "",
+    }
+}
+
+fn watch_command() -> Command {
+    Command::new("watch")
+        .about("Una línea por cada entrada nueva, para Monitor; termina al cumplirse --timeout")
+        .arg(Arg::new("errors").long("errors").action(ArgAction::SetTrue).help("Solo errores"))
+        .arg(Arg::new("project").long("project").value_name("P").help("Id, nombre o host del proyecto"))
+        .arg(
+            Arg::new("timeout")
+                .long("timeout")
+                .value_name("S")
+                .required(true)
+                .value_parser(clap::value_parser!(u64))
+                .help("Segundos (como mucho 1800)"),
+        )
+}
+
+fn find_op(name: &str, sub: &ArgMatches) -> Option<(&'static OpMeta, ArgMatches)> {
+    let verb = sub.subcommand();
+    catalog().iter().find_map(|op| match (op.cli, verb) {
+        ([group], _) if *group == name => Some((op, sub.clone())),
+        ([group, leaf], Some((verb, matches))) if *group == name && *leaf == verb => Some((op, matches.clone())),
+        _ => None,
+    })
+}
+
+fn caller() -> elephant_api::Caller {
+    let env = |key: &str| std::env::var_os(key).map(|v| v.to_string_lossy().into_owned());
+    elephant_api::detect_caller(&env, std::io::stdin().is_terminal())
+}
+
+fn run_operation(name: &str, sub: &ArgMatches, json: bool) -> ExitCode {
+    let Some((op, matches)) = find_op(name, sub) else {
+        return fail(&ApiError::usage(format!("Orden desconocida: {name}")), json);
+    };
+    let args = match (op.from_matches)(&matches) {
+        Ok(args) => args,
+        Err(error) => {
+            let _ = error.print();
+            return ExitCode::from(2);
+        }
+    };
+    let runtime = match SystemRuntime::new(caller()) {
+        Ok(runtime) => runtime,
+        Err(error) => return fail(&error, json),
+    };
+    let runtime = match std::env::current_exe() {
+        Ok(exe) => runtime.with_job_exe(exe),
+        Err(_) => runtime,
+    };
+    let confirmer = DialogConfirmer::default();
+    // El progreso de las tareas largas va a stderr, para no mezclarlo con la salida.
+    let mut progress = |line: &str| eprintln!("{line}");
+    match elephant_api::invoke_with(&runtime, op.id, args, &confirmer, &mut progress) {
+        Ok(reply) => {
+            let out = if json { reply.structured.to_string() } else { reply.text };
+            match print_text(&out) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => fail(&error, false),
+            }
+        }
+        Err(error) if error.code == ErrorCode::Running => {
+            // El id en stdout para poder usarlo en un script; la explicación, en stderr.
+            let id = error.job_id.clone().unwrap_or_default();
+            let line = if json { serde_json::json!({"job_id": id, "state": "running"}).to_string() } else { id };
+            let _ = print_text(&line);
+            fail(&error, json)
+        }
+        Err(error) => fail(&error, json),
+    }
+}
+
+fn print_text(text: &str) -> Result<(), ApiError> {
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "{text}")
+        .and_then(|()| stdout.flush())
+        .map_err(|error| ApiError::new(ErrorCode::Failed, error.to_string()))
+}
+
+fn fail(error: &ApiError, json: bool) -> ExitCode {
+    if json {
+        eprintln!("{}", serde_json::json!({ "error": error }));
+    } else {
+        eprintln!("{}", error.message);
+    }
+    ExitCode::from(error.code.exit_code())
+}
+
+// ── Órdenes solo de la CLI ───────────────────────────────────────────────────
+
+fn link_path() -> Option<PathBuf> {
+    paths::data_dir().ok().map(|dir| dir.join("bin/elephant"))
+}
+
+fn plugin_dir() -> Option<PathBuf> {
+    paths::data_dir().ok().map(|dir| dir.join("share/claude-plugin"))
+}
+
+fn doctor(json: bool) -> Result<(), ApiError> {
+    let link = link_path();
+    let target = link.as_ref().and_then(|l| std::fs::read_link(l).ok());
+    let linked = link.as_ref().is_some_and(|l| l.exists());
+    let plugin = plugin_dir();
+    let plugin_version = plugin
+        .as_ref()
+        .and_then(|dir| std::fs::read_to_string(dir.join(plugin::VERSION_FILE)).ok())
+        .map(|v| v.trim().to_string());
+    let mode = settings::load().mcp.mode;
+    let report = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "api": elephant_api::API_VERSION,
+        "mode": mode,
+        "operations": catalog().len(),
+        "mcp": cfg!(feature = "mcp"),
+        "linked": linked,
+        "link": link,
+        "link_target": target,
+        "exe": std::env::current_exe().ok(),
+        "plugin_dir": plugin,
+        "plugin_version": plugin_version,
+    });
+    if json {
+        return print_text(&report.to_string());
+    }
+    let mode = match mode {
+        settings::McpMode::ReadOnly => "solo lectura",
+        settings::McpMode::Confirm => "confirmar",
+        settings::McpMode::Trusted => "de confianza",
+    };
+    let mut lines = vec![
+        format!("{} · modo {mode} · {} operaciones", plugin::version_line(), catalog().len()),
+        match (&link, linked) {
+            (Some(link), true) => format!(
+                "Enlace: {}{}",
+                link.display(),
+                target.map(|t| format!(" → {}", t.display())).unwrap_or_default()
+            ),
+            (Some(link), false) => format!("Enlace: falta {} (actívalo en Elephant Stack > Ajustes > Agentes)", link.display()),
+            (None, _) => "Enlace: HOME no está definido".to_string(),
+        },
+        match plugin_version {
+            Some(version) => format!("Plugin de Claude Code escrito ({version})"),
+            None => "Plugin de Claude Code: sin escribir (Ajustes > Agentes > Conectar)".to_string(),
+        },
+    ];
+    lines.push(if cfg!(feature = "mcp") { "elephant mcp: disponible" } else { "elephant mcp: no incluido" }.into());
+    print_text(&lines.join("\n"))
+}
+
+fn schema_command(sub: &ArgMatches) -> Result<(), ApiError> {
+    let markdown = sub.get_flag("markdown");
+    let current = if markdown { schema::markdown() } else { schema::document_text() };
+    if !sub.get_flag("check") {
+        return print_text(current.trim_end_matches('\n'));
+    }
+    let file = sub
+        .get_one::<String>("file")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(if markdown { DOCS_REFERENCE } else { DOCS_SCHEMA }));
+    let committed = std::fs::read_to_string(&file)
+        .map_err(|error| ApiError::new(ErrorCode::Failed, format!("No se pudo leer {}: {error}", file.display())))?;
+    if committed == current {
+        print_text(&format!("{} está al día.", file.display()))
+    } else {
+        let regenerate = if markdown { "elephant schema --markdown" } else { "elephant schema" };
+        Err(ApiError::new(
+            ErrorCode::Failed,
+            format!(
+                "{} no coincide con el catálogo. Regenera con `{regenerate} > {}` y, si el cambio es incompatible, sube la versión de la API.",
+                file.display(),
+                file.display()
+            ),
+        ))
+    }
+}
+
+#[cfg(feature = "mcp")]
+fn mcp() -> Result<(), ApiError> {
+    elephant_mcp::serve().map_err(|error| ApiError::new(ErrorCode::Failed, error))
+}
+
+#[cfg(not(feature = "mcp"))]
+fn mcp() -> Result<(), ApiError> {
+    Err(ApiError::new(ErrorCode::Unavailable, "Esta compilación de elephant no incluye elephant mcp."))
+}
+
+fn logs_watch(sub: &ArgMatches) -> Result<(), ApiError> {
+    let timeout = sub.get_one::<u64>("timeout").copied().unwrap_or(0);
+    let timeout = watch::check_timeout(timeout).map_err(ApiError::usage)?;
+    let project = sub.get_one::<String>("project").cloned();
+    let errors = sub.get_flag("errors");
+    let home = paths::home().map_err(ApiError::from_core)?;
+    let caller = caller();
+    // Una lectura de logs: se audita sin su contenido.
+    audit::record(&AuditEntry {
+        at: elephant_core::now_rfc3339(),
+        session: caller.session().to_string(),
+        client: Some(caller.client().to_string()),
+        tool: "logs_watch".into(),
+        args: serde_json::json!({"project": project, "errors": errors, "timeout": timeout.as_secs()}),
+        confirmed_by: None,
+        ok: true,
+        ms: 0,
+        error: None,
+    });
+    let mut stdout = std::io::stdout().lock();
+    watch::watch(&home, project.as_deref(), errors, timeout, &mut stdout).map_err(|error| ApiError::new(ErrorCode::Failed, error))
+}
+
+fn hidden_job(sub: &ArgMatches) -> Result<(), ApiError> {
+    let id = sub.get_one::<String>("id").map(String::as_str).unwrap_or_default();
+    elephant_api::run_job(id).map_err(|error| ApiError::new(ErrorCode::Failed, error))
+}
+
+fn hidden_write_plugin(sub: &ArgMatches) -> Result<(), ApiError> {
+    let dir = sub.get_one::<String>("dir").map(Path::new).ok_or_else(|| ApiError::usage("Falta la carpeta."))?;
+    let written = plugin::write_plugin(dir).map_err(|error| ApiError::new(ErrorCode::Failed, error))?;
+    print_text(&format!("Plugin escrito en {} ({} archivos)", dir.display(), written.len()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn version_names_the_api() {
+        assert_eq!(format!("elephant {VERSION}"), plugin::version_line());
+    }
+
+    #[test]
+    fn the_command_tree_is_valid() {
+        cli().debug_assert();
+    }
+
+    #[test]
+    fn every_operation_is_reachable_by_its_cli_path() {
+        for op in catalog() {
+            let mut argv = vec!["elephant".to_string()];
+            argv.extend(op.cli.iter().map(|s| s.to_string()));
+            argv.extend(sample_args(op.id).iter().map(|s| s.to_string()));
+            let matches = cli().try_get_matches_from(&argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            let (name, sub) = matches.subcommand().unwrap();
+            let (found, _) = find_op(name, sub).unwrap();
+            assert_eq!(found.id, op.id);
+        }
+    }
+
+    /// Ida y vuelta clap → serde → clap sin cambios (05 §8).
+    #[test]
+    fn clap_and_serde_round_trip() {
+        for op in catalog() {
+            let mut argv = vec!["elephant".to_string()];
+            argv.extend(op.cli.iter().map(|s| s.to_string()));
+            argv.extend(sample_args(op.id).iter().map(|s| s.to_string()));
+            let matches = cli().try_get_matches_from(&argv).unwrap();
+            let (name, sub) = matches.subcommand().unwrap();
+            let (op, leaf) = find_op(name, sub).unwrap();
+            let first = (op.from_matches)(&leaf).unwrap();
+            // serde → argumentos de la CLI → clap otra vez.
+            let mut again = vec!["elephant".to_string()];
+            again.extend(op.cli.iter().map(|s| s.to_string()));
+            again.extend(to_argv(op, &first));
+            let matches = cli().try_get_matches_from(&again).unwrap_or_else(|e| panic!("{again:?}: {e}"));
+            let (name, sub) = matches.subcommand().unwrap();
+            let (_, leaf) = find_op(name, sub).unwrap();
+            assert_eq!((op.from_matches)(&leaf).unwrap(), first, "{}", op.id);
+        }
+    }
+
+    fn sample_args(id: &str) -> Vec<&'static str> {
+        match id {
+            "elephant_status" => vec!["--brief"],
+            "components_list" => vec!["--kind", "service", "--installed"],
+            "php_versions" | "project_needs" | "project_start_services" => vec!["--dir", "/tmp/x"],
+            "logs_sources" => vec!["--project", "shop"],
+            "logs_tail" => vec!["laravel_app:shop", "-n", "20", "--level", "error", "--contains", "SQL"],
+            "logs_search" => vec!["timeout", "--status", "5xx", "--since", "2h", "--limit", "10", "--cursor", "abc"],
+            "logs_errors_summary" => vec!["--project", "shop", "--since", "30m"],
+            "logs_entry" => vec!["abc:12"],
+            "job_status" => vec!["job-12345678", "--wait", "5"],
+            "service_control" => vec!["autostart-on", "postgresql@18"],
+            "php_set_global" => vec!["8.4"],
+            "php_set_project" => vec!["8.3", "--dir", "/tmp/x"],
+            "component_install" => vec!["redis", "--detach"],
+            "project_create" => vec!["shop", "--template", "blank", "--php", "8.4", "--detach"],
+            _ => vec![],
+        }
+    }
+
+    /// Reconstruye la línea de órdenes a partir del JSON de serde, usando la
+    /// definición de clap (posicionales en orden y opciones largas).
+    fn to_argv(op: &OpMeta, value: &serde_json::Value) -> Vec<String> {
+        let command = (op.augment)(Command::new("x"));
+        let mut argv = Vec::new();
+        for arg in command.get_arguments() {
+            let id = arg.get_id().as_str();
+            let Some(item) = value.get(id).filter(|v| !v.is_null()) else { continue };
+            let text = match item {
+                serde_json::Value::String(s) => s.replace('_', "-").to_string(),
+                other => other.to_string(),
+            };
+            // Los valores libres se pasan tal cual; los enumerados, en kebab-case.
+            let text = if arg.get_possible_values().is_empty() { item.as_str().map(str::to_string).unwrap_or(text) } else { text };
+            if arg.is_positional() {
+                argv.push(text);
+            } else if !arg.get_action().takes_values() {
+                if item.as_bool() == Some(true) {
+                    argv.push(format!("--{}", arg.get_long().unwrap_or(id)));
+                }
+            } else {
+                argv.push(format!("--{}", arg.get_long().unwrap_or(id)));
+                argv.push(text);
+            }
+        }
+        argv
+    }
+}

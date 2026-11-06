@@ -1,0 +1,16 @@
+{
+  "name": "elephant-stack",
+  "owner": {
+    "name": "Cristian Cosano"
+  },
+  "metadata": {
+    "description": "Plugins locales de Elephant Stack, generados por la propia app."
+  },
+  "plugins": [
+    {
+      "name": "elephant",
+      "source": "./elephant",
+      "description": "Entorno PHP/Laravel local de Elephant Stack: logs, errores 500, servicios de Homebrew, versiones de PHP y proyectos .test."
+    }
+  ]
+}

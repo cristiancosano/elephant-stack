@@ -18,7 +18,7 @@ use super::{
     Action, ApplyContext, ApplyOutcome, ApplyReport, Plan, SetupProgress, Step, StepState,
 };
 use crate::brew::{self, Operation};
-use crate::{components, lock, paths, stamp};
+use crate::{components, lock, paths, stamp, tr, tr_str};
 
 /// Lo que el asistente le pide a Homebrew. Cada llamada toma el cerrojo (C15).
 pub(crate) trait BrewOps: Sync {
@@ -63,13 +63,16 @@ pub(crate) fn translate(error: &str) -> Option<&'static str> {
         "curl: (7)",
     ];
     if offline.iter().any(|needle| error.contains(needle)) {
-        Some("Sin conexión a Internet.")
+        Some(tr_str!("Sin conexión a Internet.", "No internet connection."))
     } else if error.contains("xcrun: error") {
-        Some("Faltan las Command Line Tools de Xcode: ejecuta xcode-select --install.")
+        Some(tr_str!(
+            "Faltan las Command Line Tools de Xcode: ejecuta xcode-select --install.",
+            "Xcode Command Line Tools are missing: run xcode-select --install."
+        ))
     } else if error.contains("already locked") {
-        Some("Homebrew está ocupado con otra operación.")
+        Some(tr_str!("Homebrew está ocupado con otra operación.", "Homebrew is busy with another operation."))
     } else if error.contains("No space left") {
-        Some("No queda espacio en disco.")
+        Some(tr_str!("No queda espacio en disco.", "The disk is full."))
     } else {
         None
     }
@@ -196,7 +199,7 @@ impl Exec<'_> {
             }
             if let Err(dep) = self.board.wait(&step.after) {
                 let title = self.titles.get(dep).map_or(dep, String::as_str);
-                self.skip(step, format!("No se completó «{title}»."));
+                self.skip(step, tr!("No se completó «{title}».", "“{title}” didn’t finish."));
                 continue;
             }
             self.run(step);
@@ -309,7 +312,7 @@ pub(crate) fn run(
         if !plan.steps.iter().any(|s| s.optional && s.key == *key) {
             log.line(
                 "plan",
-                &format!("Se ignora «{key}»: no es un paso opcional de este plan."),
+                &tr!("Se ignora «{key}»: no es un paso opcional de este plan.", "Ignoring “{key}”: it isn’t an optional step of this plan."),
             );
         }
     }
@@ -354,11 +357,10 @@ pub(crate) fn run(
     exec.lane(&last);
 
     let report = exec.report.into_inner().unwrap_or_else(|p| p.into_inner());
-    let summary = format!(
-        "Terminado: {} hechos, {} con error, {} saltados.",
-        report.done.len(),
-        report.failed.len(),
-        report.skipped.len()
+    let (ok, err, skip) = (report.done.len(), report.failed.len(), report.skipped.len());
+    let summary = tr!(
+        "Terminado: {ok} hechos, {err} con error, {skip} saltados.",
+        "Finished: {ok} done, {err} failed, {skip} skipped."
     );
     exec.log.line("plan", &summary);
     if !report.done.is_empty() {
@@ -463,6 +465,7 @@ mod tests {
             steps,
             satisfied: Vec::new(),
             notices: Vec::new(),
+            path_notice: None,
             conflicts: Vec::new(),
             totals: Totals::default(),
         }

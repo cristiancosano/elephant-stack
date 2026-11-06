@@ -4,7 +4,8 @@
   import type { Database } from "../../lib/bindings/Database";
   import type { ScenarioCard } from "../../lib/bindings/ScenarioCard";
   import type { ScenarioId } from "../../lib/bindings/ScenarioId";
-  import { formatBytes, plural } from "../../lib/format";
+  import { formatBytes } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import { choiceLabel, type Preset } from "../../lib/wizard/machine";
   import { DATABASE_NAMES, idleRam } from "../../lib/wizard/scenario";
@@ -78,8 +79,8 @@
 
 <section class="scenario">
   <header class="head">
-    <h1 class="title">¿Cómo trabajas?</h1>
-    <p class="lead">Elige un punto de partida. Podrás revisar cada cambio antes de aplicarlo, y nada se desinstala.</p>
+    <h1 class="title">{t("wizard.scenario.title")}</h1>
+    <p class="lead">{t("wizard.scenario.subtitle")}</p>
   </header>
 
   {#if wizard.cards === null && !wizard.cardsError}
@@ -91,12 +92,12 @@
   {:else if cards.length === 0}
     <EmptyState
       icon="warning"
-      title="No se han podido preparar los escenarios"
-      message={wizard.cardsError ?? "Puedes elegir los componentes uno a uno en Personalizado."}
-      action={{ label: "Reintentar", onclick: () => wizard.retryCards() }}
+      title={t("wizard.scenario.loadError")}
+      message={wizard.cardsError ?? t("wizard.scenario.loadErrorMessage")}
+      action={{ label: t("common.retry"), onclick: () => wizard.retryCards() }}
     />
   {:else}
-    <div class="cards" role="radiogroup" aria-label="Escenario">
+    <div class="cards" role="radiogroup" aria-label={t("wizard.screen.scenario")}>
       {#each cards as card, i (card.id)}
         {@const isSelected = selected === card.id}
         <div class="card" class:selected={isSelected}>
@@ -113,33 +114,37 @@
             <span class="icon" aria-hidden="true"><Icon name={ICONS[card.id]} size={20} /></span>
             <span class="check" aria-hidden="true"><Icon name="check" /></span>
             <span class="name">{card.name}</span>
-            {#if card.recommended}<span class="badge"><Badge tone="accent" label="Recomendado" /></span>{/if}
+            {#if card.recommended}<span class="badge"><Badge tone="accent" label={t("wizard.scenario.recommended")} /></span>{/if}
             <span class="phrase">{card.phrase}</span>
             {#if card.components.length}
               <span class="components">{card.components.join(" · ")}</span>
             {/if}
             <span class="figures num">
               <span>{idleRam(card.idle_ram_mb)}</span>
-              <span>{card.download_bytes > 0 ? `${formatBytes(card.download_bytes)} de descarga` : "Sin descargas"}</span>
-              <span>{card.steps === 0 ? "Ya lo tienes todo" : plural(card.steps, "paso")}</span>
+              <span
+                >{card.download_bytes > 0
+                  ? t("wizard.scenario.download", { size: formatBytes(card.download_bytes) })
+                  : t("wizard.scenario.noDownload")}</span
+              >
+              <span>{card.steps === 0 ? t("wizard.scenario.allSet") : t("wizard.scenario.steps", { count: card.steps })}</span>
             </span>
           </button>
 
           {#if card.databases.length > 1}
             <div class="database">
               <SegmentedControl
-                label="Base de datos de {card.name}"
+                label={t("wizard.scenario.database", { name: card.name })}
                 options={databaseOptions(card)}
                 value={wizard.database}
                 onchange={(d) => wizard.setDatabase(d)}
               />
-              <span class="costs num">Encendida: {databaseCosts(card)}</span>
+              <span class="costs num">{t("wizard.scenario.databaseOn", { cost: databaseCosts(card) })}</span>
             </div>
           {/if}
 
           <div class="adjust">
             <Button variant="plain" disabled={wizard.busy !== null} onclick={() => void wizard.customize(card.id)}>
-              Ajustar…
+              {t("wizard.scenario.adjust")}
             </Button>
           </div>
         </div>
@@ -148,10 +153,10 @@
   {/if}
 
   <div class="custom">
-    <Group footer="Elige servicio a servicio. Empieza con lo que ya tienes: si no tocas nada, no cambia nada.">
+    <Group footer={t("wizard.scenario.customFooter")}>
       <Row
-        title={customLabel ?? "Personalizado"}
-        subtitle={customLabel ? "Elegido" : undefined}
+        title={customLabel ?? t("wizard.scenarios.custom")}
+        subtitle={customLabel ? t("wizard.scenario.chosen") : undefined}
         selected={s.scenario === "custom"}
         onactivate={() => void wizard.customize(null)}
       >

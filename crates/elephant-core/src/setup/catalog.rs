@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::download;
 use super::presets;
 use super::{Catalog, ComposerRelease, PhpRelease};
-use crate::{fsutil, paths};
+use crate::{fsutil, paths, tr};
 
 /// Repositorio por defecto de las versiones de PHP.
 pub const DEFAULT_SOURCE: &str = "cristiancosano/php-builds";
@@ -84,11 +84,11 @@ pub fn parse_source(input: &str) -> Result<PhpSource, String> {
         return if valid {
             Ok(PhpSource::Index(input.to_string()))
         } else {
-            Err("La URL del índice no es válida.".to_string())
+            Err(tr!("La URL del índice no es válida.", "The index URL isn’t valid."))
         };
     }
     if input.contains("://") {
-        return Err("Solo se admiten URL https.".to_string());
+        return Err(tr!("Solo se admiten URL https.", "Only https URLs are supported."));
     }
     match input.split_once('/') {
         Some((owner, repo)) if is_github_name(owner, 39) && is_github_name(repo, 100) => {
@@ -97,7 +97,10 @@ pub fn parse_source(input: &str) -> Result<PhpSource, String> {
                 repo: repo.to_string(),
             })
         }
-        _ => Err("Escribe un repositorio de GitHub (usuario/repo) o la URL https de un index.json.".to_string()),
+        _ => Err(tr!(
+            "Escribe un repositorio de GitHub (propietario/repo) o la URL https de un index.json.",
+            "Enter a GitHub repository (owner/repo) or the https URL of an index.json."
+        )),
     }
 }
 
@@ -127,7 +130,7 @@ pub struct SourceCheck {
 pub fn check_source(input: &str) -> Result<SourceCheck, String> {
     let source = parse_source(input)?;
     let curl = download::curl_path();
-    let mut last_error = String::from("No se ha podido leer el índice.");
+    let mut last_error = tr!("No se ha podido leer el índice.", "Couldn’t read the index.");
     for url in source.urls() {
         match download::fetch_text(&curl, &url).and_then(|json| parse_releases(&json)) {
             Ok((php, skipped)) if !php.is_empty() => {
@@ -139,9 +142,12 @@ pub fn check_source(input: &str) -> Result<SourceCheck, String> {
             }
             Ok((_, skipped)) => {
                 last_error = if skipped.is_empty() {
-                    "El índice no tiene ninguna release php-X.Y.Z.".to_string()
+                    tr!("El índice no tiene ninguna release php-X.Y.Z.", "The index has no php-X.Y.Z releases.")
                 } else {
-                    format!("Ninguna versión sirve en este Mac: {}", skipped.join("; "))
+                    {
+                    let list = skipped.join("; ");
+                    tr!("Ninguna versión sirve en este Mac: {list}", "No version works on this Mac: {list}")
+                }
                 };
             }
             Err(error) => last_error = error,
@@ -150,10 +156,11 @@ pub fn check_source(input: &str) -> Result<SourceCheck, String> {
     // El error de curl solo (por ejemplo, el 403 de la API sin cupo) no dice
     // qué falta; se explica qué se ha buscado.
     Err(match &source {
-        PhpSource::GitHub { owner, repo } => format!(
-            "No se encuentra un índice de versiones en {owner}/{repo}: falta la release «catalog» con index.json, o el repositorio no existe o es privado. Detalle: {last_error}"
+        PhpSource::GitHub { owner, repo } => tr!(
+            "No se encuentra un índice de versiones en {owner}/{repo}: falta la release «catalog» con index.json, o el repositorio no existe o es privado. Detalle: {last_error}",
+            "Couldn’t find a version index in {owner}/{repo}: the “catalog” release with index.json is missing, or the repository doesn’t exist or is private. Details: {last_error}"
         ),
-        PhpSource::Index(_) => format!("No se ha podido leer el índice. Detalle: {last_error}"),
+        PhpSource::Index(_) => tr!("No se ha podido leer el índice. Detalle: {last_error}", "Couldn’t read the index. Details: {last_error}"),
     })
 }
 
@@ -180,7 +187,7 @@ struct Asset {
 /// no lo tienen se descartan (y se cuentan en `skipped`).
 pub(crate) fn parse_releases(json: &str) -> Result<(Vec<PhpRelease>, Vec<String>), String> {
     let releases: Vec<Release> = serde_json::from_str(json)
-        .map_err(|error| format!("Respuesta inesperada de GitHub: {error}"))?;
+        .map_err(|error| tr!("Respuesta inesperada de GitHub: {error}", "Unexpected response from GitHub: {error}"))?;
     let mut php = Vec::new();
     let mut skipped = Vec::new();
     for release in releases {
@@ -192,10 +199,8 @@ pub(crate) fn parse_releases(json: &str) -> Result<(Vec<PhpRelease>, Vec<String>
         }
         let name = format!("php-{version}-macos-arm64.tar.gz");
         let Some(asset) = release.assets.iter().find(|a| a.name == name) else {
-            skipped.push(format!(
-                "{}: sin paquete para macOS arm64",
-                release.tag_name
-            ));
+            let tag = &release.tag_name;
+            skipped.push(tr!("{tag}: sin paquete para macOS arm64", "{tag}: no macOS arm64 package"));
             continue;
         };
         // Cada release trae `<paquete>.sha256`, salvo la de 8.4.27, que solo
@@ -206,11 +211,13 @@ pub(crate) fn parse_releases(json: &str) -> Result<(Vec<PhpRelease>, Vec<String>
             .find(|a| a.name == format!("{name}.sha256"))
             .or_else(|| release.assets.iter().find(|a| a.name == "SHA256SUMS"));
         let Some(checksum) = checksum else {
-            skipped.push(format!("{}: sin checksum", release.tag_name));
+            let tag = &release.tag_name;
+            skipped.push(tr!("{tag}: sin checksum", "{tag}: no checksum"));
             continue;
         };
         if !is_https(&asset.browser_download_url) || !is_https(&checksum.browser_download_url) {
-            skipped.push(format!("{}: URL que no es https", release.tag_name));
+            let tag = &release.tag_name;
+            skipped.push(tr!("{tag}: URL que no es https", "{tag}: URL isn’t https"));
             continue;
         }
         php.push(PhpRelease {

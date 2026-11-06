@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use elephant_core::audit::{self, AuditEntry};
 use elephant_core::settings::{self, McpMode};
-use elephant_core::paths;
+use elephant_core::{paths, tr, tr_str};
 use serde::Serialize;
 use serde_json::{Value, json};
 
@@ -88,7 +88,12 @@ fn plugin_dir() -> Result<PathBuf, String> {
 fn cli_binary() -> Result<PathBuf, String> {
     sidecar::path("cli")
         .or_else(|| link_path().ok().filter(|link| link.is_file()))
-        .ok_or_else(|| "No se encuentra la orden elephant de esta copia de Elephant Stack.".to_string())
+        .ok_or_else(|| {
+            tr!(
+                "No se encuentra la orden elephant de esta copia de Elephant Stack.",
+                "Couldn’t find the elephant command in this copy of Elephant Stack."
+            )
+        })
 }
 
 fn claude_path() -> Option<PathBuf> {
@@ -115,7 +120,7 @@ fn run(program: &Path, args: &[&str], timeout: Duration) -> Result<Output, Strin
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("No se pudo ejecutar {name}: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar {name}: {error}", "Couldn’t run {name}: {error}"))?;
     // Leer en hilos: una salida grande no debe bloquear al hijo.
     let mut stdout = child.stdout.take();
     let mut stderr = child.stderr.take();
@@ -141,7 +146,8 @@ fn run(program: &Path, args: &[&str], timeout: Duration) -> Result<Output, Strin
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err(format!("{name} no ha respondido en {} s.", timeout.as_secs()));
+                let secs = timeout.as_secs();
+                return Err(tr!("{name} no ha respondido en {secs} s.", "{name} didn’t respond in {secs} s."));
             }
             Err(error) => return Err(error.to_string()),
         }
@@ -155,8 +161,13 @@ fn checked(output: Output, what: &str) -> Result<String, String> {
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let detail = stderr.trim().lines().last().or_else(|| stdout.trim().lines().last()).unwrap_or("sin detalles");
-    Err(format!("{what} ha fallado: {detail}"))
+    let detail = stderr
+        .trim()
+        .lines()
+        .last()
+        .or_else(|| stdout.trim().lines().last())
+        .unwrap_or(tr_str!("sin detalles", "no details"));
+    Err(tr!("{what} ha fallado: {detail}", "{what} failed: {detail}"))
 }
 
 // ── Estado ───────────────────────────────────────────────────────────────────
@@ -277,7 +288,12 @@ fn inspect_link(link: &Path) -> Option<Result<PathBuf, ()>> {
 
 fn ensure_link() -> Result<(), String> {
     let link = link_path()?;
-    let target = sidecar::path("cli").ok_or("No se encuentra la orden elephant dentro de Elephant Stack.")?;
+    let target = sidecar::path("cli").ok_or_else(|| {
+        tr!(
+            "No se encuentra la orden elephant dentro de Elephant Stack.",
+            "Couldn’t find the elephant command inside Elephant Stack."
+        )
+    })?;
     match link_action(inspect_link(&link), &target) {
         LinkAction::Keep | LinkAction::LeaveFile => Ok(()),
         LinkAction::Create | LinkAction::Replace => {
@@ -287,8 +303,9 @@ fn ensure_link() -> Result<(), String> {
             // Se crea al lado y se renombra encima: nunca hay un momento sin enlace.
             let tmp = link.with_extension(format!("tmp-{}", std::process::id()));
             let _ = std::fs::remove_file(&tmp);
-            std::os::unix::fs::symlink(&target, &tmp).map_err(|error| format!("No se pudo crear el enlace: {error}"))?;
-            std::fs::rename(&tmp, &link).map_err(|error| format!("No se pudo crear el enlace: {error}"))
+            let failed = |error: std::io::Error| tr!("No se pudo crear el enlace: {error}", "Couldn’t create the link: {error}");
+            std::os::unix::fs::symlink(&target, &tmp).map_err(failed)?;
+            std::fs::rename(&tmp, &link).map_err(failed)
         }
     }
 }
@@ -296,7 +313,8 @@ fn ensure_link() -> Result<(), String> {
 fn remove_link() -> Result<(), String> {
     let link = link_path()?;
     match inspect_link(&link) {
-        Some(Ok(_)) => std::fs::remove_file(&link).map_err(|error| format!("No se pudo quitar el enlace: {error}")),
+        Some(Ok(_)) => std::fs::remove_file(&link)
+            .map_err(|error| tr!("No se pudo quitar el enlace: {error}", "Couldn’t remove the link: {error}")),
         _ => Ok(()),
     }
 }
@@ -304,7 +322,10 @@ fn remove_link() -> Result<(), String> {
 fn write_plugin() -> Result<PathBuf, String> {
     let dir = plugin_dir()?;
     let dir_text = dir.display().to_string();
-    checked(run(&cli_binary()?, &["__write-plugin", &dir_text], CLI_TIMEOUT)?, "Escribir el plugin")?;
+    checked(
+        run(&cli_binary()?, &["__write-plugin", &dir_text], CLI_TIMEOUT)?,
+        tr_str!("Escribir el plugin", "Write the plugin"),
+    )?;
     Ok(dir)
 }
 
@@ -342,7 +363,8 @@ struct Doctor {
 }
 
 fn parse_doctor(text: &str) -> Result<Doctor, String> {
-    let value: Value = serde_json::from_str(text).map_err(|_| "elephant doctor ha devuelto algo inesperado.".to_string())?;
+    let value: Value = serde_json::from_str(text)
+        .map_err(|_| tr!("elephant doctor ha devuelto algo inesperado.", "elephant doctor returned something unexpected."))?;
     Ok(Doctor {
         operations: value["operations"].as_u64().unwrap_or(0) as u32,
         mode: serde_json::from_value(value["mode"].clone()).unwrap_or_default(),
@@ -365,7 +387,7 @@ fn mcp_handshake(binary: &Path) -> Result<u32, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|error| format!("No se pudo ejecutar elephant mcp: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar elephant mcp: {error}", "Couldn’t run elephant mcp: {error}"))?;
     let result = (|| {
         let mut stdin = child.stdin.take().ok_or("Sin stdin.")?;
         let stdout = child.stdout.take().ok_or("Sin stdout.")?;
@@ -393,13 +415,15 @@ fn mcp_handshake(binary: &Path) -> Result<u32, String> {
         let deadline = Instant::now() + CLI_TIMEOUT;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let line = lines.recv_timeout(left).map_err(|_| "elephant mcp no ha respondido.".to_string())?;
+            let line = lines
+                .recv_timeout(left)
+                .map_err(|_| tr!("elephant mcp no ha respondido.", "elephant mcp didn’t respond."))?;
             let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
             if message["id"] == 2 {
                 return message["result"]["tools"]
                     .as_array()
                     .map(|tools| tools.len() as u32)
-                    .ok_or_else(|| "elephant mcp no ha devuelto herramientas.".to_string());
+                    .ok_or_else(|| tr!("elephant mcp no ha devuelto herramientas.", "elephant mcp returned no tools."));
             }
         }
     })();
@@ -458,16 +482,27 @@ fn already_done(error: &str) -> bool {
 }
 
 fn connect_claude() -> Result<(), String> {
-    let claude = claude_path().ok_or("No se encuentra Claude Code (la orden claude). Instálalo y vuelve a intentarlo.")?;
+    let claude = claude_path().ok_or_else(|| {
+        tr!(
+            "No se encuentra Claude Code (la orden claude). Instálalo y vuelve a intentarlo.",
+            "Couldn’t find Claude Code (the claude command). Install it and try again."
+        )
+    })?;
     ensure_link()?;
     let dir = write_plugin()?;
     let dir_text = dir.display().to_string();
-    if let Err(error) = checked(run(&claude, &["plugin", "marketplace", "add", &dir_text], CLAUDE_TIMEOUT)?, "Añadir el marketplace")
+    if let Err(error) = checked(
+        run(&claude, &["plugin", "marketplace", "add", &dir_text], CLAUDE_TIMEOUT)?,
+        tr_str!("Añadir el marketplace", "Add the marketplace"),
+    )
         && !already_done(&error)
     {
         return Err(error);
     }
-    if let Err(error) = checked(run(&claude, &["plugin", "install", PLUGIN_ID, "-s", "user"], CLAUDE_TIMEOUT)?, "Instalar el plugin")
+    if let Err(error) = checked(
+        run(&claude, &["plugin", "install", PLUGIN_ID, "-s", "user"], CLAUDE_TIMEOUT)?,
+        tr_str!("Instalar el plugin", "Install the plugin"),
+    )
         && !already_done(&error)
     {
         return Err(error);
@@ -481,7 +516,10 @@ fn disable() -> Result<(), String> {
     if claude_registered(claude.as_deref())
         && let Some(claude) = claude
     {
-        checked(run(&claude, &["plugin", "uninstall", PLUGIN_ID], CLAUDE_TIMEOUT)?, "Desinstalar el plugin")?;
+        checked(
+            run(&claude, &["plugin", "uninstall", PLUGIN_ID], CLAUDE_TIMEOUT)?,
+            tr_str!("Desinstalar el plugin", "Uninstall the plugin"),
+        )?;
     }
     Ok(())
 }

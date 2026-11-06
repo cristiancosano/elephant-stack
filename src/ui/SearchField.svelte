@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import Icon from "./Icon.svelte";
+  import { t } from "../lib/i18n/index.svelte";
 
   const DEBOUNCE_MS = 150;
 
@@ -101,7 +102,7 @@
     <span class="regex mono" aria-hidden="true">.*</span>
   {/if}
   {#if text !== ""}
-    <button type="button" class="clear" aria-label="Borrar búsqueda" title="Borrar búsqueda" onclick={clear}>
+    <button type="button" class="clear" aria-label={t("ui.search.clear")} title={t("ui.search.clear")} onclick={clear}>
       <Icon name="x" />
     </button>
   {/if}

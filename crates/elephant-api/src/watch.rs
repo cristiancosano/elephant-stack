@@ -11,6 +11,8 @@ use std::time::{Duration, Instant};
 use elephant_logs::{LogHub, LogLevel, LogQuery, projects};
 
 use crate::ops::logs::{EntryLine, entry_text};
+use elephant_core::tr;
+
 use crate::{UNTRUSTED_BEGIN, UNTRUSTED_END};
 
 /// El plazo máximo de Monitor.
@@ -18,7 +20,7 @@ pub const MAX_TIMEOUT_SECS: u64 = 1800;
 
 pub fn check_timeout(secs: u64) -> Result<Duration, String> {
     if secs == 0 || secs > MAX_TIMEOUT_SECS {
-        Err(format!("--timeout va de 1 a {MAX_TIMEOUT_SECS} segundos."))
+        Err(tr!("--timeout va de 1 a {MAX_TIMEOUT_SECS} segundos.", "--timeout goes from 1 to {MAX_TIMEOUT_SECS} seconds."))
     } else {
         Ok(Duration::from_secs(secs))
     }
@@ -37,7 +39,7 @@ pub fn watch(
         let all = projects::discover(home);
         let id = projects::resolve(&all, needle)
             .map(|p| p.id.clone())
-            .ok_or_else(|| format!("No conozco el proyecto «{needle}». Mira `elephant project list`."))?;
+            .ok_or_else(|| tr!("No conozco el proyecto «{needle}». Mira `elephant project list`.", "Unknown project “{needle}”. See `elephant project list`."))?;
         q.projects.push(id);
     }
     if errors {

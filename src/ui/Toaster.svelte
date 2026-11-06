@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import type { IconName } from "./icons";
   import { dismiss, hold, release, toasts, type ToastTone } from "./toasts.svelte";
+  import { t as tr } from "../lib/i18n/index.svelte";
 
   // Un solo Toaster en la app (App.svelte). Los avisos se piden con `toast()`.
   const ICONS: Record<ToastTone, IconName> = { info: "info", success: "check", error: "warning" };
@@ -43,7 +44,7 @@
         >
       {/if}
       {#if t.tone === "error"}
-        <button type="button" class="close" aria-label="Cerrar aviso" title="Cerrar aviso" onclick={() => dismiss(t.id)}>
+        <button type="button" class="close" aria-label={tr("ui.toast.close")} title={tr("ui.toast.close")} onclick={() => dismiss(t.id)}>
           <Icon name="x" />
         </button>
       {/if}

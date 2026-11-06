@@ -556,7 +556,7 @@ fn doctor_speaks_the_locale() {
 
     let en = s.run(&["doctor"], &[("ELEPHANT_STACK_LANG", "en")]);
     assert!(stdout(&en).contains("· confirm mode · 17 operations"), "{}", stdout(&en));
-    assert!(stdout(&en).contains("is missing (turn it on in Elephant Stack > Settings > Agents)"), "{}", stdout(&en));
+    assert!(stdout(&en).contains("not found (turn it on in Elephant Stack > Settings > Agents)"), "{}", stdout(&en));
 
     let json_es = s.run(&["doctor", "--json"], &[]);
     let json_en = s.run(&["doctor", "--json"], &[("ELEPHANT_STACK_LANG", "en")]);

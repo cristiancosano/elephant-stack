@@ -19,6 +19,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use elephant_core::brew::Operation;
 use elephant_core::jobs::JobInfo;
+use elephant_core::{tr, tr_str};
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -263,22 +264,31 @@ impl Entry {
     }
 }
 
-fn plural(n: usize, one: &str, many: &str) -> String {
+fn running_count(n: usize) -> String {
     if n == 1 {
-        format!("1 {one}")
+        tr!("{n} servicio en marcha", "{n} service running")
     } else {
-        format!("{n} {many}")
+        tr!("{n} servicios en marcha", "{n} services running")
     }
 }
 
-/// `412 MB`, `1,2 GB`, con coma decimal.
+fn error_count(n: u64) -> String {
+    if n == 1 {
+        tr!("{n} error", "{n} error")
+    } else {
+        tr!("{n} errores", "{n} errors")
+    }
+}
+
+/// `412 MB`, `1,2 GB` (en inglés, `1.2 GB`).
 fn format_memory(kb: u64) -> String {
     let mb = (kb + 512) / 1024;
     if mb < 1024 {
         format!("{mb} MB")
     } else {
         let tenths = (kb * 10 + 524_288) / 1_048_576;
-        format!("{},{} GB", tenths / 10, tenths % 10)
+        let (whole, tenth) = (tenths / 10, tenths % 10);
+        tr!("{whole},{tenth} GB", "{whole}.{tenth} GB")
     }
 }
 
@@ -299,7 +309,7 @@ fn client_label(client: &str) -> String {
         return rest.split_whitespace().next().unwrap_or(rest).to_string();
     }
     match client {
-        "tty" => "terminal".into(),
+        "tty" => tr!("terminal", "terminal"),
         other => other.split_whitespace().next().unwrap_or(other).to_string(),
     }
 }
@@ -307,9 +317,9 @@ fn client_label(client: &str) -> String {
 fn job_text(job: &JobInfo) -> String {
     let arg = |key: &str| job.args.get(key).and_then(|v| v.as_str()).map(str::to_string);
     let what = match (job.kind.as_str(), arg("id"), arg("name")) {
-        ("component_install", Some(id), _) => format!("Instalando {id}…"),
-        ("project_create", _, Some(name)) => format!("Creando el proyecto {name}…"),
-        _ => "Tarea en curso…".to_string(),
+        ("component_install", Some(id), _) => tr!("Instalando {id}…", "Installing {id}…"),
+        ("project_create", _, Some(name)) => tr!("Creando el proyecto {name}…", "Creating project {name}…"),
+        _ => tr!("Tarea en curso…", "Job in progress…"),
     };
     match job.client.as_deref() {
         Some(client) => format!("⟳ {what} ({})", client_label(client)),
@@ -351,9 +361,9 @@ fn services(snapshot: &Snapshot) -> Vec<&elephant_core::brew::Service> {
 fn header(snapshot: &Snapshot, usage_kb: Option<u64>) -> String {
     let running = services(snapshot).iter().filter(|s| s.running).count();
     if running == 0 {
-        return "○ Ningún servicio en marcha".into();
+        return tr!("○ Ningún servicio en marcha", "○ No services running");
     }
-    let count = plural(running, "servicio en marcha", "servicios en marcha");
+    let count = running_count(running);
     match usage_kb {
         Some(kb) if kb > 0 => format!("● {count} · {}", format_memory(kb)),
         _ => format!("● {count}"),
@@ -376,13 +386,16 @@ fn php_menu(snapshot: &Snapshot) -> Entry {
         .collect();
     if !children.is_empty() {
         children.push(Entry::separator());
-        children.push(Entry::nav("#/php", "Usar en un proyecto…"));
+        children.push(Entry::nav("#/php", tr_str!("Usar en un proyecto…", "Use in project…")));
     }
-    children.push(Entry::nav("#/php", "Descargar otra versión…"));
+    children.push(Entry::nav("#/php", tr_str!("Descargar otra versión…", "Download another version…")));
 
     let title = match &php.active {
-        Some(active) => format!("PHP {} por defecto", short_version(&active.id)),
-        None => "PHP sin versión por defecto".to_string(),
+        Some(active) => {
+            let v = short_version(&active.id);
+            tr!("PHP {v} por defecto", "Default PHP {v}")
+        }
+        None => tr!("PHP sin versión por defecto", "No default PHP"),
     };
     match busy_label(snapshot, "php") {
         Some(label) => Entry::submenu(format!("PHP · {label}"), children).enabled(false),
@@ -398,9 +411,9 @@ fn services_menu(snapshot: &Snapshot) -> Option<Entry> {
     let any_running = list.iter().any(|s| s.running);
     let bulk_busy = busy_label(snapshot, "services");
     let mut children = vec![
-        Entry::item(TrayAction::ServicesAll(Operation::Restart), "Reiniciar todos")
+        Entry::item(TrayAction::ServicesAll(Operation::Restart), tr_str!("Reiniciar todos", "Restart all"))
             .enabled(any_running && bulk_busy.is_none()),
-        Entry::item(TrayAction::ServicesAll(Operation::TurnOff), "Detener todos")
+        Entry::item(TrayAction::ServicesAll(Operation::TurnOff), tr_str!("Detener todos", "Stop all"))
             .enabled(any_running && bulk_busy.is_none()),
         Entry::separator(),
     ];
@@ -409,20 +422,20 @@ fn services_menu(snapshot: &Snapshot) -> Option<Entry> {
         let svc = |op| TrayAction::Service(name.clone(), op);
         let mut items = if service.running {
             vec![
-                Entry::item(svc(Operation::TurnOff), "Detener"),
-                Entry::item(svc(Operation::Restart), "Reiniciar"),
+                Entry::item(svc(Operation::TurnOff), tr_str!("Detener", "Stop")),
+                Entry::item(svc(Operation::Restart), tr_str!("Reiniciar", "Restart")),
             ]
         } else {
-            vec![Entry::item(svc(Operation::TurnOn), "Arrancar")]
+            vec![Entry::item(svc(Operation::TurnOn), tr_str!("Arrancar", "Start"))]
         };
         let autostart = if service.registered {
             Operation::DisableAutostart
         } else {
             Operation::EnableAutostart
         };
-        items.push(Entry::check(svc(autostart), "Al iniciar sesión", service.registered));
+        items.push(Entry::check(svc(autostart), tr_str!("Al iniciar sesión", "Start at login"), service.registered));
         items.push(Entry::separator());
-        items.push(Entry::item(TrayAction::ServiceLog(name.clone()), "Abrir log"));
+        items.push(Entry::item(TrayAction::ServiceLog(name.clone()), tr_str!("Abrir log", "Open log")));
 
         let dot = if service.running { "●" } else { "○" };
         let entry = match busy_label(snapshot, name).or(bulk_busy) {
@@ -432,8 +445,8 @@ fn services_menu(snapshot: &Snapshot) -> Option<Entry> {
         children.push(entry);
     }
     let title = match bulk_busy {
-        Some(label) => format!("Servicios · {label}"),
-        None => "Servicios".to_string(),
+        Some(label) => tr!("Servicios · {label}", "Services · {label}"),
+        None => tr!("Servicios", "Services"),
     };
     Some(Entry::submenu(title, children))
 }
@@ -450,25 +463,28 @@ fn sites_menu(snapshot: &Snapshot) -> Option<Entry> {
             let site = |action| TrayAction::Site(project.id.clone(), action);
             let needs = match busy_label(snapshot, &project.id) {
                 Some(label) => Entry::item(TrayAction::SiteNeeds(project.id.clone()), label).enabled(false),
-                None => Entry::item(TrayAction::SiteNeeds(project.id.clone()), "Arrancar lo que necesita"),
+                None => Entry::item(
+                    TrayAction::SiteNeeds(project.id.clone()),
+                    tr_str!("Arrancar lo que necesita", "Start what it needs"),
+                ),
             };
             Entry::submenu(
                 project.hosts[0].clone(),
                 vec![
-                    Entry::item(site(SiteAction::Browser), "Abrir en el navegador"),
-                    Entry::item(site(SiteAction::Editor), "Abrir en el editor"),
-                    Entry::item(site(SiteAction::Terminal), "Abrir terminal"),
-                    Entry::item(site(SiteAction::CopyUrl), "Copiar URL"),
+                    Entry::item(site(SiteAction::Browser), tr_str!("Abrir en el navegador", "Open in browser")),
+                    Entry::item(site(SiteAction::Editor), tr_str!("Abrir en el editor", "Open in editor")),
+                    Entry::item(site(SiteAction::Terminal), tr_str!("Abrir terminal", "Open in Terminal")),
+                    Entry::item(site(SiteAction::CopyUrl), tr_str!("Copiar URL", "Copy URL")),
                     Entry::separator(),
                     needs,
-                    Entry::nav(&format!("#/logs?project={}", project.id), "Ver logs"),
+                    Entry::nav(&format!("#/logs?project={}", project.id), tr_str!("Ver logs", "View logs")),
                 ],
             )
         })
         .collect();
     children.push(Entry::separator());
-    children.push(Entry::nav("#/sitios", "Ver todos…"));
-    Some(Entry::submenu("Sitios", children))
+    children.push(Entry::nav("#/sitios", tr_str!("Ver todos…", "View all…")));
+    Some(Entry::submenu(tr_str!("Sitios", "Sites"), children))
 }
 
 fn logs_menu(snapshot: &Snapshot) -> Option<Entry> {
@@ -477,12 +493,13 @@ fn logs_menu(snapshot: &Snapshot) -> Option<Entry> {
         return None;
     }
     let recent = if logs.unseen_errors > 0 {
-        format!("Errores recientes ({})", logs.unseen_errors)
+        let n = logs.unseen_errors;
+        tr!("Errores recientes ({n})", "Recent errors ({n})")
     } else {
-        "Errores recientes".to_string()
+        tr!("Errores recientes", "Recent errors")
     };
     let mut children = vec![
-        Entry::nav("#/logs", "Abrir visor"),
+        Entry::nav("#/logs", tr_str!("Abrir visor", "Open viewer")),
         Entry::nav("#/logs?level=error&range=1h", recent),
     ];
     if !logs.recent.is_empty() {
@@ -490,11 +507,7 @@ fn logs_menu(snapshot: &Snapshot) -> Option<Entry> {
         for project in logs.recent.iter().take(5) {
             children.push(Entry::nav(
                 &format!("#/logs?project={}", project.id),
-                format!(
-                    "{} · {}",
-                    project.name,
-                    plural(project.errors as usize, "error", "errores")
-                ),
+                format!("{} · {}", project.name, error_count(project.errors as u64)),
             ));
         }
     }
@@ -512,19 +525,22 @@ pub fn entries(snapshot: &Snapshot, usage_kb: Option<u64>) -> Vec<Entry> {
     }
     out.extend(snapshot.jobs.iter().map(|job| Entry::info(job_text(job))));
     out.push(Entry::separator());
-    out.push(Entry::item(TrayAction::Open { route: None }, "Abrir Elephant Stack"));
+    out.push(Entry::item(TrayAction::Open { route: None }, tr_str!("Abrir Elephant Stack", "Open Elephant Stack")));
     out.push(Entry::separator());
     out.push(php_menu(snapshot));
     out.extend(services_menu(snapshot));
     out.extend(sites_menu(snapshot));
     out.extend(logs_menu(snapshot));
     if snapshot.mailpit.installed {
-        out.push(Entry::item(TrayAction::OpenMailpit, "Abrir Mailpit").enabled(snapshot.mailpit.running));
+        out.push(
+            Entry::item(TrayAction::OpenMailpit, tr_str!("Abrir Mailpit", "Open Mailpit"))
+                .enabled(snapshot.mailpit.running),
+        );
     }
     out.push(Entry::separator());
-    out.push(Entry::nav("#/asistente", "Asistente de configuración…"));
-    out.push(Entry::nav("#/ajustes/general", "Ajustes…").accel("CmdOrCtrl+,"));
-    out.push(Entry::item(TrayAction::Quit, "Salir de Elephant Stack").accel("CmdOrCtrl+Q"));
+    out.push(Entry::nav("#/asistente", tr_str!("Asistente de configuración…", "Setup assistant…")));
+    out.push(Entry::nav("#/ajustes/general", tr_str!("Ajustes…", "Settings…")).accel("CmdOrCtrl+,"));
+    out.push(Entry::item(TrayAction::Quit, tr_str!("Salir de Elephant Stack", "Quit Elephant Stack")).accel("CmdOrCtrl+Q"));
     out
 }
 
@@ -923,7 +939,7 @@ fn run(app: &AppHandle, action: TrayAction) {
         TrayAction::Site(project, site) => untracked(app, project, actions::site(app, project, *site)),
         TrayAction::SiteNeeds(project) => match project_root(app, project) {
             Some(root) => actions::start_project_services(app, &root).map(drop),
-            None => untracked(app, project, Err(GONE.to_string())),
+            None => untracked(app, project, Err(actions::project_gone())),
         },
         TrayAction::OpenMailpit => {
             let url = app.state::<AppState>().snapshot().mailpit.url;
@@ -936,7 +952,7 @@ fn run(app: &AppHandle, action: TrayAction) {
     }
 }
 
-const GONE: &str = "Ese proyecto ya no existe.";
+
 
 fn project_root(app: &AppHandle, project_id: &str) -> Option<PathBuf> {
     app.state::<AppState>()
@@ -1142,6 +1158,18 @@ mod tests {
             ]
         );
         assert!(!menu[0].enabled, "la cabecera es informativa");
+        let english = elephant_core::i18n::with_locale(elephant_core::i18n::Locale::En, || entries(&empty(), None));
+        assert_eq!(
+            texts(&english),
+            [
+                "○ No services running",
+                "Open Elephant Stack",
+                "No default PHP",
+                "Setup assistant…",
+                "Settings…",
+                "Quit Elephant Stack",
+            ]
+        );
         assert!(!warning(&empty()));
         assert_eq!(title(&empty()), None);
         // Sin servicios, sitios, logs ni Mailpit no hay submenús vacíos.
@@ -1345,7 +1373,7 @@ mod tests {
         let before = entries(&snapshot, None);
         snapshot.busy = vec![Busy {
             target: "aaaa".into(),
-            label: actions::NEEDS_BUSY.into(),
+            label: actions::needs_busy().into(),
         }];
         let after = entries(&snapshot, None);
 
@@ -1355,7 +1383,7 @@ mod tests {
             .iter()
             .find(|e| e.id == Some(TrayAction::SiteNeeds("aaaa".into())))
             .unwrap();
-        assert_eq!(needs.text, actions::NEEDS_BUSY);
+        assert_eq!(needs.text, actions::needs_busy());
         assert!(!needs.enabled);
         assert_eq!(shape(&before), shape(&after), "se actualiza sin rehacer el menú");
     }

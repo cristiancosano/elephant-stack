@@ -22,14 +22,17 @@ fn lock_path() -> Result<PathBuf, String> {
 fn open(path: &Path) -> Result<File, String> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)
-            .map_err(|error| format!("No se pudo crear {}: {error}", dir.display()))?;
+            .map_err(|error| {
+                let dir = dir.display();
+                crate::tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+            })?;
     }
     OpenOptions::new()
         .create(true)
         .truncate(false)
         .write(true)
         .open(path)
-        .map_err(|error| format!("No se pudo abrir el cerrojo de Homebrew: {error}"))
+        .map_err(|error| crate::tr!("No se pudo abrir el cerrojo de Homebrew: {error}", "Couldn’t open the Homebrew lock: {error}"))
 }
 
 /// Bloquea hasta conseguir el cerrojo.
@@ -45,7 +48,7 @@ pub fn try_brew() -> Result<Option<BrewLock>, String> {
 pub(crate) fn brew_at(path: &Path) -> Result<BrewLock, String> {
     let file = open(path)?;
     file.lock()
-        .map_err(|error| format!("No se pudo tomar el cerrojo de Homebrew: {error}"))?;
+        .map_err(|error| crate::tr!("No se pudo tomar el cerrojo de Homebrew: {error}", "Couldn’t take the Homebrew lock: {error}"))?;
     Ok(BrewLock(file))
 }
 
@@ -55,7 +58,7 @@ pub(crate) fn try_brew_at(path: &Path) -> Result<Option<BrewLock>, String> {
         Ok(()) => Ok(Some(BrewLock(file))),
         Err(TryLockError::WouldBlock) => Ok(None),
         Err(TryLockError::Error(error)) => {
-            Err(format!("No se pudo tomar el cerrojo de Homebrew: {error}"))
+            Err(crate::tr!("No se pudo tomar el cerrojo de Homebrew: {error}", "Couldn’t take the Homebrew lock: {error}"))
         }
     }
 }

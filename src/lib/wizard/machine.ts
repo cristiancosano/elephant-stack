@@ -16,6 +16,8 @@ import type { SetupProgress } from "../bindings/SetupProgress";
 import { applyLabel, sanitizeAccepted } from "./review";
 import { applyProgress, failRun, finishRun, startRun, type Run } from "./run";
 import { customInput, presetInput, scenarioName } from "./scenario";
+import "../i18n/locales/wizard";
+import { t } from "../i18n/index.svelte";
 
 export type Screen = "welcome" | "scenario" | "customize" | "review" | "apply";
 export type Preset = Exclude<ScenarioId, "custom">;
@@ -127,7 +129,9 @@ export function choiceLabel(s: WizardState, cards: readonly ScenarioCard[] = [])
   if (!s.scenario) return null;
   if (s.scenario !== "custom") return scenarioName(s.scenario, cards);
   const base = s.draft?.basedOn;
-  return base ? `Personalizado (basado en ${scenarioName(base, cards)})` : "Personalizado";
+  return base
+    ? t("wizard.custom.basedOn", { name: scenarioName(base, cards) })
+    : t("wizard.scenarios.custom");
 }
 
 /** Pantallas del indicador de puntos. Personalizar solo cuenta si forma parte del camino. */
@@ -148,15 +152,15 @@ export type PrimaryAction = "start" | "review" | "apply" | null;
 export function primary(s: WizardState): { action: PrimaryAction; label: string; enabled: boolean } {
   switch (s.screen) {
     case "welcome":
-      return { action: "start", label: "Empezar", enabled: true };
+      return { action: "start", label: t("wizard.primary.start"), enabled: true };
     case "scenario":
-      return { action: "review", label: "Continuar", enabled: currentInput(s) !== null };
+      return { action: "review", label: t("wizard.primary.continue"), enabled: currentInput(s) !== null };
     case "customize":
-      return { action: "review", label: "Revisar", enabled: s.draft !== null };
+      return { action: "review", label: t("wizard.primary.review"), enabled: s.draft !== null };
     case "review":
       return s.plan
         ? { action: "apply", label: applyLabel(s.plan, s.accepted), enabled: true }
-        : { action: "apply", label: "Aplicar", enabled: false };
+        : { action: "apply", label: t("wizard.primary.apply"), enabled: false };
     case "apply":
       return { action: null, label: "", enabled: false };
   }

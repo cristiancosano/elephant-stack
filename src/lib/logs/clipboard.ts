@@ -1,6 +1,8 @@
 // Copiar texto al portapapeles desde la vista. WKWebView permite
 // `navigator.clipboard` tras un gesto del usuario; si falla, se usa el camino
 // clásico con un `<textarea>` y `execCommand`.
+import "../i18n/locales/logs";
+import { t } from "../i18n/index.svelte";
 
 export async function copyText(text: string): Promise<void> {
   try {
@@ -18,5 +20,5 @@ export async function copyText(text: string): Promise<void> {
   area.select();
   const ok = document.execCommand("copy");
   area.remove();
-  if (!ok) throw new Error("No se ha podido copiar al portapapeles.");
+  if (!ok) throw new Error(t("logs.clipboard.failed"));
 }

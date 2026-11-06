@@ -8,6 +8,8 @@
   import Button from "../../ui/Button.svelte";
   import Sheet from "../../ui/Sheet.svelte";
   import { toast } from "../../ui/toasts.svelte";
+  import "../../lib/i18n/locales/wizard";
+  import { t } from "../../lib/i18n/index.svelte";
 
   let {
     open,
@@ -23,33 +25,33 @@
     applying = true;
     try {
       await ipc.setupShellApply(preview.hash);
-      toast("Añadido. Abre una terminal nueva para que surta efecto.", { tone: "success" });
+      toast(t("wizard.shell.added"), { tone: "success" });
       onapplied();
       onclose();
     } catch (e) {
-      toast(`No se ha podido cambiar ${preview.path}: ${ipc.errorMessage(e)}`, { tone: "error" });
+      toast(t("wizard.shell.failed", { path: preview.path, error: ipc.errorMessage(e) }), { tone: "error" });
     } finally {
       applying = false;
     }
   }
 </script>
 
-<Sheet {open} title="Añadir Elephant al PATH" {onclose}>
+<Sheet {open} title={t("wizard.shell.title")} {onclose}>
   <p class="text">
-    Para que el comando <code>php</code> de la terminal elija la versión de cada proyecto, hay que añadir este bloque al
-    final de <span class="selectable path">{preview.path}</span>. Antes se guarda una copia del archivo, y no se toca
-    ninguna otra línea (tampoco la de Herd).
+    {t("wizard.shell.bodyBefore")} <code>php</code>
+    {t("wizard.shell.bodyMiddle")} <span class="selectable path">{preview.path}</span>.
+    {t("wizard.shell.bodyAfter")}
   </p>
 
-  <pre class="diff selectable" aria-label="Cambios en {preview.path}">{#each lines as line, i (i)}<span
+  <pre class="diff selectable" aria-label={t("wizard.shell.diffLabel", { path: preview.path })}>{#each lines as line, i (i)}<span
         class="line {line.kind}">{line.text}</span
       >{"\n"}{/each}</pre>
 
   <div class="actions">
-    <Button variant="plain" onclick={onclose}>Ahora no</Button>
+    <Button variant="plain" onclick={onclose}>{t("wizard.shell.notNow")}</Button>
     <span class="spacer"></span>
-    <Button onclick={() => void copyText(addedBlock(preview.diff), "Bloque")}>Copiar</Button>
-    <Button variant="primary" busy={applying} onclick={() => void apply()}>Añadirlo por mí</Button>
+    <Button onclick={() => void copyText(addedBlock(preview.diff), "block")}>{t("common.copy")}</Button>
+    <Button variant="primary" busy={applying} onclick={() => void apply()}>{t("wizard.shell.apply")}</Button>
   </div>
 </Sheet>
 

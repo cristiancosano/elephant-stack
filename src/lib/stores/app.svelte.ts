@@ -16,7 +16,8 @@ import type { Service } from "../bindings/Service";
 import type { Snapshot } from "../bindings/Snapshot";
 import type { Usage } from "../bindings/Usage";
 import type { VersionInfo } from "../bindings/VersionInfo";
-import { formatCpu, formatMemory, plural, shouldShowCpu } from "../format";
+import { formatCpu, formatMemory, shouldShowCpu } from "../format";
+import { t } from "../i18n/index.svelte";
 
 // ── Estado ──────────────────────────────────────────────────────────────────
 
@@ -154,17 +155,21 @@ export function problemsClearedBy(s: Snapshot, view: string): string[] {
 export function serviceStatusText(service: Service, usage?: Usage): string {
   const parts: string[] = [];
   if (service.running) {
-    parts.push("En marcha");
+    parts.push(t("services.row.running"));
     if (usage) {
       parts.push(formatMemory(usage.memory_kb));
       if (shouldShowCpu(usage.cpu_percent)) parts.push(`${formatCpu(usage.cpu_percent)} CPU`);
     }
   } else if (service.status === "error") {
-    parts.push(`Error · código ${service.exit_code ?? "desconocido"}`);
+    parts.push(
+      service.exit_code === null || service.exit_code === undefined
+        ? t("services.row.exitUnknown")
+        : t("services.row.exitCode", { code: String(service.exit_code) }),
+    );
   } else {
-    parts.push("Parado");
+    parts.push(t("services.row.stopped"));
   }
-  if (service.registered) parts.push("Al iniciar sesión");
+  if (service.registered) parts.push(t("services.row.atLogin"));
   return parts.join(" · ");
 }
 
@@ -178,7 +183,7 @@ export function serviceState(service: Service): ServiceState {
 /** Versión y origen. Homebrew es el origen por defecto, así que solo se nombra cualquier otro. */
 export function installedText(c: Component): string {
   const origin = c.origin === "Homebrew" ? null : c.origin;
-  return [c.version, origin].filter(Boolean).join(" · ") || "Instalado";
+  return [c.version, origin].filter(Boolean).join(" · ") || t("services.row.installed");
 }
 
 // ── Tareas de agentes ───────────────────────────────────────────────────────
@@ -186,8 +191,8 @@ export function installedText(c: Component): string {
 /** Nombre legible del cliente de un agente (`audit.rs`: «claude-code 2.1.318», «mcp:cursor 1.2»…). */
 export function clientName(client: string | null): string | null {
   if (!client) return null;
-  if (client === "tty") return "la terminal";
-  if (client === "script") return "un script";
+  if (client === "tty") return t("services.job.terminal");
+  if (client === "script") return t("services.job.script");
   const name = client.replace(/^mcp:/, "").split(" ")[0] ?? "";
   if (name === "claude-code") return "Claude Code";
   if (name === "claude-ai" || name === "claude-desktop") return "Claude";
@@ -214,11 +219,13 @@ export function jobText(job: JobInfo): string {
   const target = jobTarget(job);
   let what: string;
   if (job.message) what = job.message;
-  else if (job.kind === "component_install") what = target ? `Instalando ${target}…` : "Instalando…";
-  else if (job.kind === "project_create") what = target ? `Creando ${target}…` : "Creando un proyecto…";
-  else what = job.state === "queued" ? "En cola…" : "En curso…";
+  else if (job.kind === "component_install")
+    what = target ? t("services.job.installing", { target }) : t("services.job.installingAny");
+  else if (job.kind === "project_create")
+    what = target ? t("services.job.creating", { target }) : t("services.job.creatingAny");
+  else what = job.state === "queued" ? t("services.job.queued") : t("services.job.running");
   const who = clientName(job.client);
-  return who ? `${what} · pedido por ${who}` : what;
+  return who ? t("services.job.requestedBy", { what, who }) : what;
 }
 
 // ── PHP ─────────────────────────────────────────────────────────────────────
@@ -304,7 +311,11 @@ export function hero(s: Snapshot, memoryKb: number): Hero {
   const running = runningServices(s).length;
   const installed = services(s).length;
   const detail = [
-    running > 0 ? plural(running, "servicio") : installed > 0 ? "Ningún servicio en marcha" : "Sin servicios",
+    running > 0
+      ? t("panel.hero.running", { count: running })
+      : installed > 0
+        ? t("panel.hero.noneRunning")
+        : t("panel.hero.noServices"),
     s.php.active ? `PHP ${phpBranch(s)}` : null,
     memoryKb > 0 ? formatMemory(memoryKb) : null,
   ]
@@ -322,9 +333,9 @@ export function hero(s: Snapshot, memoryKb: number): Hero {
       tone: "bad",
       // El mensaje empieza a veces por el nombre del servicio: no se capitaliza.
       title:
-        problem.kind === "action_failed" ? `No se pudo completar la acción con ${name}` : problem.message,
-      detail: more > 0 ? `${detail} · ${plural(more, "problema")} más` : detail,
-      action: { kind: "problem", label: "Ver problema" },
+        problem.kind === "action_failed" ? t("panel.hero.actionFailed", { name }) : problem.message,
+      detail: more > 0 ? `${detail} · ${t("panel.hero.moreProblems", { count: more })}` : detail,
+      action: { kind: "problem", label: t("panel.hero.viewProblem") },
     };
   }
 
@@ -340,18 +351,18 @@ export function hero(s: Snapshot, memoryKb: number): Hero {
   }
 
   if (running > 0) {
-    return { tone: "ok", title: "Todo en marcha", detail, action: null };
+    return { tone: "ok", title: t("panel.hero.allRunning"), detail, action: null };
   }
   const startable = startableServices(s);
   return {
     tone: "ok",
-    title: "Nada en marcha",
+    title: t("panel.hero.nothingRunning"),
     detail,
     action:
       startable.length > 0
-        ? { kind: "start", label: "Arrancar servicios" }
+        ? { kind: "start", label: t("panel.hero.startServices") }
         : installed > 0
-          ? { kind: "services", label: "Ver servicios" }
+          ? { kind: "services", label: t("panel.hero.viewServices") }
           : null,
   };
 }

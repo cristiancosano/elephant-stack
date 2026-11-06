@@ -1,6 +1,7 @@
 //! Lo que se hace con toda respuesta antes de que salga hacia un agente
 //! (05 §5.1, paso 7): ocultar secretos y recortar a 24 KB.
 
+use elephant_core::{tr, tr_str};
 use serde_json::Value;
 
 use crate::{MAX_REPLY_BYTES, Output, Reply, UNTRUSTED_BEGIN, UNTRUSTED_END};
@@ -151,11 +152,18 @@ fn fit_text(text: &str, cap: usize, omitted: usize, cursor: Option<&str>) -> Str
     }
     out.push('\n');
     match cursor {
-        Some(cursor) => out.push_str(&format!(
-            "{} resultados más: usa `--cursor {cursor}`.",
-            omitted.max(1)
+        Some(cursor) => {
+            let n = omitted.max(1);
+            out.push_str(&if n == 1 {
+                tr!("1 resultado más: usa `--cursor {cursor}`.", "1 more result: use `--cursor {cursor}`.")
+            } else {
+                tr!("{n} resultados más: usa `--cursor {cursor}`.", "{n} more results: use `--cursor {cursor}`.")
+            })
+        }
+        None => out.push_str(tr_str!(
+            "Salida recortada a 24 KB: filtra con las opciones de la orden o con `--json | jq`.",
+            "Output cut to 24 KB: filter with the command’s options or with `--json | jq`."
         )),
-        None => out.push_str("Salida recortada a 24 KB: filtra con las opciones de la orden o con `--json | jq`."),
     }
     out
 }
@@ -167,8 +175,10 @@ fn fit_text_keeping_end(text: &str, cap: usize) -> String {
     if text.len() <= budget {
         return text.to_string();
     }
-    const NOTE: &str =
-        "Salida recortada a 24 KB: faltan las entradas más antiguas. Acota con --lines, --level o --contains.";
+    let note = tr_str!(
+        "Salida recortada a 24 KB: faltan las entradas más antiguas. Acota con --lines, --level o --contains.",
+        "Output cut to 24 KB: the oldest entries are missing. Narrow it with --lines, --level or --contains."
+    );
     // Lo que va hasta la marca de inicio (incluida) se queda.
     let head_end = text
         .find(UNTRUSTED_BEGIN)
@@ -180,7 +190,7 @@ fn fit_text_keeping_end(text: &str, cap: usize) -> String {
         Some(at) => (&head_before_marker[..at], &head_before_marker[at + 1..]),
         None => ("", head_before_marker),
     };
-    let fixed = title.len() + NOTE.len() + marker.len() + 3;
+    let fixed = title.len() + note.len() + marker.len() + 3;
     let room = budget.saturating_sub(fixed);
     let mut start = body.len().saturating_sub(room);
     while !body.is_char_boundary(start) {
@@ -195,7 +205,7 @@ fn fit_text_keeping_end(text: &str, cap: usize) -> String {
         out.push_str(title);
         out.push('\n');
     }
-    out.push_str(NOTE);
+    out.push_str(note);
     out.push('\n');
     if !marker.is_empty() {
         out.push_str(marker);

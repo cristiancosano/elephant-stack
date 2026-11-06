@@ -30,6 +30,7 @@ export function plan(steps: Step[] = [], over: Partial<Plan> = {}): Plan {
     steps,
     satisfied: [],
     notices: [],
+    path_notice: null,
     conflicts: [],
     totals: { download_bytes: 0, brew_formulas: 0, idle_ram_mb: 0 },
     ...over,

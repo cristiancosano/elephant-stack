@@ -5,7 +5,8 @@ import type { ApplyReport } from "../bindings/ApplyReport";
 import type { Plan } from "../bindings/Plan";
 import type { SetupProgress } from "../bindings/SetupProgress";
 import type { StepState } from "../bindings/StepState";
-import { plural } from "../format";
+import "../i18n/locales/wizard";
+import { t } from "../i18n/index.svelte";
 
 /** Líneas que se guardan por paso para «Ver salida»; el log completo está en disco. */
 export const MAX_LOG_LINES = 400;
@@ -96,7 +97,7 @@ export function finishRun(run: Run, report: ApplyReport): Run {
     if (failed.has(s.key)) return { ...s, state: "failed", reason: failed.get(s.key) ?? s.reason };
     if (skipped.has(s.key)) return { ...s, state: "skipped", reason: skipped.get(s.key) ?? s.reason };
     if (s.state === "pending" || s.state === "running") {
-      return { ...s, state: "skipped", reason: s.reason ?? "No se ejecutó" };
+      return { ...s, state: "skipped", reason: s.reason ?? t("wizard.run.notRun") };
     }
     return s;
   });
@@ -142,21 +143,21 @@ export function canRetry(run: Run): boolean {
 
 /** Titular del resultado: habla de consecuencias, no de comandos. */
 export function headline(run: Run): string {
-  if (!run.finished) return run.cancelling ? "Cancelando…" : "Aplicando los cambios…";
-  if (run.error) return "No se ha podido aplicar";
+  if (!run.finished) return run.cancelling ? t("wizard.run.cancelling") : t("wizard.run.applying");
+  if (run.error) return t("wizard.run.failed");
   const s = summarize(run);
-  if (run.steps.length === 0) return "Tu Mac ya estaba listo";
-  if (s.failed === 0 && s.skipped === 0) return "Todo listo";
-  if (s.ok === 0) return "No se ha hecho ningún cambio";
-  return "Listo, con algún problema";
+  if (run.steps.length === 0) return t("wizard.run.alreadyReady");
+  if (s.failed === 0 && s.skipped === 0) return t("wizard.run.allDone");
+  if (s.ok === 0) return t("wizard.run.noChanges");
+  return t("wizard.run.doneWithProblems");
 }
 
 /** «5 hechos · 1 ha fallado · 2 saltados». */
 export function resultLine(run: Run): string {
   const s = summarize(run);
-  const parts = [plural(s.ok, "hecho")];
-  if (s.failed) parts.push(s.failed === 1 ? "1 ha fallado" : `${s.failed} han fallado`);
-  if (s.skipped) parts.push(plural(s.skipped, "saltado"));
+  const parts = [t("wizard.run.ok", { count: s.ok })];
+  if (s.failed) parts.push(t("wizard.run.failedCount", { count: s.failed }));
+  if (s.skipped) parts.push(t("wizard.run.skippedCount", { count: s.skipped }));
   return parts.join(" · ");
 }
 
@@ -164,15 +165,15 @@ export function resultLine(run: Run): string {
 export function stateLabel(step: RunStep): string {
   switch (step.state) {
     case "pending":
-      return "Pendiente";
+      return t("wizard.run.state.pending");
     case "running":
-      return "En curso";
+      return t("wizard.run.state.running");
     case "ok":
-      return "Hecho";
+      return t("wizard.run.state.ok");
     case "failed":
-      return step.reason ? `Ha fallado: ${step.reason}` : "Ha fallado";
+      return step.reason ? t("wizard.run.state.failedWith", { reason: step.reason }) : t("wizard.run.state.failed");
     case "skipped":
-      return step.reason ? `Saltado: ${step.reason}` : "Saltado";
+      return step.reason ? t("wizard.run.state.skippedWith", { reason: step.reason }) : t("wizard.run.state.skipped");
   }
 }
 

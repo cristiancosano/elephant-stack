@@ -3,5 +3,33 @@ import type es from "../es/shell";
 import type { Dictionary } from "../../types";
 
 export default {
-  // La ola 2 lo rellena (docs/i18n.md).
+  nav: {
+    label: "Sections",
+    overview: "Overview",
+    sites: "Sites",
+    services: "Services",
+    php: "PHP",
+    logs: "Logs",
+    settings: "Settings",
+    nothingRunning: "Nothing running",
+    runningCount: { one: "{count} running", other: "{count} running" },
+    sitesCount: { one: "{count} site", other: "{count} sites" },
+    servicesRunning: {
+      one: "{running} of {count} service running",
+      other: "{running} of {count} services running",
+    },
+    defaultPhp: "Default PHP {php}",
+    unseenErrors: { one: "{count} unseen error", other: "{count} unseen errors" },
+    agents: "Agents · {mode}",
+    agentMode: {
+      readOnly: "read-only",
+      confirm: "on",
+      trusted: "no confirmation",
+    },
+  },
+  sidebar: {
+    hide: "Hide sidebar",
+    show: "Show sidebar",
+  },
+  snapshotFailed: "Couldn’t read the status: {error}",
 } satisfies Dictionary<typeof es>;

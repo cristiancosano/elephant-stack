@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use elephant_core::needs::{self, Needs};
 use elephant_core::project::{self, Template};
 use elephant_logs::{ProjectKind, ProjectOrigin};
+use elephant_core::{tr, tr_str};
 use serde::{Deserialize, Serialize};
 
 use super::{check_php_version, user_dir};
@@ -74,16 +75,19 @@ impl Op for ProjectsList {
 
     fn text(o: &ProjectsOut) -> String {
         if o.projects.is_empty() {
-            return "No hay proyectos: aparca una carpeta en Herd o añádela en Ajustes > Logs.".to_string();
+            return tr!(
+                "No hay proyectos: aparca una carpeta en Herd o añádela en Ajustes > Logs.",
+                "No projects: park a folder in Herd or add it in Settings > Logs."
+            );
         }
         let now = elephant_core::now_ms();
         let mut rows = vec![vec![
             "ID".to_string(),
             "HOST".into(),
-            "TIPO".into(),
+            tr!("TIPO", "TYPE"),
             "PHP".into(),
-            "ERRORES 24 H".into(),
-            "ÚLTIMO LOG".into(),
+            tr!("ERRORES 24 H", "ERRORS 24 H"),
+            tr!("ÚLTIMO LOG", "LAST LOG"),
         ]];
         for p in &o.projects {
             rows.push(vec![
@@ -92,14 +96,16 @@ impl Op for ProjectsList {
                 match p.kind {
                     ProjectKind::Laravel => "laravel".into(),
                     ProjectKind::Php => "php".into(),
-                    ProjectKind::Other => "otro".into(),
+                    ProjectKind::Other => tr!("otro", "other"),
                 },
                 p.php_version.clone().unwrap_or_else(|| "—".into()),
                 p.errors_24h.to_string(),
                 p.last_log_ms.map(|ms| ago(ms, now)).unwrap_or_else(|| "—".into()),
             ]);
         }
-        format!("{} proyectos\n{}", o.projects.len(), table(&rows))
+        let n = o.projects.len();
+        let count = if n == 1 { tr!("1 proyecto", "1 project") } else { tr!("{n} proyectos", "{n} projects") };
+        format!("{count}\n{}", table(&rows))
     }
 }
 
@@ -151,9 +157,11 @@ impl Op for ProjectNeeds {
 
     fn text(o: &NeedsOut) -> String {
         let mut lines = vec![if o.needs.services.is_empty() {
-            format!("{} no necesita servicios de Homebrew", o.dir.display())
+            let dir = o.dir.display();
+            tr!("{dir} no necesita servicios de Homebrew", "{dir} doesn’t need any Homebrew services")
         } else {
-            format!("{} necesita: {}", o.dir.display(), o.needs.services.join(", "))
+            let (dir, list) = (o.dir.display(), o.needs.services.join(", "));
+            tr!("{dir} necesita: {list}", "{dir} needs: {list}")
         }];
         lines.extend(o.needs.reasons.iter().map(|r| format!("- {r}")));
         lines.join("\n")
@@ -191,7 +199,7 @@ impl Op for ProjectStartServices {
 
     fn confirm_text(a: &DirArgs) -> String {
         let dir = crate::text::dialog_path(a.dir.as_deref());
-        format!("arrancar los servicios que necesita {dir}")
+        tr!("arrancar los servicios que necesita {dir}", "start the services {dir} needs")
     }
 
     fn run(cx: &Ctx, a: DirArgs, _on_line: &mut dyn FnMut(&str)) -> Result<StartedOut, String> {
@@ -201,9 +209,10 @@ impl Op for ProjectStartServices {
 
     fn text(o: &StartedOut) -> String {
         if o.started.is_empty() {
-            "No hacía falta arrancar nada".to_string()
+            tr!("No hacía falta arrancar nada", "Nothing needed starting")
         } else {
-            format!("Arrancados: {}", o.started.join(", "))
+            let list = o.started.join(", ");
+            tr!("Arrancados: {list}", "Started: {list}")
         }
     }
 }
@@ -282,10 +291,11 @@ impl Op for ProjectCreate {
     fn confirm_text(a: &CreateArgs) -> String {
         let kind = match a.template {
             TemplateArg::Laravel => "Laravel",
-            TemplateArg::Blank => "PHP vacío",
+            TemplateArg::Blank => tr_str!("PHP vacío", "blank PHP"),
         };
-        let php = a.php.as_ref().map(|v| format!(" con PHP {v}")).unwrap_or_default();
-        format!("crear el proyecto {kind} «{}»{php} en Herd", a.name)
+        let php = a.php.as_ref().map(|v| tr!(" con PHP {v}", " with PHP {v}")).unwrap_or_default();
+        let name = &a.name;
+        tr!("crear el proyecto {kind} «{name}»{php} en Herd", "create {kind} project “{name}”{php} in Herd")
     }
 
     fn run(_cx: &Ctx, a: CreateArgs, on_line: &mut dyn FnMut(&str)) -> Result<CreateOut, String> {
@@ -295,11 +305,10 @@ impl Op for ProjectCreate {
 
     fn text(o: &CreateOut) -> String {
         let url = o.host.as_ref().map(|h| format!(" · http://{h}")).unwrap_or_default();
-        format!(
-            "Proyecto {} creado en {}{url}\nSiguiente paso: elephant project start-services --dir {}",
-            o.name,
-            o.root.display(),
-            o.root.display()
+        let (name, root) = (&o.name, o.root.display());
+        tr!(
+            "Proyecto {name} creado en {root}{url}\nSiguiente paso: elephant project start-services --dir {root}",
+            "Project {name} created in {root}{url}\nNext step: elephant project start-services --dir {root}"
         )
     }
 }

@@ -7,6 +7,8 @@ use std::fs::OpenOptions;
 use std::os::unix::fs::OpenOptionsExt;
 
 use crate::query::{self, FILTERED_BUDGET, Filter, PAGE_BUDGET, page_limit, scan, scan_file};
+use elephant_i18n::tr;
+
 use crate::sources::{self, Catalog};
 use crate::{
     EntryDetail, ErrorSummary, Frame, HttpBrief, LogEntry, LogGroup, LogLevel, LogPage, LogQuery,
@@ -148,7 +150,10 @@ pub(crate) fn tail(
         .iter()
         .position(|s| s.source.id == source_id)
         .ok_or_else(|| {
-            format!("No hay ninguna fuente de logs «{source_id}». Consulta la lista de fuentes.")
+            tr!(
+                "No hay ninguna fuente de logs «{source_id}». Consulta la lista de fuentes.",
+                "There’s no log source “{source_id}”. Check the list of sources."
+            )
         })?;
     let mut filter = Filter::for_source(index).with_text(contains);
     filter.min_level = min_level;
@@ -177,7 +182,7 @@ pub(crate) fn errors_summary(
     };
     if let Some(needle) = project {
         let found = projects::resolve(&catalog.projects, needle)
-            .ok_or_else(|| format!("No hay ningún proyecto «{needle}»."))?;
+            .ok_or_else(|| tr!("No hay ningún proyecto «{needle}».", "There’s no project “{needle}”."))?;
         q.projects = vec![found.id.clone()];
     }
     let filter = Filter::new(&q, catalog);
@@ -315,20 +320,23 @@ pub(crate) fn clear(catalog: &Catalog, file_key: &str) -> Result<(), String> {
     let key = (file_key.len() == 16)
         .then(|| u64::from_str_radix(file_key, 16).ok())
         .flatten()
-        .ok_or_else(|| format!("Identificador de archivo no válido: {file_key}."))?;
+        .ok_or_else(|| tr!("Identificador de archivo no válido: {file_key}.", "Invalid file ID: {file_key}."))?;
     let file = catalog
         .file_by_key(key)
-        .ok_or("No hay ningún archivo de log con ese identificador.")?;
+        .ok_or_else(|| tr!("No hay ningún archivo de log con ese identificador.", "There’s no log file with that ID."))?;
     if sources::is_herd(catalog.source(file)) {
-        return Err("Los logs de Herd son de Herd: Elephant Stack no los vacía.".into());
+        return Err(tr!("Los logs de Herd son de Herd: Elephant Stack no los vacía.", "Herd’s logs belong to Herd: Elephant Stack doesn’t clear them."));
     }
     // El catálogo solo admite enlaces que quedan dentro del proyecto. Se vacía
     // la ruta ya resuelta y sin seguir enlaces, para que un cambio de última
     // hora no lleve el vaciado a otro archivo.
-    let failed = |e: std::io::Error| format!("No se pudo vaciar {}: {e}.", file.path.display());
+    let failed = |e: std::io::Error| {
+        let path = file.path.display();
+        tr!("No se pudo vaciar {path}: {e}.", "Couldn’t clear {path}: {e}.")
+    };
     let target = std::fs::canonicalize(&file.path).map_err(failed)?;
     if crate::util::path_key(&target) != file.key {
-        return Err("El archivo de log ha cambiado: vuelve a cargar la vista.".into());
+        return Err(tr!("El archivo de log ha cambiado: vuelve a cargar la vista.", "The log file changed: reload the view."));
     }
     OpenOptions::new()
         .write(true)
@@ -342,7 +350,7 @@ pub(crate) fn clear(catalog: &Catalog, file_key: &str) -> Result<(), String> {
 /// sin zona, la del Mac).
 pub(crate) fn parse_since(text: &str, now_ms: i64) -> Result<i64, String> {
     let text = text.trim();
-    let invalid = || format!("No entiendo «{text}»: usa 15m, 2h, 1d o una fecha ISO 8601.");
+    let invalid = || tr!("No entiendo «{text}»: usa 15m, 2h, 1d o una fecha ISO 8601.", "Can’t parse “{text}”: use 15m, 2h, 1d or an ISO 8601 date.");
     if let Some(unit) = text.chars().last().filter(char::is_ascii_alphabetic) {
         let number = &text[..text.len() - 1];
         if !number.is_empty() && number.bytes().all(|b| b.is_ascii_digit()) {
@@ -383,6 +391,15 @@ pub(crate) fn parse_since(text: &str, now_ms: i64) -> Result<i64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn errors_follow_the_language() {
+        use elephant_i18n::{Locale, with_locale};
+        assert!(parse_since("ayer", 0).unwrap_err().starts_with("No entiendo «ayer»"));
+        let english = with_locale(Locale::En, || parse_since("ayer", 0).unwrap_err());
+        assert_eq!(english, "Can’t parse “ayer”: use 15m, 2h, 1d or an ISO 8601 date.");
+    }
+
 
     fn frame(index: u32, vendor: bool) -> Frame {
         Frame {

@@ -108,18 +108,25 @@ pub(crate) fn create_in(
     if let Some(version) = php {
         check_php(&layout, version)?;
     }
-    let parked = parked_dir(home).ok_or(
-        "No hay ningún directorio aparcado en Herd. Añade uno con `herd park` en la carpeta donde guardas tus proyectos.",
-    )?;
+    let parked = parked_dir(home).ok_or_else(|| {
+        crate::tr!(
+            "No hay ningún directorio aparcado en Herd. Añade uno con `herd park` en la carpeta donde guardas tus proyectos.",
+            "Herd has no parked folder. Add one with `herd park` in the folder where you keep your projects."
+        )
+    })?;
     let root = parked.join(name);
     if root.symlink_metadata().is_ok() {
-        return Err(format!("Ya existe {}.", root.display()));
+        let root = root.display();
+        return Err(crate::tr!("Ya existe {root}.", "{root} already exists."));
     }
     // Composer exige que el destino no exista; la versión pedida se aplica
     // desde la carpeta de trabajo, que es la que ve el selector `php`.
     let staging = parked.join(format!(".elephant-new-{name}"));
     let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging).map_err(|error| format!("No se pudo crear {}: {error}", staging.display()))?;
+    fs::create_dir_all(&staging).map_err(|error| {
+        let dir = staging.display();
+        crate::tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+    })?;
     let result = (|| {
         if let Some(version) = php {
             fs::write(staging.join(PROJECT_FILE), format!("{}\n", version.trim()))
@@ -128,9 +135,12 @@ pub(crate) fn create_in(
         let work = staging.join(name);
         match template {
             Template::Laravel => {
-                let composer = composer.ok_or(
-                    "Falta el Composer de Elephant Stack: instálalo con `elephant component install composer`.",
-                )?;
+                let composer = composer.ok_or_else(|| {
+                    crate::tr!(
+                        "Falta el Composer de Elephant Stack: instálalo con `elephant component install composer`.",
+                        "Elephant Stack’s Composer is missing: install it with `elephant component install composer`."
+                    )
+                })?;
                 on_line(&format!("composer create-project laravel/laravel {name}"));
                 run_streaming(
                     Command::new(composer)
@@ -141,7 +151,10 @@ pub(crate) fn create_in(
                     on_line,
                 )?;
                 if !work.join("artisan").is_file() {
-                    return Err("Composer terminó sin crear el proyecto de Laravel.".to_string());
+                    return Err(crate::tr!(
+                        "Composer terminó sin crear el proyecto de Laravel.",
+                        "Composer finished without creating the Laravel project."
+                    ));
                 }
             }
             Template::Blank => write_blank(&work, name)?,
@@ -149,12 +162,16 @@ pub(crate) fn create_in(
         if let Some(version) = php {
             layout.set_project(&work, version)?;
         }
-        fs::rename(&work, &root).map_err(|error| format!("No se pudo mover el proyecto a {}: {error}", root.display()))
+        fs::rename(&work, &root).map_err(|error| {
+            let root = root.display();
+            crate::tr!("No se pudo mover el proyecto a {root}: {error}", "Couldn’t move the project to {root}: {error}")
+        })
     })();
     let _ = fs::remove_dir_all(&staging);
     result?;
 
-    on_line(&format!("Proyecto creado en {}", root.display()));
+    let dir = root.display();
+    on_line(&crate::tr!("Proyecto creado en {dir}", "Project created in {dir}"));
     Ok(Created {
         root,
         host: tld(home).map(|tld| format!("{name}.{tld}")),
@@ -221,10 +238,8 @@ fn check_php(layout: &Layout, version: &str) -> Result<(), String> {
         Ok(())
     } else {
         let ids: Vec<String> = available.into_iter().map(|v| v.key()).collect();
-        Err(format!(
-            "PHP {wanted} no está instalado. Disponibles: {}.",
-            if ids.is_empty() { "ninguna".to_string() } else { ids.join(", ") }
-        ))
+        let list = if ids.is_empty() { crate::tr!("ninguna", "none") } else { ids.join(", ") };
+        Err(crate::tr!("PHP {wanted} no está instalado. Disponibles: {list}.", "PHP {wanted} isn’t installed. Available: {list}."))
     }
 }
 
@@ -244,7 +259,7 @@ fn run_streaming(command: &mut Command, on_line: &mut dyn FnMut(&str)) -> Result
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("No se pudo ejecutar composer: {error}"))?;
+        .map_err(|error| crate::tr!("No se pudo ejecutar composer: {error}", "Couldn’t run composer: {error}"))?;
     let (sender, receiver) = mpsc::channel::<String>();
     let readers: Vec<_> = [
         child.stdout.take().map(|out| Box::new(out) as Box<dyn Read + Send>),
@@ -278,9 +293,9 @@ fn run_streaming(command: &mut Command, on_line: &mut dyn FnMut(&str)) -> Result
     if status.success() {
         Ok(())
     } else if last.is_empty() {
-        Err(format!("composer falló ({status})."))
+        Err(crate::tr!("composer falló ({status}).", "composer failed ({status})."))
     } else {
-        Err(format!("composer falló: {last}"))
+        Err(crate::tr!("composer falló: {last}", "composer failed: {last}"))
     }
 }
 

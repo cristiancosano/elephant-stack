@@ -369,8 +369,8 @@ fn service_problems(components: &[Component]) -> Vec<Problem> {
             target: service.name.clone(),
             message: match service.exit_code {
                 Some(code) => tr!(
-                    "{name} se ha detenido (código {code})",
-                    "{name} stopped (code {code})",
+                    "{name} se ha detenido (código de salida {code})",
+                    "{name} stopped (exit code {code})",
                     name = service.name
                 ),
                 None => tr!("{name} se ha detenido", "{name} stopped", name = service.name),
@@ -413,11 +413,11 @@ mod tests {
             component("nginx", "error", None),
         ]);
         assert_eq!(problems.len(), 2);
-        assert_eq!(problems[0].message, "mysql se ha detenido (código 1)");
+        assert_eq!(problems[0].message, "mysql se ha detenido (código de salida 1)");
         assert_eq!(problems[0].id, "service_error:mysql");
         assert_eq!(problems[1].message, "nginx se ha detenido");
         let english = i18n::with_locale(Locale::En, || service_problems(&[component("mysql", "error", Some(1))]));
-        assert_eq!(english[0].message, "mysql stopped (code 1)");
+        assert_eq!(english[0].message, "mysql stopped (exit code 1)");
     }
 
     #[test]

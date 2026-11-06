@@ -157,19 +157,19 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &ui(
                 app,
                 UiCommand::ToggleSidebar,
-                &tr!("Mostrar u ocultar la barra lateral", "Show or hide sidebar"),
+                &tr!("Mostrar u ocultar la barra lateral", "Toggle sidebar"),
                 "Cmd+Ctrl+S",
             )?,
             &ui(
                 app,
                 UiCommand::ToggleInspector,
-                &tr!("Mostrar u ocultar el inspector", "Show or hide inspector"),
+                &tr!("Mostrar u ocultar el inspector", "Toggle inspector"),
                 "Cmd+Alt+I",
             )?,
             &separator()?,
             &ui(app, UiCommand::Refresh, &tr!("Actualizar", "Refresh"), "CmdOrCtrl+R")?,
             &separator()?,
-            &PredefinedMenuItem::fullscreen(app, Some(&tr!("Pantalla completa", "Full screen")))?,
+            &PredefinedMenuItem::fullscreen(app, Some(&tr!("Entrar en pantalla completa", "Enter full screen")))?,
         ],
     )?;
 

@@ -8,6 +8,7 @@
   import { hasContent } from "../../lib/logs/json";
   import { formatTimestamp } from "../../lib/logs/markdown";
   import { canClear, isNotAvailable, sourceLabel } from "../../lib/logs/model";
+  import { t } from "../../lib/i18n/index.svelte";
   import type { DetailState } from "../../lib/stores/logs.svelte";
   import Button from "../../ui/Button.svelte";
   import EmptyState from "../../ui/EmptyState.svelte";
@@ -49,7 +50,7 @@
 </script>
 
 {#if !shown}
-  <EmptyState icon="logs" title="Ninguna entrada seleccionada" message="Elige una entrada de la lista para ver su detalle." />
+  <EmptyState icon="logs" title={t("logs.detail.empty.title")} message={t("logs.detail.empty.message")} />
 {:else}
   <div class="detail">
     <header class="head">
@@ -58,25 +59,28 @@
     </header>
 
     <dl class="meta">
-      <dt>Proyecto</dt>
+      <dt>{t("logs.detail.project")}</dt>
       <dd class="selectable">{project}</dd>
-      <dt>Fuente</dt>
+      <dt>{t("logs.detail.source")}</dt>
       <dd>{sourceLabel(shown.kind)}{shown.channel ? ` · ${shown.channel}` : ""}</dd>
       {#if shown.host}
-        <dt>Host</dt>
+        <dt>{t("logs.detail.host")}</dt>
         <dd class="selectable">{shown.host}</dd>
       {/if}
       {#if group}
-        <dt>Veces</dt>
+        <dt>{t("logs.detail.count")}</dt>
         <dd class="num">
-          {formatNumber(group.count)} · primera {formatRelative(group.first_ms)} · última {formatRelative(group.last_ms)}
+          {formatNumber(group.count)} · {t("logs.detail.firstLast", {
+            first: formatRelative(group.first_ms),
+            last: formatRelative(group.last_ms),
+          })}
         </dd>
       {/if}
     </dl>
 
     {#if http}
       <section>
-        <h3>Petición</h3>
+        <h3>{t("logs.detail.request")}</h3>
         <p class="mono selectable">{http.method} {http.path} → {http.status}</p>
         <p class="sub">
           {#if http.duration_ms !== null}{formatDuration(http.duration_ms)}{/if}
@@ -88,13 +92,13 @@
     {/if}
 
     <section>
-      <h3>Mensaje</h3>
+      <h3>{t("logs.detail.message")}</h3>
       <p class="message mono selectable">{shown.message}</p>
     </section>
 
     {#if exception}
       <section>
-        <h3>Excepción</h3>
+        <h3>{t("logs.detail.exception")}</h3>
         <p class="mono selectable"><strong>{exception.class}</strong></p>
         {#if exception.message && exception.message !== shown.message}
           <p class="message mono selectable">{exception.message}</p>
@@ -107,36 +111,36 @@
 
     <div class="actions">
       {#if exception?.file}
-        <Button variant="primary" onclick={() => exception?.file && onopen(exception.file, exception.line)}>Abrir en el editor</Button>
+        <Button variant="primary" onclick={() => exception?.file && onopen(exception.file, exception.line)}>{t("common.openInEditor")}</Button>
       {/if}
-      <Button onclick={oncopy}>Copiar</Button>
-      <Button onclick={onmarkdown}>Copiar como Markdown</Button>
+      <Button onclick={oncopy}>{t("logs.menu.copy")}</Button>
+      <Button onclick={onmarkdown}>{t("logs.menu.copyMarkdown")}</Button>
     </div>
 
     {#if detail?.loading}
       <Skeleton lines={4} />
     {:else if detail?.error}
       <p class="error" role="alert">
-        {isNotAvailable(detail.error) ? "El detalle de las entradas todavía no está disponible." : detail.error}
+        {isNotAvailable(detail.error) ? t("logs.detail.unavailable") : detail.error}
       </p>
     {:else if data}
       {#if data.frames.length > 0}
         <section>
-          <h3>Traza</h3>
+          <h3>{t("logs.detail.stackTrace")}</h3>
           <Frames frames={data.frames} {root} onopen={(file, line) => onopen(file, line > 0 ? line : null)} />
         </section>
       {/if}
 
       {#if hasContent(data.context)}
         <section>
-          <h3>Contexto</h3>
+          <h3>{t("logs.detail.context")}</h3>
           <JsonView value={data.context} />
         </section>
       {/if}
 
       {#if extraBody}
         <details class="body">
-          <summary>Entrada completa</summary>
+          <summary>{t("logs.detail.raw")}</summary>
           <pre class="mono selectable">{extraBody}</pre>
         </details>
       {/if}
@@ -144,7 +148,7 @@
 
     {#if canClear(shown)}
       <footer class="danger">
-        <Button variant="plain" onclick={() => onclear(shown)}>Vaciar el archivo de log…</Button>
+        <Button variant="plain" onclick={() => onclear(shown)}>{t("logs.detail.clearFile")}</Button>
       </footer>
     {/if}
   </div>

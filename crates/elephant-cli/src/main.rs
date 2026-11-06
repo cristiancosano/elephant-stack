@@ -54,7 +54,10 @@ fn cli() -> Command {
     let mut root = Command::new("elephant")
         .bin_name("elephant")
         .version(VERSION)
-        .about("Elephant Stack para agentes y para la terminal: logs, servicios, PHP y proyectos")
+        .about(tr_str!(
+            "Elephant Stack para agentes y para la terminal: logs, servicios, PHP y proyectos",
+            "Elephant Stack for agents and the terminal: logs, services, PHP and projects"
+        ))
         .subcommand_required(true)
         .arg_required_else_help(true)
         .arg(
@@ -62,7 +65,10 @@ fn cli() -> Command {
                 .long("json")
                 .global(true)
                 .action(ArgAction::SetTrue)
-                .help("Imprime JSON: exactamente el structuredContent de elephant mcp"),
+                .help(tr_str!(
+                    "Imprime JSON: exactamente el structuredContent de elephant mcp",
+                    "Print JSON: exactly the structuredContent of elephant mcp"
+                )),
         );
 
     let mut groups: Vec<(&'static str, Command)> = Vec::new();
@@ -86,44 +92,82 @@ fn cli() -> Command {
     }
 
     root.subcommand(
-        Command::new("doctor").about("Estado del enlace, versión de la API, modo y número de operaciones"),
+        Command::new("doctor").about(tr_str!(
+            "Estado del enlace, versión de la API, modo y número de operaciones",
+            "Link status, API version, mode and number of operations"
+        )),
     )
     .subcommand(
         Command::new("schema")
-            .about("Vuelca el catálogo (argumentos y salidas como JSON Schema)")
-            .arg(Arg::new("check").long("check").action(ArgAction::SetTrue).help("Compara con el archivo del repositorio"))
-            .arg(Arg::new("markdown").long("markdown").action(ArgAction::SetTrue).help("La referencia en Markdown de la skill"))
-            .arg(Arg::new("file").long("file").value_name("RUTA").help("El archivo con el que comparar")),
+            .about(tr_str!(
+                "Vuelca el catálogo (argumentos y salidas como JSON Schema)",
+                "Dump the catalog (arguments and outputs as JSON Schema)"
+            ))
+            .arg(
+                Arg::new("check")
+                    .long("check")
+                    .action(ArgAction::SetTrue)
+                    .help(tr_str!("Compara con el archivo del repositorio", "Compare with the repository file")),
+            )
+            .arg(
+                Arg::new("markdown")
+                    .long("markdown")
+                    .action(ArgAction::SetTrue)
+                    .help(tr_str!("La referencia en Markdown de la skill", "The skill’s Markdown reference")),
+            )
+            .arg(
+                Arg::new("file")
+                    .long("file")
+                    .value_name(tr_str!("RUTA", "PATH"))
+                    .help(tr_str!("El archivo con el que comparar", "The file to compare with")),
+            ),
     )
-    .subcommand(Command::new("guide").about("Imprime la guía para AGENTS.md o las reglas de otros agentes"))
-    .subcommand(Command::new("mcp").about("Sirve el catálogo como servidor MCP por stdio"))
+    .subcommand(Command::new("guide").about(tr_str!(
+        "Imprime la guía para AGENTS.md o las reglas de otros agentes",
+        "Print the guide for AGENTS.md or other agents’ rules"
+    )))
+    .subcommand(Command::new("mcp").about(tr_str!(
+        "Sirve el catálogo como servidor MCP por stdio",
+        "Serve the catalog as an MCP server over stdio"
+    )))
     .subcommand(Command::new("__job").hide(true).arg(Arg::new("id").required(true)))
     .subcommand(Command::new("__write-plugin").hide(true).arg(Arg::new("dir").required(true)))
 }
 
 fn group_about(group: &str) -> &'static str {
     match group {
-        "component" => "Componentes: mysql, postgresql, redis, mailpit, composer…",
-        "php" => "Versiones de PHP: la global y la de cada proyecto",
-        "project" => "Proyectos locales servidos por Herd",
-        "logs" => "Logs de Laravel, nginx y PHP-FPM (datos no fiables)",
-        "job" => "Tareas largas",
+        "component" => tr_str!(
+            "Componentes: mysql, postgresql, redis, mailpit, composer…",
+            "Components: mysql, postgresql, redis, mailpit, composer…"
+        ),
+        "php" => tr_str!("Versiones de PHP: la global y la de cada proyecto", "PHP versions: the global one and each project’s"),
+        "project" => tr_str!("Proyectos locales servidos por Herd", "Local projects served by Herd"),
+        "logs" => tr_str!("Logs de Laravel, nginx y PHP-FPM (datos no fiables)", "Laravel, nginx and PHP-FPM logs (untrusted data)"),
+        "job" => tr_str!("Tareas largas", "Jobs"),
         _ => "",
     }
 }
 
 fn watch_command() -> Command {
     Command::new("watch")
-        .about("Una línea por cada entrada nueva, para Monitor; termina al cumplirse --timeout")
-        .arg(Arg::new("errors").long("errors").action(ArgAction::SetTrue).help("Solo errores"))
-        .arg(Arg::new("project").long("project").value_name("P").help("Id, nombre o host del proyecto"))
+        .about(tr_str!(
+            "Una línea por cada entrada nueva, para Monitor; termina al cumplirse --timeout",
+            "One line per new entry, for Monitor. Ends when --timeout is up"
+        ))
+        .arg(Arg::new("errors").long("errors").action(ArgAction::SetTrue).help(tr_str!("Solo errores", "Errors only")))
+        .arg(
+            Arg::new("project")
+                .long("project")
+                .value_name("P")
+                .help(tr_str!("Id, nombre o host del proyecto", "Project ID, name or host")),
+        )
         .arg(
             Arg::new("timeout")
                 .long("timeout")
                 .value_name("S")
                 .required(true)
                 .value_parser(clap::value_parser!(u64))
-                .help("Segundos (como mucho 1800)"),
+                .help(tr_str!("Segundos (como mucho 1800)", "Seconds (at most 1800)")),
         )
 }
 
@@ -143,7 +187,7 @@ fn caller() -> elephant_api::Caller {
 
 fn run_operation(name: &str, sub: &ArgMatches, json: bool) -> ExitCode {
     let Some((op, matches)) = find_op(name, sub) else {
-        return fail(&ApiError::usage(format!("Orden desconocida: {name}")), json);
+        return fail(&ApiError::usage(tr!("Orden desconocida: {name}", "Unknown command: {name}")), json);
     };
     let args = match (op.from_matches)(&matches) {
         Ok(args) => args,
@@ -254,7 +298,11 @@ fn doctor_text(
     let version = plugin::version_line();
     let count = catalog().len();
     let mut lines = vec![
-        tr!("{version} · modo {mode} · {count} operaciones", "{version} · {mode} mode · {count} operations"),
+        if count == 1 {
+            tr!("{version} · modo {mode} · 1 operación", "{version} · {mode} mode · 1 operation")
+        } else {
+            tr!("{version} · modo {mode} · {count} operaciones", "{version} · {mode} mode · {count} operations")
+        },
         match (link, linked) {
             (Some(link), true) => {
                 let link = link.display();
@@ -265,16 +313,16 @@ fn doctor_text(
                 let link = link.display();
                 tr!(
                     "Enlace: falta {link} (actívalo en Elephant Stack > Ajustes > Agentes)",
-                    "Link: {link} is missing (turn it on in Elephant Stack > Settings > Agents)"
+                    "Link: {link} not found (turn it on in Elephant Stack > Settings > Agents)"
                 )
             }
             (None, _) => tr!("Enlace: HOME no está definido", "Link: HOME is not set"),
         },
         match plugin_version {
-            Some(version) => tr!("Plugin de Claude Code escrito ({version})", "Claude Code plugin written ({version})"),
+            Some(version) => tr!("Plugin de Claude Code: instalado ({version})", "Claude Code plugin: installed ({version})"),
             None => tr!(
-                "Plugin de Claude Code: sin escribir (Ajustes > Agentes > Conectar)",
-                "Claude Code plugin: not written (Settings > Agents > Connect)"
+                "Plugin de Claude Code: sin instalar (Ajustes > Agentes > Conectar)",
+                "Claude Code plugin: not installed (Settings > Agents > Connect)"
             ),
         },
     ];
@@ -297,17 +345,20 @@ fn schema_command(sub: &ArgMatches) -> Result<(), ApiError> {
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(if markdown { DOCS_REFERENCE } else { DOCS_SCHEMA }));
     let committed = std::fs::read_to_string(&file)
-        .map_err(|error| ApiError::new(ErrorCode::Failed, format!("No se pudo leer {}: {error}", file.display())))?;
+        .map_err(|error| {
+            let file = file.display();
+            ApiError::new(ErrorCode::Failed, tr!("No se pudo leer {file}: {error}", "Couldn’t read {file}: {error}"))
+        })?;
+    let file = file.display();
     if committed == current {
-        print_text(&format!("{} está al día.", file.display()))
+        print_text(&tr!("{file} está al día.", "{file} is up to date."))
     } else {
         let regenerate = if markdown { "elephant schema --markdown" } else { "elephant schema" };
         Err(ApiError::new(
             ErrorCode::Failed,
-            format!(
-                "{} no coincide con el catálogo. Regenera con `{regenerate} > {}` y, si el cambio es incompatible, sube la versión de la API.",
-                file.display(),
-                file.display()
+            tr!(
+                "{file} no coincide con el catálogo. Regenera con `{regenerate} > {file}` y, si el cambio es incompatible, sube la versión de la API.",
+                "{file} doesn’t match the catalog. Regenerate it with `{regenerate} > {file}` and, if the change is incompatible, bump the API version."
             ),
         ))
     }
@@ -320,7 +371,10 @@ fn mcp() -> Result<(), ApiError> {
 
 #[cfg(not(feature = "mcp"))]
 fn mcp() -> Result<(), ApiError> {
-    Err(ApiError::new(ErrorCode::Unavailable, "Esta compilación de elephant no incluye elephant mcp."))
+    Err(ApiError::new(
+        ErrorCode::Unavailable,
+        tr!("Esta compilación de elephant no incluye elephant mcp.", "This build of elephant doesn’t include elephant mcp."),
+    ))
 }
 
 fn logs_watch(sub: &ArgMatches) -> Result<(), ApiError> {
@@ -352,9 +406,10 @@ fn hidden_job(sub: &ArgMatches) -> Result<(), ApiError> {
 }
 
 fn hidden_write_plugin(sub: &ArgMatches) -> Result<(), ApiError> {
-    let dir = sub.get_one::<String>("dir").map(Path::new).ok_or_else(|| ApiError::usage("Falta la carpeta."))?;
+    let dir = sub.get_one::<String>("dir").map(Path::new).ok_or_else(|| ApiError::usage(tr!("Falta la carpeta.", "Missing folder.")))?;
     let written = plugin::write_plugin(dir).map_err(|error| ApiError::new(ErrorCode::Failed, error))?;
-    print_text(&format!("Plugin escrito en {} ({} archivos)", dir.display(), written.len()))
+    let (path, n) = (dir.display(), written.len());
+    print_text(&tr!("Plugin escrito en {path} ({n} archivos)", "Plugin written to {path} ({n} files)"))
 }
 
 #[cfg(test)]
@@ -378,8 +433,8 @@ mod tests {
         assert!(es.contains("Enlace: falta /h/.elephant-stack/bin/elephant"), "{es}");
         let en = text(Locale::En);
         assert!(en.contains("· confirm mode ·"), "{en}");
-        assert!(en.contains("Link: /h/.elephant-stack/bin/elephant is missing"), "{en}");
-        assert!(en.contains("Claude Code plugin: not written"), "{en}");
+        assert!(en.contains("Link: /h/.elephant-stack/bin/elephant not found"), "{en}");
+        assert!(en.contains("Claude Code plugin: not installed"), "{en}");
     }
 
     #[test]

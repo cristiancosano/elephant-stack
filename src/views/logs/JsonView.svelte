@@ -2,6 +2,8 @@
   // Contexto JSON formateado con resaltado propio mínimo (01 §7.5): claves, cadenas,
   // números y literales con los colores del sistema. Sin librería.
   import { prettyJson, tokenize } from "../../lib/logs/json";
+  import "../../lib/i18n/locales/logs";
+  import { t as tr } from "../../lib/i18n/index.svelte";
 
   let { value }: { value: unknown } = $props();
 
@@ -10,7 +12,7 @@
 </script>
 
 <pre class="json selectable mono">{#each tokens as t, i (i)}{#if t.kind === "space" || t.kind === "punct" || t.kind === "text"}{t.text}{:else}<span class={t.kind}>{t.text}</span>{/if}{/each}{#if pretty.truncated}<span class="note">
-… (recortado)</span>{/if}</pre>
+{tr("logs.json.truncated")}</span>{/if}</pre>
 
 <style>
   .json {

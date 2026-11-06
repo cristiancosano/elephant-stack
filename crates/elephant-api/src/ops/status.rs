@@ -5,6 +5,7 @@ use elephant_core::jobs::{self, JobState};
 use elephant_core::monitor::{self, Usage};
 use elephant_core::project::{self, PhpReason, ProjectPhp};
 use elephant_core::{launchd, now_ms, php};
+use elephant_core::{tr, tr_str};
 use serde::{Deserialize, Serialize};
 
 use crate::text::{ago, table};
@@ -114,7 +115,7 @@ impl Op for Status {
             .map(|s| {
                 let mut item = format!("{} {}", s.name, if s.running { "●" } else { "○" });
                 if !s.running && let Some(code) = s.last_exit.filter(|code| *code != 0) {
-                    item.push_str(&format!(" (salió con {code})"));
+                    item.push_str(&tr!(" (salió con {code})", " (exited with {code})"));
                 }
                 if let Some(mb) = s.memory_mb {
                     item.push_str(&format!(" {mb} MB"));
@@ -123,38 +124,43 @@ impl Op for Status {
             })
             .collect();
         lines.push(if list.is_empty() {
-            "Servicios: ninguno de Homebrew".to_string()
+            tr!("Servicios: ninguno de Homebrew", "Services: none from Homebrew")
         } else {
-            format!("Servicios ({running} en marcha): {}", list.join(" · "))
+            let list = list.join(" · ");
+            tr!("Servicios ({running} en marcha): {list}", "Services ({running} running): {list}")
         });
         lines.push(php_line(o.php_global.as_ref(), &o.php_project));
         if !o.brief {
             if o.errors_1h.is_empty() {
-                lines.push("Errores en la última hora: ninguno".to_string());
+                lines.push(tr!("Errores en la última hora: ninguno", "Errors in the last hour: none"));
             } else {
                 let now = now_ms();
                 let items: Vec<String> = o
                     .errors_1h
                     .iter()
                     .map(|e| match e.last_ms {
-                        Some(last) => format!("{} {} (último {})", e.project, e.errors, ago(last, now)),
+                        Some(last) => {
+                            let (project, errors, when) = (&e.project, e.errors, ago(last, now));
+                            tr!("{project} {errors} (último {when})", "{project} {errors} (last {when})")
+                        }
                         None => format!("{} {}", e.project, e.errors),
                     })
                     .collect();
-                lines.push(format!("Errores en la última hora: {} (elephant logs errors)", items.join(" · ")));
+                let items = items.join(" · ");
+                lines.push(tr!(
+                    "Errores en la última hora: {items} (elephant logs errors)",
+                    "Errors in the last hour: {items} (elephant logs errors)"
+                ));
             }
         }
         if o.jobs.is_empty() {
-            lines.push("Tareas en curso: ninguna".to_string());
+            lines.push(tr!("Tareas en curso: ninguna", "Jobs in progress: none"));
         } else {
             for job in &o.jobs {
-                lines.push(format!(
-                    "Tarea {} {}: {}{}",
-                    job.id,
-                    job.kind,
-                    job.message.as_deref().unwrap_or("en marcha"),
-                    job.client.as_deref().map(|c| format!(" ({c})")).unwrap_or_default()
-                ));
+                let (id, kind) = (&job.id, &job.kind);
+                let message = job.message.as_deref().unwrap_or(tr_str!("en marcha", "running"));
+                let client = job.client.as_deref().map(|c| format!(" ({c})")).unwrap_or_default();
+                lines.push(tr!("Tarea {id} {kind}: {message}{client}", "Job {id} {kind}: {message}{client}"));
             }
         }
         lines.join("\n")
@@ -162,13 +168,22 @@ impl Op for Status {
 }
 
 fn php_line(global: Option<&php::VersionInfo>, project: &ProjectPhp) -> String {
-    let global = global.map(|v| format!("{} ({})", v.id, v.source)).unwrap_or_else(|| "ninguna".into());
+    let global = global.map(|v| format!("{} ({})", v.id, v.source)).unwrap_or_else(|| tr!("ninguna", "none"));
     let here = match (&project.version, project.reason) {
-        (Some(v), PhpReason::ProjectFile) => format!("{} por .php-version", v.id),
-        (Some(v), _) => format!("{} (la global)", v.id),
-        (None, _) => format!("no disponible: {}", project.error.as_deref().unwrap_or("sin versiones")),
+        (Some(v), PhpReason::ProjectFile) => {
+            let id = &v.id;
+            tr!("{id} por .php-version", "{id} from .php-version")
+        }
+        (Some(v), _) => {
+            let id = &v.id;
+            tr!("{id} (la global)", "{id} (the global one)")
+        }
+        (None, _) => {
+            let error = project.error.clone().unwrap_or_else(|| tr!("sin versiones", "no versions"));
+            tr!("no disponible: {error}", "not available: {error}")
+        }
     };
-    format!("PHP: global {global} · en esta carpeta {here}")
+    tr!("PHP: global {global} · en esta carpeta {here}", "PHP: global {global} · in this folder {here}")
 }
 
 /// `launchctl list` (< 10 ms): nunca brew.
@@ -286,26 +301,26 @@ impl Op for ComponentsList {
     fn text(o: &ComponentsOut) -> String {
         let installed = o.components.iter().filter(|c| c.component.installed).count();
         let mut rows = vec![vec![
-            "COMPONENTE".to_string(),
-            "TIPO".into(),
-            "ESTADO".into(),
-            "VERSIÓN".into(),
-            "ORIGEN".into(),
+            tr!("COMPONENTE", "COMPONENT"),
+            tr!("TIPO", "TYPE"),
+            tr!("ESTADO", "STATUS"),
+            tr!("VERSIÓN", "VERSION"),
+            tr!("ORIGEN", "SOURCE"),
             "RAM".into(),
         ]];
         for line in &o.components {
             let c = &line.component;
             let state = match (&c.service, c.installed) {
-                (_, false) => "no instalado".to_string(),
-                (Some(s), true) if s.running => "en marcha".to_string(),
-                (Some(_), true) => "parado".to_string(),
-                (None, true) => "instalado".to_string(),
+                (_, false) => tr!("no instalado", "not installed"),
+                (Some(s), true) if s.running => tr!("en marcha", "running"),
+                (Some(_), true) => tr!("parado", "stopped"),
+                (None, true) => tr!("instalado", "installed"),
             };
             rows.push(vec![
                 c.id.clone(),
                 match c.kind {
-                    ComponentKind::Service => "servicio".into(),
-                    ComponentKind::Tool => "herramienta".into(),
+                    ComponentKind::Service => tr!("servicio", "service"),
+                    ComponentKind::Tool => tr!("herramienta", "tool"),
                 },
                 state,
                 c.version.clone().unwrap_or_else(|| "—".into()),
@@ -313,6 +328,8 @@ impl Op for ComponentsList {
                 line.usage.as_ref().map(|u| format!("{} MB", u.memory_kb / 1024)).unwrap_or_else(|| "—".into()),
             ]);
         }
-        format!("{} componentes, {installed} instalados\n{}", o.components.len(), table(&rows))
+        let total = o.components.len();
+        let count = tr!("{total} componentes, {installed} instalados", "{total} components, {installed} installed");
+        format!("{count}\n{}", table(&rows))
     }
 }

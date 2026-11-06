@@ -1,5 +1,6 @@
 <script lang="ts">
   // Bienvenida y detección (04 §4.11, paso 1).
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import { findings, herdBanner } from "../../lib/wizard/detection";
   import Icon from "../../ui/Icon.svelte";
@@ -12,9 +13,9 @@
 
 <section class="welcome">
   <span class="mark" aria-hidden="true">{@html iconSvg("elephant")}</span>
-  <h1 class="title">Te damos la bienvenida a Elephant Stack</h1>
+  <h1 class="title">{t("wizard.welcome.title")}</h1>
   <p class="lead">
-    Vamos a dejar tu Mac listo para trabajar con PHP y Laravel. Primero, esto es lo que hay ahora mismo:
+    {t("wizard.welcome.intro")}
   </p>
 
   {#if banner}
@@ -35,14 +36,14 @@
         {/each}
       </ul>
     {:else if wizard.detectionError}
-      <p class="error">No se ha podido revisar el Mac: {wizard.detectionError}. Puedes seguir igualmente.</p>
+      <p class="error">{t("wizard.welcome.detectFailed", { error: wizard.detectionError })}</p>
     {:else}
-      <p class="visually-hidden">Revisando tu Mac…</p>
+      <p class="visually-hidden">{t("wizard.welcome.detecting")}</p>
       <Skeleton lines={4} />
     {/if}
   </div>
 
-  <p class="note">Nada cambia hasta que revises el plan y pulses «Aplicar».</p>
+  <p class="note">{t("wizard.welcome.note")}</p>
 </section>
 
 <style>

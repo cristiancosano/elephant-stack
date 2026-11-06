@@ -3,5 +3,8 @@ import type es from "../es/ui";
 import type { Dictionary } from "../../types";
 
 export default {
-  // La ola 2 lo rellena (docs/i18n.md).
+  toast: { close: "Close notification" },
+  search: { clear: "Clear search" },
+  progress: { label: "In progress" },
+  inspector: { label: "Inspector", resize: "Inspector width" },
 } satisfies Dictionary<typeof es>;

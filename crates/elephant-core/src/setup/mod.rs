@@ -17,7 +17,7 @@ use std::sync::atomic::AtomicBool;
 use serde::{Deserialize, Serialize};
 
 use crate::brew::{Operation, Service};
-use crate::monitor;
+use crate::{monitor, tr};
 use crate::php::VersionInfo;
 
 mod apply;
@@ -276,6 +276,10 @@ pub struct Plan {
     /// «Ya lo tienes».
     pub satisfied: Vec<String>,
     pub notices: Vec<String>,
+    /// El aviso de `notices` que dice que el selector php no está en el PATH,
+    /// si está. La interfaz lo oculta cuando enseña su propio aviso con botón.
+    #[serde(default)]
+    pub path_notice: Option<String>,
     pub conflicts: Vec<Conflict>,
     pub totals: Totals,
 }
@@ -529,7 +533,9 @@ pub fn install_composer(on_line: &mut dyn FnMut(&str)) -> Result<(), String> {
     let tools = download::Tools::system()?;
     let release = catalog(false)
         .composer
-        .ok_or("No se ha podido consultar la versión estable de Composer.")?;
+        .ok_or_else(|| {
+            tr!("No se ha podido consultar la versión estable de Composer.", "Couldn’t check the stable version of Composer.")
+        })?;
     let shim = elephant_php::Layout::from_home(&tools.home).shim_path();
     if !shim.is_file()
         && let Some(source) = detect::default_shim_source()
@@ -546,20 +552,20 @@ pub fn download_php(
     on_event: &(dyn Fn(SetupProgress) + Sync),
 ) -> Result<ApplyReport, String> {
     if !cfg!(target_arch = "aarch64") {
-        return Err("Los PHP de Elephant son solo para Apple Silicon.".into());
+        return Err(tr!("Los PHP de Elephant son solo para Apple Silicon.", "Elephant’s PHP builds are Apple Silicon only."));
     }
     let release = catalog(false)
         .php
         .into_iter()
         .find(|release| release.version == version)
-        .ok_or_else(|| format!("PHP {version} no está en el catálogo de Elephant."))?;
+        .ok_or_else(|| tr!("PHP {version} no está en el catálogo de Elephant.", "PHP {version} isn’t in Elephant’s catalog."))?;
     let key = plan::download_key(version);
     let single = Plan {
         id: key.clone(),
         scenario: ScenarioId::Custom,
         steps: vec![Step {
             key,
-            title: format!("Descargar PHP {version}"),
+            title: tr!("Descargar PHP {version}", "Download PHP {version}"),
             command: Some(format!("curl -fL {}", release.url)),
             action: Action::DownloadPhp { release },
             group: StepGroup::Download,
@@ -570,6 +576,7 @@ pub fn download_php(
         }],
         satisfied: Vec::new(),
         notices: Vec::new(),
+        path_notice: None,
         conflicts: Vec::new(),
         totals: Totals::default(),
     };

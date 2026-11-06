@@ -14,6 +14,8 @@ use memchr::memmem;
 
 use crate::parse::{self, FileCtx, build_entry, entry_id, parse_entry_id};
 use crate::reader::{BackReader, MAX_RECORD, Record, Step, offset_after, record_at};
+use elephant_i18n::tr;
+
 use crate::sources::{Catalog, LogFile};
 use crate::{LogEntry, LogLevel, LogQuery, LogSource, SourceKind, StatusFilter, projects};
 
@@ -371,19 +373,24 @@ fn open_cursors(
 }
 
 fn read_error(ctx: &FileCtx, error: &io::Error) -> String {
-    format!("No se pudo leer {}: {error}.", ctx.path.display())
+    let path = ctx.path.display();
+    tr!("No se pudo leer {path}: {error}.", "Couldn’t read {path}: {error}.")
 }
 
 /// La clave de la entrada a la que apunta un cursor.
 fn resolve_cursor(catalog: &Catalog, id: &str) -> Result<Key, String> {
-    const STALE: &str =
-        "El cursor ya no es válido: el archivo de log ha cambiado. Vuelve a la primera página.";
-    let (key, offset) = parse_entry_id(id).ok_or_else(|| format!("Cursor no válido: {id}."))?;
-    let file = catalog.file_by_key(key).ok_or(STALE)?;
-    let (handle, ctx) = catalog.context(file).ok_or(STALE)?;
+    let stale = || {
+        tr!(
+            "El cursor ya no es válido: el archivo de log ha cambiado. Vuelve a la primera página.",
+            "The cursor is no longer valid: the log file changed. Go back to the first page."
+        )
+    };
+    let (key, offset) = parse_entry_id(id).ok_or_else(|| tr!("Cursor no válido: {id}.", "Invalid cursor: {id}."))?;
+    let file = catalog.file_by_key(key).ok_or_else(stale)?;
+    let (handle, ctx) = catalog.context(file).ok_or_else(stale)?;
     let record = record_at(&handle, ctx.format, offset, MAX_RECORD)
         .map_err(|e| read_error(&ctx, &e))?
-        .ok_or(STALE)?;
+        .ok_or_else(stale)?;
     let ts = ctx
         .format
         .header_ts(crate::util::first_line(&record.bytes), &ctx.tz)
@@ -546,16 +553,19 @@ pub(crate) fn group(
 }
 
 pub(crate) fn read_detail(catalog: &Catalog, id: &str) -> Result<crate::EntryDetail, String> {
-    const GONE: &str = "La entrada ya no existe: el archivo ha cambiado.";
+    let gone = || tr!("La entrada ya no existe: el archivo ha cambiado.", "The entry no longer exists: the file changed.");
     let (key, offset) =
-        parse_entry_id(id).ok_or_else(|| format!("Identificador de entrada no válido: {id}."))?;
-    let file = catalog
-        .file_by_key(key)
-        .ok_or("La entrada ya no existe: no hay ningún archivo de log con ese identificador.")?;
-    let (handle, ctx) = catalog.context(file).ok_or(GONE)?;
+        parse_entry_id(id).ok_or_else(|| tr!("Identificador de entrada no válido: {id}.", "Invalid entry ID: {id}."))?;
+    let file = catalog.file_by_key(key).ok_or_else(|| {
+        tr!(
+            "La entrada ya no existe: no hay ningún archivo de log con ese identificador.",
+            "The entry no longer exists: there’s no log file with that ID."
+        )
+    })?;
+    let (handle, ctx) = catalog.context(file).ok_or_else(gone)?;
     let record = record_at(&handle, ctx.format, offset, MAX_RECORD)
         .map_err(|e| read_error(&ctx, &e))?
-        .ok_or(GONE)?;
+        .ok_or_else(gone)?;
     Ok(detail_of(&ctx, &record))
 }
 

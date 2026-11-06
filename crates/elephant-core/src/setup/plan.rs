@@ -11,7 +11,7 @@ use super::{
     SETUP_VERSION, ServiceWant, Step, StepGroup, Totals,
 };
 use crate::brew::Operation;
-use crate::components;
+use crate::{components, tr};
 
 /// Tamaño aproximado de `composer.phar` (≈ 3 MB): el catálogo no lo da.
 pub(crate) const COMPOSER_BYTES: u64 = 3_200_000;
@@ -38,6 +38,7 @@ struct Builder {
     optional: Vec<Step>,
     satisfied: Vec<String>,
     notices: Vec<String>,
+    path_notice: Option<String>,
     conflicts: Vec<Conflict>,
 }
 
@@ -87,7 +88,7 @@ impl Builder {
 /// Texto para la versión global: `8.4@Herd` → «8.4 de Herd».
 fn php_label(key: &str) -> String {
     match key.split_once('@') {
-        Some((id, source)) => format!("{id} de {source}"),
+        Some((id, source)) => tr!("{id} de {source}", "{id} from {source}"),
         None => key.to_string(),
     }
 }
@@ -103,16 +104,16 @@ fn want_download(
 ) -> Option<String> {
     let key = format!("php:{}", what.unwrap_or("latest"));
     if !d.arch_arm64 {
-        b.conflict(key, "Los PHP de Elephant son solo para Apple Silicon.");
+        b.conflict(key, tr!("Los PHP de Elephant son solo para Apple Silicon.", "Elephant’s PHP builds are Apple Silicon only."));
         return None;
     }
     let Some(release) = release else {
         if c.offline {
-            b.conflict(key, "Sin conexión: no se puede descargar PHP.");
+            b.conflict(key, tr!("Sin conexión: no se puede descargar PHP.", "Offline: PHP can’t be downloaded."));
         } else {
             let reason = match what {
-                Some(what) => format!("PHP {what} no está en el catálogo de Elephant."),
-                None => "No hay ninguna versión de PHP en el catálogo de Elephant.".to_string(),
+                Some(what) => tr!("PHP {what} no está en el catálogo de Elephant.", "PHP {what} isn’t in Elephant’s catalog."),
+                None => tr!("No hay ninguna versión de PHP en el catálogo de Elephant.", "Elephant’s catalog has no PHP versions."),
             };
             b.conflict(key, reason);
         }
@@ -126,7 +127,10 @@ fn want_download(
                 release: release.clone(),
             },
             StepGroup::Download,
-            format!("Descargar PHP {}", release.version),
+            {
+                let v = &release.version;
+                tr!("Descargar PHP {v}", "Download PHP {v}")
+            },
             Some(format!("curl -fL {}", release.url)),
         ));
     }
@@ -215,7 +219,10 @@ fn plan_php(b: &mut Builder, d: &Detection, p: &Profile, c: &Catalog) {
             version: target.clone(),
         },
         StepGroup::Configure,
-        format!("Usar PHP {} por defecto", php_label(&target)),
+        {
+            let v = php_label(&target);
+            tr!("Usar PHP {v} por defecto", "Use PHP {v} by default")
+        },
         None,
     );
     if downloading {
@@ -229,11 +236,8 @@ fn plan_php(b: &mut Builder, d: &Detection, p: &Profile, c: &Catalog) {
         Some(now) => {
             set.group = StepGroup::Optional;
             set.optional = true;
-            set.title = format!(
-                "Usar PHP {} por defecto (ahora {})",
-                php_label(&target),
-                php_label(now)
-            );
+            let (v, now) = (php_label(&target), php_label(now));
+            set.title = tr!("Usar PHP {v} por defecto (ahora {now})", "Use PHP {v} by default (now {now})");
             b.optional.push(set);
         }
     }
@@ -242,15 +246,15 @@ fn plan_php(b: &mut Builder, d: &Detection, p: &Profile, c: &Catalog) {
 fn plan_tools(b: &mut Builder, d: &Detection, p: &Profile, c: &Catalog) {
     if p.shim {
         match d.shim {
-            FileState::Same => b.satisfied("Selector php"),
+            FileState::Same => b.satisfied(tr!("Selector php", "php selector")),
             state => b.files.push(step(
                 KEY_SHIM.into(),
                 Action::InstallShim,
                 StepGroup::Configure,
                 if state == FileState::Different {
-                    "Actualizar el selector php".into()
+                    tr!("Actualizar el selector php", "Update the php selector")
                 } else {
-                    "Instalar el selector php".into()
+                    tr!("Instalar el selector php", "Install the php selector")
                 },
                 Some("cp php-selector ~/.elephant-stack/bin/php".into()),
             )),
@@ -267,7 +271,10 @@ fn plan_tools(b: &mut Builder, d: &Detection, p: &Profile, c: &Catalog) {
                     release: release.clone(),
                 },
                 StepGroup::Download,
-                format!("Instalar Composer {}", release.version),
+                {
+                    let v = &release.version;
+                    tr!("Instalar Composer {v}", "Install Composer {v}")
+                },
                 Some(format!(
                     "curl -fL {} -o ~/.elephant-stack/libexec/composer.phar",
                     release.url
@@ -281,19 +288,25 @@ fn plan_tools(b: &mut Builder, d: &Detection, p: &Profile, c: &Catalog) {
                 .collect();
             b.files.push(composer);
             if d.herd.is_some() {
-                b.notice("Tienes Composer de Herd; Elephant instala el suyo, que usa el PHP de cada proyecto.");
+                b.notice(tr!(
+                    "Tienes Composer de Herd; Elephant instala el suyo, que usa el PHP de cada proyecto.",
+                    "You have Herd’s Composer. Elephant installs its own, which uses each project’s PHP."
+                ));
             } else if d.formulas.iter().any(|f| f == "composer") {
-                b.notice("Tienes Composer de Homebrew; Elephant instala el suyo, que usa el PHP de cada proyecto.");
+                b.notice(tr!(
+                    "Tienes Composer de Homebrew; Elephant instala el suyo, que usa el PHP de cada proyecto.",
+                    "You have Homebrew’s Composer. Elephant installs its own, which uses each project’s PHP."
+                ));
             }
         } else if c.offline {
-            b.conflict(
-                KEY_COMPOSER,
-                "Sin conexión: no se puede descargar Composer.",
-            );
+            b.conflict(KEY_COMPOSER, tr!("Sin conexión: no se puede descargar Composer.", "Offline: Composer can’t be downloaded."));
         } else {
             b.conflict(
                 KEY_COMPOSER,
-                "No se ha podido consultar la versión estable de Composer.",
+                tr!(
+                    "No se ha podido consultar la versión estable de Composer.",
+                    "Couldn’t check the stable version of Composer."
+                ),
             );
         }
     }
@@ -320,7 +333,7 @@ fn plan_services(b: &mut Builder, d: &Detection, p: &Profile) {
                     formula: id.clone(),
                 },
                 StepGroup::BrewInstall,
-                format!("Instalar {label} con Homebrew"),
+                tr!("Instalar {label} con Homebrew", "Install {label} with Homebrew"),
                 Some(format!("brew install {id}")),
             ));
             after.push(install_key(id));
@@ -329,9 +342,10 @@ fn plan_services(b: &mut Builder, d: &Detection, p: &Profile) {
                 let last = dir.rsplit('/').next().unwrap_or(dir);
                 presets::engine(last) == engine
             }) {
-                b.notice(format!(
-                    "Hay datos de {} de una instalación anterior: se reutilizarán.",
-                    presets::label(id.split('@').next().unwrap_or(id))
+                let engine = presets::label(id.split('@').next().unwrap_or(id));
+                b.notice(tr!(
+                    "Hay datos de {engine} de una instalación anterior: se reutilizarán.",
+                    "There’s {engine} data from a previous install. It will be reused."
                 ));
             }
         } else if !(*want == ServiceWant::Autostart && registered) {
@@ -341,7 +355,7 @@ fn plan_services(b: &mut Builder, d: &Detection, p: &Profile) {
         match want {
             ServiceWant::Keep => {}
             ServiceWant::Autostart if registered => {
-                b.satisfied(format!("{label} al iniciar sesión"))
+                b.satisfied(tr!("{label} al iniciar sesión", "{label} at login"))
             }
             ServiceWant::Autostart => {
                 let key = format!("autostart:{name}");
@@ -350,25 +364,29 @@ fn plan_services(b: &mut Builder, d: &Detection, p: &Profile) {
                     .and_then(|port| d.ports.iter().find(|use_| use_.port == port && use_.busy));
                 if let (Some(use_), false) = (busy, running) {
                     let owner = use_.owner_hint.as_deref().map_or_else(
-                        || "otro programa".to_string(),
-                        |hint| format!("parece que {hint}"),
+                        || tr!("otro programa", "another program"),
+                        |hint| tr!("parece que {hint}", "looks like {hint}"),
                     );
+                    let port = use_.port;
                     b.conflict(
                         key,
-                        format!("El puerto {} está ocupado ({owner}): no se arranca {label} de Homebrew.", use_.port),
+                        tr!(
+                            "El puerto {port} está ocupado ({owner}): no se arranca {label} de Homebrew.",
+                            "Port {port} is in use ({owner}): Homebrew’s {label} won’t be started."
+                        ),
                     );
                     continue;
                 }
                 let (op, title, command) = if running {
                     (
                         Operation::EnableAutostart,
-                        format!("{label} al iniciar sesión"),
+                        tr!("{label} al iniciar sesión", "{label} at login"),
                         format!("brew services stop {name} && brew services start {name}"),
                     )
                 } else {
                     (
                         Operation::TurnOnWithAutostart,
-                        format!("Arrancar {label} y dejarlo al iniciar sesión"),
+                        tr!("Arrancar {label} y dejarlo al iniciar sesión", "Start {label} and keep it at login"),
                         format!("brew services start {name}"),
                     )
                 };
@@ -396,9 +414,12 @@ fn plan_services(b: &mut Builder, d: &Detection, p: &Profile) {
                     },
                     StepGroup::Optional,
                     if running {
-                        format!("Quitar el arranque automático de {label} (sigue encendido)")
+                        tr!(
+                            "Quitar el arranque automático de {label} (sigue encendido)",
+                            "Turn off start at login for {label} (it keeps running)"
+                        )
                     } else {
-                        format!("Quitar el arranque automático de {label}")
+                        tr!("Quitar el arranque automático de {label}", "Turn off start at login for {label}")
                     },
                     Some(if running {
                         format!("brew services stop {name} && brew services run {name}")
@@ -420,29 +441,32 @@ fn plan_services(b: &mut Builder, d: &Detection, p: &Profile) {
                 KEY_BREW_UPDATE.into(),
                 Action::BrewUpdate,
                 StepGroup::BrewInstall,
-                "Actualizar la lista de fórmulas de Homebrew".into(),
+                tr!("Actualizar la lista de fórmulas de Homebrew", "Update Homebrew’s formula list"),
                 Some("brew update".into()),
             ),
         );
-        b.notice("Homebrew puede actualizar librerías que necesitan las fórmulas que se instalen.");
+        b.notice(tr!(
+            "Homebrew puede actualizar librerías que necesitan las fórmulas que se instalen.",
+            "Homebrew may update libraries that the new formulas need."
+        ));
     }
 }
 
 fn plan_launch(b: &mut Builder, d: &Detection, p: &Profile) {
     match (p.launch_at_login, d.launch_at_login) {
-        (true, true) => b.satisfied("Elephant al iniciar sesión"),
+        (true, true) => b.satisfied(tr!("Elephant al iniciar sesión", "Elephant at login")),
         (true, false) => b.start.push(step(
             KEY_LAUNCH.into(),
             Action::LaunchAtLogin { enabled: true },
             StepGroup::Start,
-            "Abrir Elephant al iniciar sesión, solo en la barra de menús".into(),
+            tr!("Abrir Elephant al iniciar sesión, solo en la barra de menús", "Open Elephant at login, in the menu bar only"),
             None,
         )),
         (false, true) => b.optional.push(step(
             KEY_LAUNCH_OFF.into(),
             Action::LaunchAtLogin { enabled: false },
             StepGroup::Optional,
-            "No abrir Elephant al iniciar sesión".into(),
+            tr!("No abrir Elephant al iniciar sesión", "Don’t open Elephant at login"),
             None,
         )),
         (false, false) => {}
@@ -452,25 +476,37 @@ fn plan_launch(b: &mut Builder, d: &Detection, p: &Profile) {
 fn plan_notices(b: &mut Builder, d: &Detection, p: &Profile) {
     match &d.herd {
         Some(herd) => {
-            b.notice("Herd está instalado. Elephant convive con él: no toca sus sitios, su PHP ni sus servicios.");
+            b.notice(tr!(
+                "Herd está instalado. Elephant convive con él: no toca sus sitios, su PHP ni sus servicios.",
+                "Herd is installed. Elephant works alongside it and doesn’t touch its sites, PHP or services."
+            ));
             let tld = herd.tld.as_deref().unwrap_or("test");
             b.notice(match herd.sites {
-                Some(1) => format!("Herd sigue sirviendo tu sitio .{tld}."),
-                Some(n) if n > 0 => format!("Herd sigue sirviendo tus {n} sitios .{tld}."),
-                _ => format!("Herd sigue sirviendo tus sitios .{tld}."),
+                Some(1) => tr!("Herd sigue sirviendo tu sitio .{tld}.", "Herd keeps serving your .{tld} site."),
+                Some(n) if n > 0 => tr!("Herd sigue sirviendo tus {n} sitios .{tld}.", "Herd keeps serving your {n} .{tld} sites."),
+                _ => tr!("Herd sigue sirviendo tus sitios .{tld}.", "Herd keeps serving your .{tld} sites."),
             });
         }
-        None => b.notice("Elephant todavía no sirve sitios .test; llegará en una próxima versión."),
+        None => b.notice(tr!(
+            "Elephant todavía no sirve sitios .test; llegará en una próxima versión.",
+            "Elephant doesn’t serve .test sites yet. It’s coming in a future version."
+        )),
     }
 
     if p.shim || d.shim != FileState::Missing {
         match d.path {
-            PathState::Active => b.satisfied("Selector php en el PATH"),
-            PathState::ShadowedByHerd => b.notice(
+            PathState::Active => b.satisfied(tr!("Selector php en el PATH", "php selector in the PATH")),
+            PathState::ShadowedByHerd => b.notice(tr!(
                 "Herd va por delante de Elephant en el PATH de tu terminal: el comando php sería el de Herd. Puedes corregirlo en ~/.zshrc.",
-            ),
+                "Herd comes before Elephant in your terminal’s PATH, so the php command would be Herd’s. You can fix it in ~/.zshrc."
+            )),
             PathState::Missing | PathState::AfterHerdMissing => {
-                b.notice("El selector php no está en el PATH de tu terminal. Puedes añadirlo a ~/.zshrc.")
+                let text = tr!(
+                    "El selector php no está en el PATH de tu terminal. Puedes añadirlo a ~/.zshrc.",
+                    "The php selector isn’t in your terminal’s PATH. You can add it to ~/.zshrc."
+                );
+                b.path_notice = Some(text.clone());
+                b.notice(text);
             }
         }
     }
@@ -550,6 +586,7 @@ pub(crate) fn plan(
         steps,
         satisfied: b.satisfied,
         notices: b.notices,
+        path_notice: b.path_notice,
         conflicts: b.conflicts,
         totals: Totals {
             download_bytes,
@@ -1179,5 +1216,23 @@ mod tests {
                 .iter()
                 .any(|n| n.starts_with("El selector php no está en el PATH"))
         );
+        let path_notice = plan.path_notice.clone().expect("aviso del PATH marcado");
+        assert!(plan.notices.contains(&path_notice));
+    }
+
+    #[test]
+    fn plans_are_written_in_the_current_language() {
+        use crate::i18n::{Locale, with_locale};
+        let mut d = this_mac();
+        d.path = PathState::Missing;
+        let english = with_locale(Locale::En, || plan_for(&d, &ProfileInput::Laravel));
+        assert!(
+            english.notices.iter().any(|n| n.starts_with("The php selector isn’t in your terminal’s PATH")),
+            "{:?}",
+            english.notices
+        );
+        assert!(english.path_notice.as_deref().is_some_and(|n| n.starts_with("The php selector")));
+        let spanish = plan_for(&d, &ProfileInput::Laravel);
+        assert!(spanish.path_notice.as_deref().is_some_and(|n| n.starts_with("El selector php")));
     }
 }

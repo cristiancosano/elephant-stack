@@ -1,6 +1,8 @@
 <script lang="ts">
   // Aviso «Añadirlo por mí» del PATH (04 §4.4 regla 9): no es un paso del plan,
   // porque necesita su propia confirmación con el diff delante.
+  import "../../lib/i18n/locales/wizard";
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import Button from "../../ui/Button.svelte";
   import Group from "../../ui/Group.svelte";
@@ -13,13 +15,13 @@
 </script>
 
 {#if preview}
-  <Group title="Terminal">
+  <Group title={t("wizard.pathNotice.group")}>
     <Row
-      title="El comando php de Elephant no está en tu terminal"
-      subtitle="Hay que añadir una línea a {preview.path}. Te enseñamos el cambio antes."
+      title={t("wizard.pathNotice.title")}
+      subtitle={t("wizard.pathNotice.subtitle", { path: preview.path })}
     >
       {#snippet leading()}<Icon name="terminal" />{/snippet}
-      {#snippet trailing()}<Button onclick={() => (open = true)}>Ver el cambio…</Button>{/snippet}
+      {#snippet trailing()}<Button onclick={() => (open = true)}>{t("wizard.pathNotice.viewChange")}</Button>{/snippet}
     </Row>
   </Group>
   <ShellSheet {open} {preview} onclose={() => (open = false)} onapplied={() => wizard.refreshShell()} />

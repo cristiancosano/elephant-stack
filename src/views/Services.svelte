@@ -38,7 +38,7 @@
     type MenuEntry,
   } from "../lib/stores/app.svelte";
   import { usage } from "../lib/stores/usage.svelte";
-  import { plural } from "../lib/format";
+  import { t } from "../lib/i18n/index.svelte";
   import type { Component } from "../lib/bindings/Component";
   import type { Operation } from "../lib/bindings/Operation";
   import type { Service } from "../lib/bindings/Service";
@@ -95,7 +95,7 @@
       await installComponent(id, (line) => {
         if (id in installing) installing[id] = line;
       });
-      toast(`${id} se ha instalado.`, { tone: "success" });
+      toast(t("services.installed", { id }), { tone: "success" });
     } catch (e) {
       fail(e);
     } finally {
@@ -115,26 +115,26 @@
     const use = service.pid ? usage.byPid.get(service.pid) : undefined;
     const entries: MenuEntry[] = [
       {
-        text: service.running ? "Detener" : "Arrancar",
+        text: service.running ? t("common.stop") : t("common.start"),
         action: () => void operate(c.id, service.running ? "turn_off" : "turn_on"),
       },
-      { text: "Reiniciar", enabled: service.running, action: () => void operate(c.id, "restart") },
+      { text: t("services.menu.restart"), enabled: service.running, action: () => void operate(c.id, "restart") },
       {
-        text: "Arrancar al iniciar sesión",
+        text: t("services.menu.startAtLogin"),
         checked: service.registered,
         action: () => void operate(c.id, service.registered ? "disable_autostart" : "enable_autostart"),
       },
       "separator",
-      { text: "Ver logs", action: () => void openLog(c.id) },
+      { text: t("services.menu.viewLogs"), action: () => void openLog(c.id) },
       {
-        text: "Mostrar en Finder",
+        text: t("services.menu.revealInFinder"),
         enabled: !!c.path,
         action: () => c.path && void revealInFinder(c.path).catch(fail),
       },
     ];
     const details = [
-      c.version ? `Versión ${c.version}` : null,
-      use ? plural(use.processes, "proceso") : null,
+      c.version ? t("services.row.version", { version: c.version }) : null,
+      use ? t("services.menu.processes", { count: use.processes }) : null,
     ].filter(Boolean);
     if (details.length > 0) entries.push("separator", { text: details.join(" · "), enabled: false });
     void popupMenu(entries, at).catch(fail);
@@ -143,8 +143,8 @@
   function allMenu(event: MouseEvent) {
     void popupMenu(
       [
-        { text: "Reiniciar todos", enabled: anyRunning && !locked, action: () => void bulk("restart") },
-        { text: "Detener todos", enabled: anyRunning && !locked, action: () => void bulk("turn_off") },
+        { text: t("services.bulk.restartAll"), enabled: anyRunning && !locked, action: () => void bulk("restart") },
+        { text: t("services.bulk.stopAll"), enabled: anyRunning && !locked, action: () => void bulk("turn_off") },
       ],
       below(event),
     ).catch(fail);
@@ -176,16 +176,16 @@
     const problem = snapshot ? problemFor(snapshot, c.id) : undefined;
     const status = serviceStatusText(service, service.pid ? usage.byPid.get(service.pid) : undefined);
     const extra = installedText(c);
-    const head = extra === "Instalado" ? status : `${extra} · ${status}`;
+    const head = extra === t("services.row.installed") ? status : `${extra} · ${status}`;
     return problem?.kind === "action_failed" ? `${problem.message} · ${head}` : head;
   }
 </script>
 
 <div class="view">
   <header class="toolbar" data-tauri-drag-region>
-    <h1 data-tauri-drag-region>Servicios</h1>
-    <IconButton icon="restart" label="Actualizar" onclick={() => void refresh().catch(fail)} />
-    <IconButton icon="more" label="Acciones de todos los servicios" onclick={allMenu} />
+    <h1 data-tauri-drag-region>{t("services.title")}</h1>
+    <IconButton icon="restart" label={t("common.refresh")} onclick={() => void refresh().catch(fail)} />
+    <IconButton icon="more" label={t("services.bulk.label")} onclick={allMenu} />
   </header>
 
   <div class="scroll">
@@ -195,12 +195,12 @@
       {:else if snapshot.components.length === 0}
         <EmptyState
           icon="servicios"
-          title="No se ha encontrado nada"
-          message="Elephant Stack usa Homebrew para los servicios. Comprueba que está instalado y pulsa Actualizar."
+          title={t("services.empty.title")}
+          message={t("services.empty.message")}
         />
       {:else}
         {#if otherJobs.length > 0}
-          <Group title="Tareas de agentes">
+          <Group title={t("services.jobs.title")}>
             {#each otherJobs as job (job.id)}
               <Row title={jobText(job)}>
                 {#snippet leading()}<Icon name="agent" />{/snippet}
@@ -212,7 +212,7 @@
 
         {#if serviceList.length > 0}
           <div class="group-host" role="presentation" bind:this={serviceGroup} {oncontextmenu}>
-            <Group title="Servicios">
+            <Group title={t("services.group.services")}>
               {#each serviceList as c (c.id)}
                 {@const service = c.service}
                 {#if service}
@@ -225,13 +225,15 @@
                       {#if busy}<ProgressRing label={busy.label} />{/if}
                       <Switch
                         checked={service.running}
-                        label={`${service.running ? "Detener" : "Arrancar"} ${c.id}`}
+                        label={service.running
+                          ? t("services.row.toggleStop", { id: c.id })
+                          : t("services.row.toggleStart", { id: c.id })}
                         disabled={locked}
                         onchange={(on) => void operate(c.id, on ? "turn_on" : "turn_off")}
                       />
                       <IconButton
                         icon="more"
-                        label={`Más opciones de ${c.id}`}
+                        label={t("services.row.more", { id: c.id })}
                         disabled={locked}
                         onclick={(event) => serviceMenu(c, service, below(event))}
                       />
@@ -246,7 +248,7 @@
         {/if}
 
         {#if toolList.length > 0}
-          <Group title="Herramientas">
+          <Group title={t("services.group.tools")}>
             {#each toolList as c (c.id)}
               <Row title={c.id} subtitle={installedText(c)}>
                 {#snippet trailing()}
@@ -254,7 +256,7 @@
                     {@const path = c.path}
                     <IconButton
                       icon="folder"
-                      label={`Mostrar ${c.id} en Finder (${path})`}
+                      label={t("services.row.reveal", { id: c.id, path })}
                       onclick={() => void revealInFinder(path).catch(fail)}
                     />
                   {/if}
@@ -273,7 +275,7 @@
               onclick={() => (showMissing = !showMissing)}
             >
               <Icon name={showMissing ? "chevron-down" : "chevron-right"} />
-              Sin instalar ({missingList.length})
+              {t("services.missing.title", { count: missingList.length })}
             </button>
             {#if showMissing}
               <Group>
@@ -283,14 +285,14 @@
                   {@const busy = busyFor(snapshot, c.id)}
                   <Row
                     title={c.id}
-                    subtitle={job ? jobText(job) : mine ? installing[c.id] || "Instalando…" : c.description}
+                    subtitle={job ? jobText(job) : mine ? installing[c.id] || t("services.install.busy") : c.description}
                   >
                     {#snippet trailing()}
                       {#if job}
                         <ProgressRing value={job.progress ?? undefined} label={jobText(job)} />
                       {:else}
                         <Button busy={mine || !!busy} disabled={locked} onclick={() => void install(c.id)}>
-                          Instalar<span class="visually-hidden"> {c.id}</span>
+                          {t("services.install.action")}<span class="visually-hidden"> {c.id}</span>
                         </Button>
                       {/if}
                     {/snippet}

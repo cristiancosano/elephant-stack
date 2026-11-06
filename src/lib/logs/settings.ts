@@ -3,6 +3,8 @@
 
 import type { Project } from "../bindings/Project";
 import type { ProjectOverride } from "../bindings/ProjectOverride";
+import "../i18n/locales/logs";
+import { t } from "../i18n/index.svelte";
 
 export interface RootFolder {
   /** Carpeta que contiene los proyectos (o el proyecto, si se añadió él mismo). */
@@ -76,18 +78,18 @@ export function parseGlobs(text: string): GlobsResult {
     const line = raw.trim();
     if (line === "") continue;
     if (!line.startsWith("/")) {
-      errors.push(`«${line}» no es una ruta absoluta (debe empezar por /).`);
+      errors.push(t("logs.settings.paths.notAbsolute", { line }));
       continue;
     }
     const slash = line.lastIndexOf("/");
     const dir = line.slice(0, slash);
     const name = line.slice(slash + 1);
     if (dir.includes("*")) {
-      errors.push(`«${line}»: el * solo puede ir en el nombre del archivo, no en las carpetas.`);
+      errors.push(t("logs.settings.paths.globInDir", { line }));
       continue;
     }
     if (name === "") {
-      errors.push(`«${line}»: falta el nombre del archivo (por ejemplo, *.log).`);
+      errors.push(t("logs.settings.paths.noFileName", { line }));
       continue;
     }
     if (!globs.includes(line)) globs.push(line);
@@ -114,11 +116,11 @@ export function validateTimezone(value: string, known: readonly string[]): strin
   const tz = value.trim();
   if (tz === "") return null;
   if (known.length > 0) {
-    return known.includes(tz) ? null : `«${tz}» no es una zona horaria conocida (por ejemplo, Europe/Madrid o UTC).`;
+    return known.includes(tz) ? null : t("logs.settings.tz.unknown", { tz });
   }
   return /^(?:UTC|[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+)$/.test(tz)
     ? null
-    : `«${tz}» no parece una zona horaria (por ejemplo, Europe/Madrid o UTC).`;
+    : t("logs.settings.tz.invalid", { tz });
 }
 
 /** Lo que se envía con `logs_set_override`. */

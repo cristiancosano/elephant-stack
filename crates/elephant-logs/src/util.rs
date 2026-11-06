@@ -5,6 +5,8 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 
+use elephant_i18n::tr;
+
 /// FNV-1a de 64 bits. No se usa `DefaultHasher` porque su resultado puede
 /// cambiar entre versiones de Rust, y los ids tienen que ser estables entre
 /// sesiones y procesos (la app y la CLI resuelven los mismos).
@@ -147,8 +149,14 @@ pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
 pub(crate) fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     let dir = path
         .parent()
-        .ok_or_else(|| format!("Ruta no válida: {}.", path.display()))?;
-    fs::create_dir_all(dir).map_err(|e| format!("No se pudo crear {}: {e}.", dir.display()))?;
+        .ok_or_else(|| {
+            let path = path.display();
+            tr!("Ruta no válida: {path}.", "Invalid path: {path}.")
+        })?;
+    fs::create_dir_all(dir).map_err(|e| {
+        let dir = dir.display();
+        tr!("No se pudo crear {dir}: {e}.", "Couldn’t create {dir}: {e}.")
+    })?;
     let tmp = dir.join(format!(
         ".{}.{}.tmp",
         path.file_name()
@@ -164,7 +172,8 @@ pub(crate) fn write_atomic(path: &Path, contents: &[u8]) -> Result<(), String> {
     })();
     result.map_err(|e| {
         let _ = fs::remove_file(&tmp);
-        format!("No se pudo guardar {}: {e}.", path.display())
+        let path = path.display();
+        tr!("No se pudo guardar {path}: {e}.", "Couldn’t save {path}: {e}.")
     })
 }
 

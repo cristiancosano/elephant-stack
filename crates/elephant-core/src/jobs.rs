@@ -63,7 +63,7 @@ pub fn check_id(id: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!("Identificador de tarea no válido: {id}"))
+        Err(crate::tr!("Identificador de tarea no válido: {id}", "Invalid job ID: {id}"))
     }
 }
 
@@ -112,18 +112,25 @@ fn hold_in(dir: &Path, id: &str) -> Result<fs::File, String> {
         .create(true)
         .append(true)
         .open(dir.join(format!("{id}.log")))
-        .map_err(|error| format!("No se pudo abrir el log de la tarea: {error}"))?;
+        .map_err(|error| crate::tr!("No se pudo abrir el log de la tarea: {error}", "Couldn’t open the job log: {error}"))?;
     match file.try_lock() {
         Ok(()) => Ok(file),
-        Err(fs::TryLockError::WouldBlock) => Err(format!("La tarea {id} ya se está ejecutando.")),
-        Err(fs::TryLockError::Error(error)) => Err(format!("No se pudo bloquear la tarea {id}: {error}")),
+        Err(fs::TryLockError::WouldBlock) => Err(crate::tr!("La tarea {id} ya se está ejecutando.", "Job {id} is already running.")),
+        Err(fs::TryLockError::Error(error)) => {
+            Err(crate::tr!("No se pudo bloquear la tarea {id}: {error}", "Couldn’t lock job {id}: {error}"))
+        }
     }
 }
 
 /// Una tarea en cola tiene este margen para que su proceso arranque y tome el
 /// cerrojo.
 const QUEUED_GRACE_MS: i64 = 60_000;
-const ORPHANED: &str = "La tarea se interrumpió: su proceso terminó sin acabarla.";
+fn orphaned() -> String {
+    crate::tr!(
+        "La tarea se interrumpió: su proceso terminó sin acabarla.",
+        "The job was interrupted: its process ended before finishing it."
+    )
+}
 
 /// Si la tarea sigue activa pero nadie tiene su cerrojo, su proceso murió:
 /// se marca como fallida.
@@ -146,7 +153,7 @@ fn reap_in(dir: &Path, job: JobInfo, now_ms: i64) -> JobInfo {
     };
     if job.state.is_active() {
         job.state = JobState::Failed;
-        job.message = Some(ORPHANED.to_string());
+        job.message = Some(orphaned());
         job.finished_at_ms = Some(now_ms);
         let _ = save_in(dir, &job);
     }
@@ -194,8 +201,8 @@ fn save_in(dir: &Path, job: &JobInfo) -> Result<(), String> {
 fn read_in(dir: &Path, id: &str) -> Result<JobInfo, String> {
     check_id(id)?;
     let text = fs::read_to_string(dir.join(format!("{id}.json")))
-        .map_err(|_| format!("No existe la tarea {id}."))?;
-    serde_json::from_str(&text).map_err(|error| format!("La tarea {id} está dañada: {error}"))
+        .map_err(|_| crate::tr!("No existe la tarea {id}.", "Job {id} doesn’t exist."))?;
+    serde_json::from_str(&text).map_err(|error| crate::tr!("La tarea {id} está dañada: {error}", "Job {id} is damaged: {error}"))
 }
 
 fn all_in(dir: &Path) -> Vec<JobInfo> {
@@ -311,7 +318,7 @@ mod tests {
         assert!(active.contains(&alive.id) && active.contains(&fresh.id));
         let reaped = read_in(dir.path(), &dead.id).unwrap();
         assert_eq!(reaped.state, JobState::Failed);
-        assert_eq!(reaped.message.as_deref(), Some(ORPHANED));
+        assert_eq!(reaped.message, Some(orphaned()));
         assert!(reaped.finished_at_ms.is_some());
         assert_eq!(read_in(dir.path(), &stuck.id).unwrap().state, JobState::Failed);
 

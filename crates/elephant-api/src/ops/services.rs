@@ -2,6 +2,7 @@
 
 use elephant_core::brew::{Operation, Service};
 use elephant_core::{components, ops};
+use elephant_core::{tr, tr_str};
 use serde::{Deserialize, Serialize};
 
 use super::check_service_name;
@@ -31,11 +32,11 @@ impl ServiceOp {
 
     fn verb(self) -> &'static str {
         match self {
-            Self::Start => "arrancar",
-            Self::Stop => "detener",
-            Self::Restart => "reiniciar",
-            Self::AutostartOn => "activar al iniciar sesión",
-            Self::AutostartOff => "quitar del inicio de sesión",
+            Self::Start => tr_str!("arrancar", "start"),
+            Self::Stop => tr_str!("detener", "stop"),
+            Self::Restart => tr_str!("reiniciar", "restart"),
+            Self::AutostartOn => tr_str!("activar al iniciar sesión", "turn on start at login for"),
+            Self::AutostartOff => tr_str!("quitar del inicio de sesión", "turn off start at login for"),
         }
     }
 }
@@ -95,10 +96,13 @@ impl Op for ServiceControl {
             Some(s) => format!(
                 "{}: {}{}",
                 o.name,
-                if s.running { "en marcha" } else { "parado" },
-                if s.registered { " · arranca al iniciar sesión" } else { "" }
+                if s.running { tr_str!("en marcha", "running") } else { tr_str!("parado", "stopped") },
+                if s.registered { tr_str!(" · arranca al iniciar sesión", " · starts at login") } else { "" }
             ),
-            None => format!("{}: hecho", o.name),
+            None => {
+                let name = &o.name;
+                tr!("{name}: hecho", "{name}: done")
+            }
         }
     }
 }
@@ -141,18 +145,20 @@ impl Op for ComponentInstall {
         if a.id == "composer" || components::is_installable_service(&a.id) {
             Ok(())
         } else {
-            Err(format!(
-                "No se puede instalar «{}». Se pueden instalar: mysql, postgresql@18, redis, mailpit, nginx, dnsmasq y composer.",
-                crate::fit::truncate_chars(&a.id, 64)
+            let id = crate::fit::truncate_chars(&a.id, 64);
+            Err(tr!(
+                "No se puede instalar «{id}». Se pueden instalar: mysql, postgresql@18, redis, mailpit, nginx, dnsmasq y composer.",
+                "Can’t install “{id}”. Installable: mysql, postgresql@18, redis, mailpit, nginx, dnsmasq and composer."
             ))
         }
     }
 
     fn confirm_text(a: &InstallArgs) -> String {
         if a.id == "composer" {
-            "instalar Composer".to_string()
+            tr!("instalar Composer", "install Composer")
         } else {
-            format!("instalar {} con Homebrew", a.id)
+            let id = &a.id;
+            tr!("instalar {id} con Homebrew", "install {id} with Homebrew")
         }
     }
 
@@ -162,6 +168,7 @@ impl Op for ComponentInstall {
     }
 
     fn text(o: &InstallOut) -> String {
-        format!("{} instalado", o.id)
+        let id = &o.id;
+        tr!("{id} instalado", "{id} installed")
     }
 }

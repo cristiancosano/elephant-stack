@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use elephant_i18n::tr;
+
 use crate::util::{fnv1a, hex16, write_atomic};
 use crate::{Project, ProjectKind, ProjectOrigin, ProjectOverride};
 
@@ -361,15 +363,16 @@ pub fn roots(home: &Path) -> Vec<PathBuf> {
 
 pub fn add_root(home: &Path, root: &Path) -> Result<(), String> {
     if !root.is_absolute() {
-        return Err(format!(
-            "La carpeta tiene que ser una ruta absoluta: {}.",
-            root.display()
-        ));
+        let root = root.display();
+        return Err(tr!("La carpeta tiene que ser una ruta absoluta: {root}.", "The folder must be an absolute path: {root}."));
     }
-    let root =
-        fs::canonicalize(root).map_err(|_| format!("No existe la carpeta {}.", root.display()))?;
+    let root = fs::canonicalize(root).map_err(|_| {
+        let root = root.display();
+        tr!("No existe la carpeta {root}.", "The folder {root} doesn’t exist.")
+    })?;
     if !root.is_dir() {
-        return Err(format!("{} no es una carpeta.", root.display()));
+        let root = root.display();
+        return Err(tr!("{root} no es una carpeta.", "{root} isn’t a folder."));
     }
     let mut config = load_config(home);
     if config.roots.contains(&root) {
@@ -385,10 +388,8 @@ pub fn remove_root(home: &Path, root: &Path) -> Result<(), String> {
     let before = config.roots.len();
     config.roots.retain(|r| r != root && r != &canonical);
     if config.roots.len() == before {
-        return Err(format!(
-            "{} no está en la lista de carpetas.",
-            root.display()
-        ));
+        let root = root.display();
+        return Err(tr!("{root} no está en la lista de carpetas.", "{root} isn’t in the folder list."));
     }
     save_config(home, &config)
 }
@@ -396,9 +397,7 @@ pub fn remove_root(home: &Path, root: &Path) -> Result<(), String> {
 /// Un ajuste vacío borra el que hubiera.
 pub fn set_override(home: &Path, project_id: &str, o: ProjectOverride) -> Result<(), String> {
     if project_id.len() != 16 || !project_id.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Identificador de proyecto no válido: {project_id}."
-        ));
+        return Err(tr!("Identificador de proyecto no válido: {project_id}.", "Invalid project ID: {project_id}."));
     }
     let timezone = o
         .timezone
@@ -448,8 +447,9 @@ pub(crate) fn validate_glob(glob: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "Patrón no válido: {glob}. Usa una ruta absoluta con `*` solo en el nombre del archivo."
+        Err(tr!(
+            "Patrón no válido: {glob}. Usa una ruta absoluta con `*` solo en el nombre del archivo.",
+            "Invalid pattern: {glob}. Use an absolute path with `*` only in the file name."
         ))
     }
 }

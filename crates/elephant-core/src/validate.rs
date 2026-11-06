@@ -18,8 +18,9 @@ pub fn name(s: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!(
-            "Nombre no válido: «{s}». Usa minúsculas, números y guiones (máximo 63), empezando por letra o número."
+        Err(crate::tr!(
+            "Nombre no válido: «{s}». Usa minúsculas, números y guiones (máximo 63), empezando por letra o número.",
+            "Invalid name: “{s}”. Use lowercase letters, numbers and hyphens (up to 63), starting with a letter or number."
         ))
     }
 }
@@ -33,25 +34,29 @@ pub fn user_dir(p: &Path) -> Result<PathBuf, String> {
 
 pub(crate) fn user_dir_in(home: &Path, p: &Path) -> Result<PathBuf, String> {
     if !p.is_absolute() {
-        return Err(format!("La ruta debe ser absoluta: {}", p.display()));
+        let p = p.display();
+        return Err(crate::tr!("La ruta debe ser absoluta: {p}", "The path must be absolute: {p}"));
     }
-    let dir = fs::canonicalize(p).map_err(|_| format!("La carpeta no existe: {}", p.display()))?;
+    let dir = fs::canonicalize(p).map_err(|_| {
+        let p = p.display();
+        crate::tr!("La carpeta no existe: {p}", "The folder doesn’t exist: {p}")
+    })?;
     if !dir.is_dir() {
-        return Err(format!("No es una carpeta: {}", dir.display()));
+        let dir = dir.display();
+        return Err(crate::tr!("No es una carpeta: {dir}", "Not a folder: {dir}"));
     }
     let home = fs::canonicalize(home).unwrap_or_else(|_| home.to_path_buf());
     if dir == home || !dir.starts_with(&home) {
-        return Err(format!(
-            "Solo se permiten carpetas dentro de tu carpeta personal: {}",
-            dir.display()
+        let dir = dir.display();
+        return Err(crate::tr!(
+            "Solo se permiten carpetas dentro de tu carpeta personal: {dir}",
+            "Only folders inside your home folder are allowed: {dir}"
         ));
     }
     for forbidden in [paths::data_dir_in(&home), home.join("Library")] {
         if dir.starts_with(&forbidden) {
-            return Err(format!(
-                "Esa carpeta no puede ser un proyecto: {}",
-                dir.display()
-            ));
+            let dir = dir.display();
+            return Err(crate::tr!("Esa carpeta no puede ser un proyecto: {dir}", "That folder can’t be a project: {dir}"));
         }
     }
     Ok(dir)

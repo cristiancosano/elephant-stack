@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { t } from "../lib/i18n/index.svelte";
   // `value` va de 0 a 1. Sin `value`, el anillo es indeterminado y gira.
   let {
     size = 16,
     value,
-    label = "En curso",
+    label,
   }: { size?: 12 | 16 | 20; value?: number; label?: string } = $props();
 
   // Radio y circunferencia en unidades del viewBox (16 × 16).
@@ -20,7 +21,7 @@
   class:indeterminate
   style:--size="{size}px"
   role="progressbar"
-  aria-label={label}
+  aria-label={label ?? t("ui.progress.label")}
   aria-valuemin={indeterminate ? undefined : 0}
   aria-valuemax={indeterminate ? undefined : 100}
   aria-valuenow={indeterminate ? undefined : percent}

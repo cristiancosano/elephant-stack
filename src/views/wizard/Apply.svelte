@@ -3,6 +3,7 @@
   // barra de las descargas y la última línea de brew; al final, el resumen.
   import * as ipc from "../../lib/ipc";
   import { formatBytes } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import { canRetry, downloadFraction, headline, resultLine, stateLabel, summarize, type RunStep } from "../../lib/wizard/run";
   import Button from "../../ui/Button.svelte";
@@ -20,7 +21,7 @@
   function secondary(step: RunStep): string {
     if (step.state === "running" && step.bytes) {
       const [done, total] = step.bytes;
-      return `${formatBytes(done)} de ${formatBytes(total)}`;
+      return t("wizard.apply.bytes", { done: formatBytes(done), total: formatBytes(total) });
     }
     if (step.state === "running" && step.line) return step.line;
     return stateLabel(step);
@@ -33,7 +34,7 @@
     } catch {
       // Sin editor configurado, al menos se enseña el archivo en el Finder.
       await ipc.revealInFinder(logPath).catch((e: unknown) => {
-        toast(`No se ha podido abrir el log: ${ipc.errorMessage(e)}`, { tone: "error" });
+        toast(t("wizard.apply.openLogFailed", { error: ipc.errorMessage(e) }), { tone: "error" });
       });
     }
   }
@@ -52,13 +53,13 @@
         {:else if run.finished}
           {resultLine(run)}
         {:else}
-          {summary.ok + summary.failed + summary.skipped} de {run.steps.length}
+          {t("wizard.apply.progress", { done: summary.ok + summary.failed + summary.skipped, total: run.steps.length })}
         {/if}
       </p>
     </header>
 
     {#if run.steps.length}
-      <ol class="steps" aria-label="Pasos">
+      <ol class="steps" aria-label={t("wizard.apply.steps")}>
         {#each run.steps as step (step.key)}
           {@const fraction = downloadFraction(step)}
           {@const open = expanded[step.key] ?? false}
@@ -85,7 +86,7 @@
             </span>
             {#if step.log.length}
               <Button variant="plain" onclick={() => (expanded[step.key] = !open)}>
-                {open ? "Ocultar salida" : "Ver salida"}
+                {open ? t("wizard.apply.hideOutput") : t("wizard.apply.showOutput")}
               </Button>
             {/if}
             {#if open}
@@ -99,17 +100,17 @@
     <div class="actions">
       {#if !run.finished}
         <Button disabled={run.cancelling} onclick={() => void wizard.cancel()}>
-          {run.cancelling ? "Cancelando…" : "Cancelar"}
+          {run.cancelling ? t("wizard.apply.cancelling") : t("common.cancel")}
         </Button>
         {#if run.cancelling}
-          <span class="hint">Se termina el paso en curso y se salta el resto. Nunca se corta Homebrew a medias.</span>
+          <span class="hint">{t("wizard.apply.cancelNote")}</span>
         {/if}
       {:else}
         {#if canRetry(run)}
-          <Button variant="primary" onclick={() => wizard.retry()}>Reintentar lo que falta</Button>
+          <Button variant="primary" onclick={() => wizard.retry()}>{t("wizard.apply.retryRemaining")}</Button>
         {/if}
         {#if logPath}
-          <Button onclick={() => void openLog()}>Ver log completo</Button>
+          <Button onclick={() => void openLog()}>{t("wizard.apply.viewLog")}</Button>
         {/if}
       {/if}
     </div>

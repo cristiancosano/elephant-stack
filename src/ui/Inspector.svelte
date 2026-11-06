@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { t } from "../lib/i18n/index.svelte";
   import {
     clampInspectorWidth,
     dragInspectorWidth,
@@ -15,7 +16,7 @@
     open,
     width = INSPECTOR_DEFAULT,
     onresize,
-    label = "Inspector",
+    label,
     children,
   }: {
     open: boolean;
@@ -72,7 +73,7 @@
   class:open
   class:dragging
   style:--width="{current}px"
-  aria-label={label}
+  aria-label={label ?? t("ui.inspector.label")}
   aria-hidden={!open}
   inert={!open}
 >
@@ -83,7 +84,7 @@
     class="handle"
     role="separator"
     aria-orientation="vertical"
-    aria-label="Ancho del inspector"
+    aria-label={t("ui.inspector.resize")}
     aria-valuemin={INSPECTOR_MIN}
     aria-valuemax={INSPECTOR_MAX}
     aria-valuenow={current}

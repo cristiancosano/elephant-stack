@@ -5,11 +5,12 @@
   import * as ipc from "../../lib/ipc";
   import type { Plan } from "../../lib/bindings/Plan";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
-  import { formatBytes, plural } from "../../lib/format";
+  import { formatBytes } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import {
-    SERVICE_WANT_OPTIONS,
-    TOGGLES,
+    serviceWantOptions,
+    toggles,
     checkedBranches,
     defaultPhpOptions,
     phpBranches,
@@ -41,7 +42,7 @@
   /** Versión de cada servicio instalado, para el subtítulo. */
   function installedVersion(id: string): string | null {
     const c = snapshot?.components.find((x) => x.id === id);
-    return c?.installed ? (c.version ?? "instalado") : null;
+    return c?.installed ? (c.version ?? t("wizard.customize.services.installedUnknown")) : null;
   }
 
   // Total en directo: se pide a Rust 300 ms después del último cambio.
@@ -73,32 +74,34 @@
 
 <section class="customize">
   <header class="head">
-    <h1 class="title">{choiceLabel(s, wizard.cards ?? []) ?? "Personalizado"}</h1>
+    <h1 class="title">{choiceLabel(s, wizard.cards ?? []) ?? t("wizard.scenarios.custom")}</h1>
     <p class="lead">
       {#if draft?.basedOn}
-        Parte de lo que pide el escenario. Lo que cambies aquí lo convierte en Personalizado.
+        {t("wizard.customize.intro.fromScenario")}
       {:else}
-        Parte de lo que ya hay en tu Mac: si no tocas nada, el plan sale vacío.
+        {t("wizard.customize.intro.fromMac")}
       {/if}
     </p>
   </header>
 
   {#if profile}
     <Group
-      title="Servicios"
-      footer="«Instalado y apagado» no consume nada hasta que lo enciendes. El asistente nunca desinstala ni apaga nada."
+      title={t("wizard.customize.services.title")}
+      footer={t("wizard.customize.services.footer")}
     >
       {#each rows as row (row.id)}
         {@const label = serviceLabel(row.id)}
         {@const version = installedVersion(row.id)}
         <Row
           title={label.name}
-          subtitle={[label.purpose, version ? `Instalado: ${version}` : null].filter(Boolean).join(" · ") || undefined}
+          subtitle={[label.purpose, version ? t("wizard.customize.services.installed", { version }) : null]
+            .filter(Boolean)
+            .join(" · ") || undefined}
         >
           {#snippet trailing()}
             <SegmentedControl
-              label="Qué hacer con {label.name}"
-              options={SERVICE_WANT_OPTIONS}
+              label={t("wizard.customize.services.actionLabel", { name: label.name })}
+              options={serviceWantOptions()}
               value={row.want}
               onchange={(want) => wizard.edit(setService(profile, row.id, want))}
             />
@@ -108,29 +111,27 @@
     </Group>
 
     <Group
-      title="PHP"
-      footer={offline
-        ? "Sin conexión: solo se pueden elegir las versiones que ya tienes."
-        : "Las versiones de Elephant se descargan de php-builds y traen las extensiones de Laravel."}
+      title={t("wizard.customize.php.title")}
+      footer={offline ? t("wizard.customize.php.offline") : t("wizard.customize.php.footer")}
     >
       {#if branches.length === 0}
-        <Row title="No hay versiones disponibles" subtitle="Sin conexión ni versiones propias instaladas." />
+        <Row title={t("wizard.customize.php.emptyTitle")} subtitle={t("wizard.customize.php.emptyMessage")} />
       {/if}
       {#each branches as b (b.branch)}
         {@const on = checked.has(b.branch)}
         <Row
-          title="PHP {b.branch}"
+          title={t("wizard.customize.php.branch", { branch: b.branch })}
           subtitle={b.installed
-            ? `${b.installed} ya instalada`
+            ? t("wizard.customize.php.installed", { version: b.installed })
             : b.latest
-              ? `Se descargará ${b.latest}${b.size ? ` · ${formatBytes(b.size)}` : ""}`
+              ? `${t("wizard.customize.php.willDownload", { version: b.latest })}${b.size ? ` · ${formatBytes(b.size)}` : ""}`
               : undefined}
         >
           {#snippet trailing()}
             <input
               type="checkbox"
               class="check"
-              aria-label="Usar PHP {b.branch}"
+              aria-label={t("wizard.customize.php.use", { branch: b.branch })}
               checked={on}
               onchange={(e) => wizard.edit(setBranch(profile, branches, b.branch, e.currentTarget.checked))}
             />
@@ -140,7 +141,7 @@
     </Group>
 
     {#if defaults.length > 1}
-      <Group title="Versión por defecto" footer="La que usa la terminal fuera de un proyecto con .php-version.">
+      <Group title={t("wizard.customize.default.title")} footer={t("wizard.customize.default.footer")}>
         <!-- Radios nativos con el mismo `name`: las flechas ya se mueven entre ellos. -->
         {#each defaults as option (option.value ?? "auto")}
           <Row title={option.label}>
@@ -149,7 +150,7 @@
                 type="radio"
                 class="check"
                 name="default-php"
-                aria-label="Por defecto: {option.label}"
+                aria-label={t("wizard.customize.default.label", { label: option.label })}
                 checked={profile.default_php === option.value}
                 onchange={() => wizard.edit(setDefaultPhp(profile, option.value))}
               />
@@ -159,14 +160,14 @@
       </Group>
     {/if}
 
-    <Group title="Herramientas">
-      {#each TOGGLES as t (t.key)}
-        <Row title={t.title} subtitle={t.subtitle}>
+    <Group title={t("wizard.customize.tools.title")}>
+      {#each toggles() as toggle (toggle.key)}
+        <Row title={toggle.title} subtitle={toggle.subtitle}>
           {#snippet trailing()}
             <Switch
-              label={t.title}
-              checked={profile[t.key]}
-              onchange={(v) => wizard.edit(setToggle(profile, t.key, v))}
+              label={toggle.title}
+              checked={profile[toggle.key]}
+              onchange={(v) => wizard.edit(setToggle(profile, toggle.key, v))}
             />
           {/snippet}
         </Row>
@@ -180,10 +181,18 @@
     <span class="error">{liveError}</span>
   {:else if live}
     <span>{idleRam(live.totals.idle_ram_mb)}</span>
-    <span>{live.totals.download_bytes > 0 ? `${formatBytes(live.totals.download_bytes)} de descarga` : "Sin descargas"}</span>
-    <span>{live.steps.length === 0 ? "Sin cambios" : plural(live.steps.length, "paso")}</span>
+    <span
+      >{live.totals.download_bytes > 0
+        ? t("wizard.scenario.download", { size: formatBytes(live.totals.download_bytes) })
+        : t("wizard.scenario.noDownload")}</span
+    >
+    <span
+      >{live.steps.length === 0
+        ? t("wizard.customize.noChanges")
+        : t("wizard.scenario.steps", { count: live.steps.length })}</span
+    >
   {:else}
-    <span>Calculando…</span>
+    <span>{t("wizard.customize.calculating")}</span>
   {/if}
 </div>
 

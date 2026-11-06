@@ -96,11 +96,12 @@ pub fn replace_own(
     project_roots: &[std::path::PathBuf],
 ) -> Result<PhpReplaceReport, String> {
     let (Some(old_parts), Some(new_parts)) = (patch_parts(old), patch_parts(new)) else {
-        return Err("Las versiones deben tener la forma 8.4.27.".to_string());
+        return Err(crate::tr!("Las versiones deben tener la forma 8.4.27.", "Versions must look like 8.4.27."));
     };
     if (old_parts.0, old_parts.1) != (new_parts.0, new_parts.1) || new_parts.2 <= old_parts.2 {
-        return Err(format!(
-            "PHP {new} no es una versión más reciente de la rama de PHP {old}."
+        return Err(crate::tr!(
+            "PHP {new} no es una versión más reciente de la rama de PHP {old}.",
+            "PHP {new} isn’t a newer version in the PHP {old} branch."
         ));
     }
     let own: Vec<String> = layout
@@ -109,10 +110,17 @@ pub fn replace_own(
         .filter(|version| version.source == OWN_SOURCE)
         .map(|version| version.id)
         .collect();
-    for (version, what) in [(old, "la versión que se sustituye"), (new, "la versión nueva")] {
-        if !own.iter().any(|id| id == version) {
-            return Err(format!("PHP {version} ({what}) no está instalada en Elephant Stack."));
-        }
+    if !own.iter().any(|id| id == old) {
+        return Err(crate::tr!(
+            "PHP {old} (la versión que se sustituye) no está instalada en Elephant Stack.",
+            "PHP {old} (the version being replaced) isn’t installed in Elephant Stack."
+        ));
+    }
+    if !own.iter().any(|id| id == new) {
+        return Err(crate::tr!(
+            "PHP {new} (la versión nueva) no está instalada en Elephant Stack.",
+            "PHP {new} (the new version) isn’t installed in Elephant Stack."
+        ));
     }
 
     let global_changed = layout.global().as_deref() == Some(old);
@@ -138,9 +146,9 @@ pub fn replace_own(
     match (php_dir.canonicalize(), target.canonicalize()) {
         (Ok(base), Ok(resolved)) if resolved.parent() == Some(base.as_path()) => {
             std::fs::remove_dir_all(&resolved)
-                .map_err(|error| format!("No se pudo borrar PHP {old}: {error}"))?;
+                .map_err(|error| crate::tr!("No se pudo borrar PHP {old}: {error}", "Couldn’t delete PHP {old}: {error}"))?;
         }
-        _ => return Err(format!("No se encuentra la carpeta de PHP {old}.")),
+        _ => return Err(crate::tr!("No se encuentra la carpeta de PHP {old}.", "Couldn’t find the PHP {old} folder.")),
     }
 
     Ok(PhpReplaceReport {

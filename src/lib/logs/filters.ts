@@ -7,6 +7,8 @@ import type { LogQuery } from "../bindings/LogQuery";
 import type { ProjectSummary } from "../bindings/ProjectSummary";
 import type { SourceKind } from "../bindings/SourceKind";
 import type { StatusFilter } from "../bindings/StatusFilter";
+import "../i18n/locales/logs";
+import { t } from "../i18n/index.svelte";
 
 /** «Todos», un id de proyecto, `none` (sin proyecto) o `system` (PHP-FPM). */
 export type ProjectFilter = string;
@@ -44,33 +46,47 @@ export const DEFAULT_FILTERS: Readonly<Filters> = Object.freeze({
   mode: "chrono",
 });
 
-export const SOURCE_OPTIONS: readonly { value: SourceFilter; label: string }[] = [
-  { value: "all", label: "Todas" },
-  { value: "app", label: "App" },
-  { value: "http", label: "HTTP" },
-  { value: "nginx", label: "nginx" },
-  { value: "php-fpm", label: "PHP-FPM" },
-];
+// Las opciones se resuelven con `t()` al pintar (en un `$derived` o en la
+// plantilla): una constante de módulo se quedaría con el idioma de ese momento.
 
-export const LEVEL_OPTIONS: readonly { value: LevelFilter; label: string }[] = [
-  { value: "debug", label: "Debug" },
-  { value: "info", label: "Info" },
-  { value: "warning", label: "Aviso" },
-  { value: "error", label: "Error+" },
-];
+export function sourceOptions(): { value: SourceFilter; label: string }[] {
+  return [
+    { value: "all", label: t("logs.filters.sources.all") },
+    { value: "app", label: "App" },
+    { value: "http", label: "HTTP" },
+    { value: "nginx", label: "nginx" },
+    { value: "php-fpm", label: "PHP-FPM" },
+  ];
+}
 
-export const RANGE_OPTIONS: readonly { value: RangeFilter; label: string }[] = [
-  { value: "15m", label: "15 min" },
-  { value: "1h", label: "1 h" },
-  { value: "today", label: "Hoy" },
-  { value: "7d", label: "7 días" },
-  { value: "all", label: "Todo" },
-];
+/** Valores del nivel mínimo, en el orden de las píldoras. */
+export const LEVEL_VALUES: readonly LevelFilter[] = ["debug", "info", "warning", "error"];
 
-export const MODE_OPTIONS: readonly { value: Mode; label: string }[] = [
-  { value: "chrono", label: "Cronológico" },
-  { value: "grouped", label: "Agrupados" },
-];
+export function levelOptions(): { value: LevelFilter; label: string }[] {
+  return [
+    { value: "debug", label: "Debug" },
+    { value: "info", label: "Info" },
+    { value: "warning", label: t("logs.filters.levels.warning") },
+    { value: "error", label: t("logs.filters.levels.errorPlus") },
+  ];
+}
+
+export function rangeOptions(): { value: RangeFilter; label: string }[] {
+  return [
+    { value: "15m", label: t("logs.filters.ranges.m15") },
+    { value: "1h", label: t("logs.filters.ranges.h1") },
+    { value: "today", label: t("logs.filters.ranges.today") },
+    { value: "7d", label: t("logs.filters.ranges.d7") },
+    { value: "all", label: t("logs.filters.ranges.all") },
+  ];
+}
+
+export function modeOptions(): { value: Mode; label: string }[] {
+  return [
+    { value: "chrono", label: t("logs.filters.modes.chrono") },
+    { value: "grouped", label: t("logs.filters.modes.grouped") },
+  ];
+}
 
 const SOURCE_KINDS: Record<Exclude<SourceFilter, "all">, SourceKind> = {
   app: "laravel_app",
@@ -106,7 +122,7 @@ const LEVEL_ALIASES: Record<string, LevelFilter> = {
   critical: "error",
 };
 
-const RANGES = new Set<string>(RANGE_OPTIONS.map((o) => o.value));
+const RANGES = new Set<string>(["15m", "1h", "today", "7d", "all"] satisfies RangeFilter[]);
 
 function pick<T extends string>(value: string | undefined, allowed: Record<string, T>, fallback: T): T {
   if (value === undefined) return fallback;

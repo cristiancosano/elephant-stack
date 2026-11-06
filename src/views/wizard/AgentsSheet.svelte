@@ -2,6 +2,8 @@
   // «Conectar agentes» (C26; antes «Copiar configuración del MCP»): los comandos
   // del plugin de Claude Code y, si existen, los fragmentos MCP de otros clientes.
   // La conexión con un clic y la confirmación están en Ajustes ▸ Agentes.
+  import "../../lib/i18n/locales/agents";
+  import { t } from "../../lib/i18n/index.svelte";
   import type { McpSnippets } from "../../lib/bindings/McpSnippets";
   import { go } from "../../lib/router.svelte";
   import { copyText } from "../../lib/stores/wizard.svelte";
@@ -19,32 +21,30 @@
   }
 </script>
 
-<Sheet {open} title="Conectar agentes" {onclose}>
+<Sheet {open} title={t("agents.sheet.title")} {onclose}>
   <p class="text">
-    Claude Code puede consultar los logs de tus proyectos y encender servicios con el comando <code>elephant</code>. Lo que
-    cambia algo te pide confirmación, salvo que elijas otro modo en Ajustes ▸ Agentes. Para instalar el plugin, ejecuta en
-    la terminal:
+    {t("agents.sheet.bodyBefore")} <code>elephant</code>. {t("agents.sheet.bodyAfter")}
   </p>
   <pre class="code selectable">{snippets.claude_command}</pre>
   <div class="row">
-    <Button onclick={() => void copyText(snippets.claude_command, "Comando")}>Copiar comandos</Button>
+    <Button onclick={() => void copyText(snippets.claude_command, "command")}>{t("agents.sheet.copyCommands")}</Button>
     {#if guide}
-      <Button variant="plain" onclick={() => void copyText(guide, "Guía")}>Copiar guía para otros agentes</Button>
+      <Button variant="plain" onclick={() => void copyText(guide, "guide")}>{t("agents.sheet.copyGuide")}</Button>
     {/if}
   </div>
 
   {#if mcp}
-    <p class="text">Para otros clientes con MCP (Cursor, VS Code…), este es el fragmento del proyecto:</p>
+    <p class="text">{t("agents.sheet.mcpIntro")}</p>
     <pre class="code selectable">{mcp}</pre>
     <div class="row">
-      <Button onclick={() => void copyText(mcp, "Fragmento")}>Copiar fragmento</Button>
+      <Button onclick={() => void copyText(mcp, "snippet")}>{t("agents.sheet.copySnippet")}</Button>
     </div>
   {/if}
 
   <div class="actions">
-    <Button variant="plain" onclick={settings}>Abrir Ajustes ▸ Agentes</Button>
+    <Button variant="plain" onclick={settings}>{t("agents.sheet.openSettings")}</Button>
     <span class="spacer"></span>
-    <Button variant="primary" onclick={onclose}>Listo</Button>
+    <Button variant="primary" onclick={onclose}>{t("agents.sheet.done")}</Button>
   </div>
 </Sheet>
 

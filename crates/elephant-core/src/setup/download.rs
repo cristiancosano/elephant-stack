@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 
 use super::presets;
 use super::{ComposerRelease, PhpRelease};
-use crate::paths;
+use crate::{paths, tr, tr_str};
 
 const SYSTEM_CURL: &str = "/usr/bin/curl";
 const SYSTEM_TAR: &str = "/usr/bin/tar";
@@ -39,7 +39,12 @@ const CURL_LIMITS: [&str; 8] = [
 /// Lo único que puede traer un paquete de php-builds.
 const PHP_ENTRIES: [&str; 4] = ["php", "php-fpm", "xdebug.so", "SHA256SUMS"];
 
-pub(crate) const MISMATCH: &str = "La descarga no coincide con su firma; no se ha instalado nada.";
+pub(crate) fn mismatch() -> String {
+    tr!(
+        "La descarga no coincide con su firma; no se ha instalado nada.",
+        "The download doesn’t match its signature. Nothing was installed."
+    )
+}
 
 const COMPOSER_WRAPPER: &str = "#!/bin/sh\nexec \"$HOME/.elephant-stack/bin/php\" \"$HOME/.elephant-stack/libexec/composer.phar\" \"$@\"\n";
 
@@ -93,13 +98,16 @@ pub(crate) fn fetch_text(curl: &Path, url: &str) -> Result<String, String> {
         ])
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("No se pudo ejecutar curl: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar curl: {error}", "Couldn’t run curl: {error}"))?;
     if output.status.success() {
         Ok(String::from_utf8_lossy(&output.stdout).into_owned())
     } else {
         Err(curl_error(
             &output.stderr,
-            format!("curl falló al descargar {url} ({}).", output.status),
+            {
+                let status = output.status;
+                tr!("curl falló al descargar {url} ({status}).", "curl failed to download {url} ({status}).")
+            },
         ))
     }
 }
@@ -142,7 +150,7 @@ fn download_file_with(
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("No se pudo ejecutar curl: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar curl: {error}", "Couldn’t run curl: {error}"))?;
     // Se lee stderr aparte para que nunca se llene la tubería.
     let stderr = child.stderr.take().map(|mut err| {
         thread::spawn(move || {
@@ -164,14 +172,15 @@ fn download_file_with(
                     let _ = child.kill();
                     let _ = child.wait();
                     let _ = fs::remove_file(dest);
-                    return Err(format!(
-                        "La descarga de {url} lleva {} s sin avanzar; se ha cancelado. Comprueba la conexión y vuelve a intentarlo.",
-                        stall.as_secs()
+                    let secs = stall.as_secs();
+                    return Err(tr!(
+                        "La descarga de {url} lleva {secs} s sin avanzar; se ha cancelado. Comprueba la conexión y vuelve a intentarlo.",
+                        "The download of {url} hasn’t moved for {secs} s, so it was cancelled. Check the connection and try again."
                     ));
                 }
                 thread::sleep(POLL);
             }
-            Err(error) => return Err(format!("No se pudo esperar a curl: {error}")),
+            Err(error) => return Err(tr!("No se pudo esperar a curl: {error}", "Couldn’t wait for curl: {error}")),
         }
     };
     let stderr = stderr
@@ -181,7 +190,7 @@ fn download_file_with(
         let _ = fs::remove_file(dest);
         return Err(curl_error(
             &stderr,
-            format!("curl falló al descargar {url} ({status})."),
+            tr!("curl falló al descargar {url} ({status}).", "curl failed to download {url} ({status})."),
         ));
     }
     let done = fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
@@ -210,16 +219,21 @@ pub(crate) fn expected_hash(text: &str, file_name: &str) -> Option<String> {
     })
 }
 
+fn cant_read(path: &Path, error: &std::io::Error) -> String {
+    let path = path.display();
+    tr!("No se pudo leer {path}: {error}", "Couldn’t read {path}: {error}")
+}
+
 pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
     let file =
-        File::open(path).map_err(|error| format!("No se pudo leer {}: {error}", path.display()))?;
+        File::open(path).map_err(|error| cant_read(path, &error))?;
     let mut reader = BufReader::with_capacity(1 << 16, file);
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 1 << 16];
     loop {
         let read = reader
             .read(&mut buffer)
-            .map_err(|error| format!("No se pudo leer {}: {error}", path.display()))?;
+            .map_err(|error| cant_read(path, &error))?;
         if read == 0 {
             break;
         }
@@ -236,12 +250,13 @@ pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
 /// absoluta, con `..`, un enlace o cualquier otra entrada aborta el paso.
 pub(crate) fn check_listing(names: &[String], kinds: &[char]) -> Result<(), String> {
     if names.len() != kinds.len() || names.is_empty() {
-        return Err("No se ha podido leer el contenido del paquete de PHP.".into());
+        return Err(tr!("No se ha podido leer el contenido del paquete de PHP.", "Couldn’t read the contents of the PHP package."));
     }
     for (name, kind) in names.iter().zip(kinds) {
         if name.starts_with('/') || name.split('/').any(|part| part == "..") {
-            return Err(format!(
-                "El paquete de PHP contiene una ruta no permitida: {name}"
+            return Err(tr!(
+                "El paquete de PHP contiene una ruta no permitida: {name}",
+                "The PHP package contains a path that isn’t allowed: {name}"
             ));
         }
         let entry = name.trim_start_matches("./").trim_end_matches('/');
@@ -251,8 +266,9 @@ pub(crate) fn check_listing(names: &[String], kinds: &[char]) -> Result<(), Stri
             _ => false,
         };
         if !allowed {
-            return Err(format!(
-                "El paquete de PHP contiene una entrada inesperada: {name}"
+            return Err(tr!(
+                "El paquete de PHP contiene una entrada inesperada: {name}",
+                "The PHP package contains an unexpected entry: {name}"
             ));
         }
     }
@@ -265,9 +281,9 @@ fn tar_output(tar: &Path, args: &[&str], archive: &Path) -> Result<String, Strin
         .arg(archive)
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("No se pudo ejecutar tar: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar tar: {error}", "Couldn’t run tar: {error}"))?;
     if !output.status.success() {
-        return Err("El paquete de PHP está dañado.".into());
+        return Err(tr!("El paquete de PHP está dañado.", "The PHP package is damaged."));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -295,14 +311,17 @@ fn asset_name(url: &str) -> Result<&str, String> {
     if valid {
         Ok(name)
     } else {
-        Err(format!("Nombre de descarga no válido: {name}"))
+        Err(tr!("Nombre de descarga no válido: {name}", "Invalid download name: {name}"))
     }
 }
 
 fn dir_for(path: &Path) -> Result<(), String> {
     match path.parent() {
         Some(dir) => fs::create_dir_all(dir)
-            .map_err(|error| format!("No se pudo crear {}: {error}", dir.display())),
+            .map_err(|error| {
+            let dir = dir.display();
+            tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+        }),
         None => Ok(()),
     }
 }
@@ -330,25 +349,26 @@ pub(crate) fn install_php(
 ) -> Result<(), String> {
     let version = release.version.as_str();
     if !presets::is_version(version) {
-        return Err(format!("Versión de PHP no válida: {version}"));
+        return Err(tr!("Versión de PHP no válida: {version}", "Invalid PHP version: {version}"));
     }
     let php_root = tools.data().join("php");
     let dest = php_root.join(version);
     if dest.join("php").is_file() {
-        on_line(&format!("PHP {version} ya está instalado."));
+        on_line(&tr!("PHP {version} ya está instalado.", "PHP {version} is already installed."));
         return Ok(());
     }
 
     let asset = asset_name(&release.url)?;
-    on_line(&format!("Consultando la firma de {asset}"));
+    on_line(&tr!("Consultando la firma de {asset}", "Checking the signature of {asset}"));
     let sums = fetch_text(&tools.curl, &release.checksum_url)?;
     let expected = expected_hash(&sums, asset)
-        .ok_or_else(|| format!("No se encuentra la firma de {asset}."))?;
+        .ok_or_else(|| tr!("No se encuentra la firma de {asset}.", "Couldn’t find the signature of {asset}."))?;
 
     let part = tools.data().join("cache").join(format!("{asset}.part"));
     dir_for(&part)?;
     let _ = fs::remove_file(&part);
-    on_line(&format!("Descargando {}", release.url));
+    let url = &release.url;
+    on_line(&tr!("Descargando {url}", "Downloading {url}"));
     download_file(&tools.curl, &release.url, &part, release.size, on_bytes)?;
 
     let result = verify_and_extract(tools, &part, &expected, version, &php_root, &dest, on_line);
@@ -366,15 +386,18 @@ fn verify_and_extract(
     on_line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
     if sha256_file(part)? != expected {
-        return Err(MISMATCH.into());
+        return Err(mismatch());
     }
-    on_line("Firma correcta. Comprobando el contenido del paquete");
+    on_line(tr_str!("Firma correcta. Comprobando el contenido del paquete", "Signature OK. Checking the package contents"));
     check_archive(&tools.tar, part)?;
 
     let tmp = php_root.join(format!(".tmp-{version}"));
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp)
-        .map_err(|error| format!("No se pudo crear {}: {error}", tmp.display()))?;
+        .map_err(|error| {
+            let dir = tmp.display();
+            tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+        })?;
     let installed = (|| {
         let status = Command::new(&tools.tar)
             .arg("-xzf")
@@ -383,20 +406,22 @@ fn verify_and_extract(
             .arg(&tmp)
             .stdin(Stdio::null())
             .status()
-            .map_err(|error| format!("No se pudo ejecutar tar: {error}"))?;
+            .map_err(|error| tr!("No se pudo ejecutar tar: {error}", "Couldn’t run tar: {error}"))?;
         if !status.success() {
-            return Err("No se ha podido extraer el paquete de PHP.".to_string());
+            return Err(tr!("No se ha podido extraer el paquete de PHP.", "Couldn’t extract the PHP package."));
         }
         match php_version_of(&tmp.join("php")) {
             Some(found) if found == version => {}
             Some(found) => {
-                return Err(format!(
-                    "El paquete dice ser PHP {version} pero contiene PHP {found}."
+                return Err(tr!(
+                    "El paquete dice ser PHP {version} pero contiene PHP {found}.",
+                    "The package says it’s PHP {version} but contains PHP {found}."
                 ));
             }
             None => {
-                return Err(format!(
-                    "El PHP {version} descargado no arranca en este Mac."
+                return Err(tr!(
+                    "El PHP {version} descargado no arranca en este Mac.",
+                    "The downloaded PHP {version} doesn’t run on this Mac."
                 ));
             }
         }
@@ -405,11 +430,12 @@ fn verify_and_extract(
             return Ok(());
         }
         fs::rename(&tmp, dest)
-            .map_err(|error| format!("No se pudo instalar PHP {version}: {error}"))
+            .map_err(|error| tr!("No se pudo instalar PHP {version}: {error}", "Couldn’t install PHP {version}: {error}"))
     })();
     let _ = fs::remove_dir_all(&tmp);
     if installed.is_ok() {
-        on_line(&format!("PHP {version} instalado en {}", dest.display()));
+        let dir = dest.display();
+        on_line(&tr!("PHP {version} instalado en {dir}", "PHP {version} installed in {dir}"));
     }
     installed
 }
@@ -423,7 +449,8 @@ fn write_executable(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|()| fs::rename(&tmp, path));
     if let Err(error) = result {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("No se pudo instalar {}: {error}", path.display()));
+        let path = path.display();
+        return Err(tr!("No se pudo instalar {path}: {error}", "Couldn’t install {path}: {error}"));
     }
     Ok(())
 }
@@ -435,13 +462,12 @@ pub(crate) fn install_composer(
     release: &ComposerRelease,
     on_line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
-    on_line(&format!(
-        "Consultando la firma de Composer {}",
-        release.version
-    ));
+    let version = &release.version;
+    on_line(&tr!("Consultando la firma de Composer {version}", "Checking the signature of Composer {version}"));
     let sums = fetch_text(&tools.curl, &release.checksum_url)?;
     let expected =
-        expected_hash(&sums, "composer.phar").ok_or("No se encuentra la firma de Composer.")?;
+        expected_hash(&sums, "composer.phar")
+        .ok_or_else(|| tr!("No se encuentra la firma de Composer.", "Couldn’t find Composer’s signature."))?;
 
     let part = tools
         .data()
@@ -449,13 +475,14 @@ pub(crate) fn install_composer(
         .join(format!("composer-{}.phar.part", release.version));
     dir_for(&part)?;
     let _ = fs::remove_file(&part);
-    on_line(&format!("Descargando {}", release.url));
+    let url = &release.url;
+    on_line(&tr!("Descargando {url}", "Downloading {url}"));
     download_file(&tools.curl, &release.url, &part, 0, &mut |_, _| {})?;
     let verified = sha256_file(&part).and_then(|actual| {
         if actual == expected {
             Ok(())
         } else {
-            Err(MISMATCH.into())
+            Err(mismatch())
         }
     });
     if let Err(error) = verified {
@@ -469,23 +496,23 @@ pub(crate) fn install_composer(
         .and_then(|()| fs::rename(&part, &phar));
     if let Err(error) = moved {
         let _ = fs::remove_file(&part);
-        return Err(format!("No se pudo instalar Composer: {error}"));
+        return Err(tr!("No se pudo instalar Composer: {error}", "Couldn’t install Composer: {error}"));
     }
     write_executable(
         &tools.data().join("bin/composer"),
         COMPOSER_WRAPPER.as_bytes(),
     )?;
-    on_line(&format!("Composer {} instalado", release.version));
+    on_line(&tr!("Composer {version} instalado", "Composer {version} installed"));
     Ok(())
 }
 
 /// Copia el selector empaquetado a `~/.elephant-stack/bin/php`.
 pub(crate) fn install_shim(tools: &Tools, source: &Path) -> Result<(), String> {
     if !source.is_file() {
-        return Err("No se encuentra el selector php que viaja con la app.".into());
+        return Err(tr!("No se encuentra el selector php que viaja con la app.", "Couldn’t find the php selector that comes with the app."));
     }
     let bytes =
-        fs::read(source).map_err(|error| format!("No se pudo leer el selector php: {error}"))?;
+        fs::read(source).map_err(|error| tr!("No se pudo leer el selector php: {error}", "Couldn’t read the php selector: {error}"))?;
     write_executable(&tools.data().join("bin/php"), &bytes)
 }
 
@@ -667,7 +694,7 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi"#,
         let tools = tools(&s.home, s.bin.path(), s.fixtures.path());
         let error =
             install_php(&tools, &release_for("8.5.12"), &mut |_| {}, &mut |_, _| {}).unwrap_err();
-        assert_eq!(error, MISMATCH);
+        assert_eq!(error, mismatch());
         assert!(!s.home.path().join(".elephant-stack/php").exists());
         assert!(
             !s.home
@@ -842,7 +869,7 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi"#,
         fs::remove_file(data.join("libexec/composer.phar")).unwrap();
         assert_eq!(
             install_composer(&tools, &release, &mut |_| {}).unwrap_err(),
-            MISMATCH
+            mismatch()
         );
         assert!(!data.join("libexec/composer.phar").exists());
     }

@@ -22,7 +22,8 @@ struct Spec {
     kind: Kind,
     /// Se puede instalar desde la app. Los demás solo aparecen si ya existen.
     installable: bool,
-    description: &'static str,
+    /// En español y en inglés: el `Component` lleva el del idioma actual.
+    description: (&'static str, &'static str),
 }
 
 const fn spec(
@@ -30,7 +31,7 @@ const fn spec(
     binary: &'static str,
     kind: Kind,
     installable: bool,
-    description: &'static str,
+    description: (&'static str, &'static str),
 ) -> Spec {
     Spec {
         id,
@@ -43,21 +44,21 @@ const fn spec(
 }
 
 const SPECS: [Spec; 11] = [
-    spec("postgresql@18", "psql", Kind::Service, true, "Base de datos"),
-    spec("mysql", "mysql", Kind::Service, true, "Base de datos"),
-    spec("redis", "redis-server", Kind::Service, true, "Caché y colas"),
-    spec("mailpit", "mailpit", Kind::Service, true, "Captura de correos"),
+    spec("postgresql@18", "psql", Kind::Service, true, ("Base de datos", "Database")),
+    spec("mysql", "mysql", Kind::Service, true, ("Base de datos", "Database")),
+    spec("redis", "redis-server", Kind::Service, true, ("Caché y colas", "Cache and queues")),
+    spec("mailpit", "mailpit", Kind::Service, true, ("Captura de correos", "Mail catcher")),
     Spec {
         version_flag: "-v",
-        ..spec("nginx", "nginx", Kind::Service, true, "Servidor web")
+        ..spec("nginx", "nginx", Kind::Service, true, ("Servidor web", "Web server"))
     },
-    spec("dnsmasq", "dnsmasq", Kind::Service, true, "DNS para dominios .test"),
+    spec("dnsmasq", "dnsmasq", Kind::Service, true, ("DNS para dominios .test", "DNS for .test domains")),
     // PHP y Composer los instala el asistente (versiones propias y phar), no brew.
-    spec("php", "php", Kind::Tool, false, "Intérprete de PHP"),
-    spec("composer", "composer", Kind::Tool, false, "Dependencias de PHP"),
-    spec("node", "node", Kind::Tool, false, "Node.js"),
-    spec("pnpm", "pnpm", Kind::Tool, false, "Dependencias de Node"),
-    spec("valet", "valet", Kind::Tool, false, "Laravel Valet"),
+    spec("php", "php", Kind::Tool, false, ("Intérprete de PHP", "PHP interpreter")),
+    spec("composer", "composer", Kind::Tool, false, ("Dependencias de PHP", "PHP dependencies")),
+    spec("node", "node", Kind::Tool, false, ("Node.js", "Node.js")),
+    spec("pnpm", "pnpm", Kind::Tool, false, ("Dependencias de Node", "Node dependencies")),
+    spec("valet", "valet", Kind::Tool, false, ("Laravel Valet", "Laravel Valet")),
 ];
 
 /// Una fila de la app: cada componente aparece una sola vez, lo haya instalado
@@ -114,7 +115,7 @@ pub(crate) fn install(
     on_line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
     if installable(id).is_none() {
-        return Err(format!("{id} no se puede instalar desde Elephant Stack."));
+        return Err(crate::tr!("{id} no se puede instalar desde Elephant Stack.", "{id} can’t be installed from Elephant Stack."));
     }
     brew::install_formula(lock, id, on_line)
 }
@@ -138,7 +139,10 @@ fn merge(probes: &[Option<Probe>], mut services: Vec<Service>, formulas: &str) -
             id: spec.id.to_string(),
             // Un paquete con servicio de Homebrew (php, por ejemplo) se arranca y se detiene.
             kind: if service.is_some() { Kind::Service } else { spec.kind },
-            description: spec.description,
+            description: match crate::i18n::locale() {
+                crate::i18n::Locale::Es => spec.description.0,
+                crate::i18n::Locale::En => spec.description.1,
+            },
             installed,
             version: probe.as_ref().and_then(|probe| probe.version.clone()),
             origin: if from_brew {

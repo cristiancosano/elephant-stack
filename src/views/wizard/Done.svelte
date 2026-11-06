@@ -1,6 +1,8 @@
 <script lang="ts">
   // Final del asistente (01 §7.8 paso 5 y C26): abrir el panel, «Conectar
   // agentes» si el canal está disponible y el aviso de la barra de menús.
+  import "../../lib/i18n/locales/wizard";
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import Button from "../../ui/Button.svelte";
   import { iconSvg } from "../../ui/icons";
@@ -18,14 +20,13 @@
 <div class="done">
   <span class="mark" aria-hidden="true">{@html iconSvg("elephant")}</span>
   <p class="text">
-    El elefante se queda en la barra de menús: desde ahí enciendes servicios, cambias de PHP y ves los errores
-    recientes. Puedes volver a este asistente desde Ajustes ▸ Escenario.
+    {t("wizard.done.text")}
   </p>
   <div class="actions">
     {#if snippets}
-      <Button onclick={() => (agentsOpen = true)}>Conectar agentes…</Button>
+      <Button onclick={() => (agentsOpen = true)}>{t("wizard.done.connectAgents")}</Button>
     {/if}
-    <Button variant={primaryAction ? "primary" : "secondary"} onclick={() => wizard.close()}>Abrir el panel</Button>
+    <Button variant={primaryAction ? "primary" : "secondary"} onclick={() => wizard.close()}>{t("wizard.done.openOverview")}</Button>
   </div>
 </div>
 

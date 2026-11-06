@@ -29,6 +29,7 @@
   import type { SiteAction } from "../lib/bindings/SiteAction";
   import type { Snapshot } from "../lib/bindings/Snapshot";
   import type { Route } from "../lib/route";
+  import { fmt, t } from "../lib/i18n/index.svelte";
 
   let { snapshot, route: _route }: { snapshot: Snapshot | null; route: Route } = $props();
 
@@ -41,7 +42,7 @@
   const versions = $derived(snapshot?.php.versions ?? []);
   const options = $derived(phpOptions(versions));
 
-  const KIND: Record<Project["kind"], string> = { laravel: "Laravel", php: "PHP", other: "Otro" };
+  const kindLabel = (kind: Project["kind"]) => t(`sites.kind.${kind}`);
 
   function fail(e: unknown) {
     toast(errorMessage(e), { tone: "error" });
@@ -54,8 +55,8 @@
       const started = await projectStartServices(p.root);
       toast(
         started.length > 0
-          ? `Arrancado para ${p.name}: ${started.join(", ")}.`
-          : `${p.name} ya tiene en marcha lo que necesita.`,
+          ? t("sites.needs.started", { name: p.name, list: fmt.list(started) })
+          : t("sites.needs.nothing", { name: p.name }),
         { tone: "success" },
       );
     } catch (e) {
@@ -66,7 +67,7 @@
   async function act(p: Project, action: SiteAction) {
     try {
       await siteAction(p.id, action);
-      if (action === "copy_url") toast(`Copiado: ${siteUrl(p)}`, { tone: "success" });
+      if (action === "copy_url") toast(t("sites.copied", { url: siteUrl(p) ?? "" }), { tone: "success" });
     } catch (e) {
       fail(e);
     }
@@ -76,14 +77,14 @@
     const web = p.hosts.length > 0;
     void popupMenu(
       [
-        { text: "Abrir en el navegador", enabled: web, action: () => void act(p, "browser") },
-        { text: "Abrir en el editor", action: () => void act(p, "editor") },
-        { text: "Abrir terminal", action: () => void act(p, "terminal") },
-        { text: "Mostrar en Finder", action: () => void revealInFinder(p.root).catch(fail) },
-        { text: "Copiar URL", enabled: web, action: () => void act(p, "copy_url") },
+        { text: t("sites.menu.openBrowser"), enabled: web, action: () => void act(p, "browser") },
+        { text: t("sites.menu.openEditor"), action: () => void act(p, "editor") },
+        { text: t("sites.menu.openTerminal"), action: () => void act(p, "terminal") },
+        { text: t("sites.menu.revealInFinder"), action: () => void revealInFinder(p.root).catch(fail) },
+        { text: t("sites.menu.copyUrl"), enabled: web, action: () => void act(p, "copy_url") },
         "separator",
         ...needsEntry(p),
-        { text: "Ver logs", action: () => go(`#/logs?project=${encodeURIComponent(p.id)}`) },
+        { text: t("sites.menu.viewLogs"), action: () => go(`#/logs?project=${encodeURIComponent(p.id)}`) },
       ],
       at,
     ).catch(fail);
@@ -94,7 +95,7 @@
     return [
       busy
         ? { text: busy.label, enabled: false }
-        : { text: "Arrancar lo que necesita", action: () => void startNeeds(p) },
+        : { text: t("sites.menu.startNeeds"), action: () => void startNeeds(p) },
     ];
   }
 
@@ -102,7 +103,14 @@
     const matched = versionForProject(versions, p.php_version);
     const current = matched
       ? []
-      : [{ value: "", label: p.php_version ? `${p.php_version} · no instalada` : "PHP por defecto" }];
+      : [
+          {
+            value: "",
+            label: p.php_version
+              ? t("sites.php.notInstalled", { version: p.php_version })
+              : t("sites.php.byDefault"),
+          },
+        ];
     return { value: matched?.key ?? "", options: [...current, ...options] };
   }
 
@@ -111,7 +119,7 @@
     if (!v) return;
     try {
       await setProjectPhp(p.root, key);
-      toast(`${p.name} usará PHP ${v.id} (.php-version).`, { tone: "success" });
+      toast(t("sites.php.done", { name: p.name, version: v.id }), { tone: "success" });
     } catch (e) {
       fail(e);
     }
@@ -119,7 +127,7 @@
 
   function subtitle(p: Project): string {
     const path = middleTruncate(tildePath(p.root), PATH_CHARS);
-    return p.hosts.length > 0 ? `${KIND[p.kind]} · ${path}` : path;
+    return p.hosts.length > 0 ? `${kindLabel(p.kind)} · ${path}` : path;
   }
 </script>
 
@@ -132,21 +140,21 @@
         <Select
           options={choice.options}
           value={choice.value}
-          label={`PHP de ${p.name}`}
+          label={t("sites.php.selectLabel", { name: p.name })}
           onchange={(key) => void setPhp(p, key)}
         />
       {/if}
       {#if p.hosts.length > 0}
-        <IconButton icon="open" label={`Abrir ${p.hosts[0]} en el navegador`} onclick={() => void act(p, "browser")} />
+        <IconButton icon="open" label={t("common.openInBrowser", { host: p.hosts[0] })} onclick={() => void act(p, "browser")} />
       {/if}
-      <IconButton icon="more" label={`Más opciones de ${p.name}`} onclick={(event) => menu(p, below(event))} />
+      <IconButton icon="more" label={t("sites.more", { name: p.name })} onclick={(event) => menu(p, below(event))} />
     {/snippet}
   </Row>
 {/snippet}
 
 <div class="view">
   <header class="toolbar" data-tauri-drag-region>
-    <h1 data-tauri-drag-region>Sitios</h1>
+    <h1 data-tauri-drag-region>{t("sites.title")}</h1>
   </header>
 
   <div class="scroll">
@@ -156,20 +164,20 @@
       {:else if projects.length === 0}
         <EmptyState
           icon="sitios"
-          title="Tus sitios los sirve Herd por ahora"
-          message="Cuando Herd sirva un proyecto o añadas una carpeta en Ajustes ▸ Logs, aparecerá aquí."
-          action={{ label: "Configurar con el asistente", onclick: () => go("#/asistente") }}
+          title={t("sites.empty.title")}
+          message={t("sites.empty.message")}
+          action={{ label: t("sites.empty.action"), onclick: () => go("#/asistente") }}
         />
       {:else}
         {#if served.length > 0}
-          <Group title="Sitios" footer="Los sirve Herd. Elephant Stack no cambia su configuración.">
+          <Group title={t("sites.title")} footer={t("sites.group.footer")}>
             {#each served as p (p.id)}
               {@render projectRow(p)}
             {/each}
           </Group>
         {/if}
         {#if others.length > 0}
-          <Group title="Otros proyectos">
+          <Group title={t("sites.group.others")}>
             {#each others as p (p.id)}
               {@render projectRow(p)}
             {/each}

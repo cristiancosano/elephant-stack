@@ -3,6 +3,7 @@
   // «Abrir en el editor», y los de vendor/ plegados en «N frames de vendor».
   import type { Frame } from "../../lib/bindings/Frame";
   import { foldFrames } from "../../lib/logs/markdown";
+  import { t } from "../../lib/i18n/index.svelte";
   import Icon from "../../ui/Icon.svelte";
   import IconButton from "../../ui/IconButton.svelte";
 
@@ -29,14 +30,14 @@
           {#if seg.frame.call}<span class="call">{seg.frame.call}</span>{/if}
         </span>
         {#if seg.frame.file.startsWith("/")}
-          <IconButton icon="editor" label="Abrir en el editor" onclick={() => onopen(seg.frame.file, seg.frame.line)} />
+          <IconButton icon="editor" label={t("common.openInEditor")} onclick={() => onopen(seg.frame.file, seg.frame.line)} />
         {/if}
       </li>
     {:else}
       <li class="vendor">
         <button type="button" class="toggle" aria-expanded={expanded[i] ?? false} onclick={() => (expanded[i] = !(expanded[i] ?? false))}>
           <Icon name={expanded[i] ? "chevron-down" : "chevron-right"} />
-          {seg.frames.length === 1 ? "1 frame de vendor" : `${seg.frames.length} frames de vendor`}
+          {t("logs.frames.vendor", { count: seg.frames.length })}
         </button>
         {#if expanded[i]}
           <ol class="frames nested">

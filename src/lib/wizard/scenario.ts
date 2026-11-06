@@ -8,15 +8,23 @@ import type { ProfileInput } from "../bindings/ProfileInput";
 import type { ScenarioCard } from "../bindings/ScenarioCard";
 import type { ScenarioId } from "../bindings/ScenarioId";
 import type { SetupFile } from "../bindings/SetupFile";
-import { formatNumber, plural } from "../format";
+import { formatNumber } from "../format";
+import "../i18n/locales/wizard";
+import { t } from "../i18n/index.svelte";
 
 /** Nombres de respaldo, por si las tarjetas todavía no han llegado. */
-export const SCENARIO_NAMES: Record<ScenarioId, string> = {
-  laravel: "Laravel",
-  laravel_services: "Laravel con servicios",
-  terminal: "Solo terminal",
-  custom: "Personalizado",
-};
+export function fallbackScenarioName(id: ScenarioId): string {
+  switch (id) {
+    case "laravel":
+      return t("wizard.scenarios.laravel");
+    case "laravel_services":
+      return t("wizard.scenarios.laravelServices");
+    case "terminal":
+      return t("wizard.scenarios.terminal");
+    case "custom":
+      return t("wizard.scenarios.custom");
+  }
+}
 
 export const DATABASE_NAMES: Record<Database, string> = {
   mysql: "MySQL",
@@ -27,7 +35,7 @@ export const DATABASE_NAMES: Record<Database, string> = {
 export const DEFAULT_DATABASE: Database = "mysql";
 
 export function scenarioName(id: ScenarioId, cards: readonly ScenarioCard[] = []): string {
-  return cards.find((c) => c.id === id)?.name ?? SCENARIO_NAMES[id];
+  return cards.find((c) => c.id === id)?.name ?? fallbackScenarioName(id);
 }
 
 /** La base de datos que la tarjeta de «Laravel con servicios» marca de entrada. */
@@ -70,11 +78,11 @@ export type Drift =
 /** «Al día» si el plan no tiene pasos; si no, «N diferencias» (04 §4.8). */
 export function driftOf(plan: Plan): Drift {
   const count = plan.steps.length;
-  if (count === 0) return { kind: "up_to_date", label: "Al día" };
-  return { kind: "differences", label: plural(count, "diferencia"), count };
+  if (count === 0) return { kind: "up_to_date", label: t("wizard.scenario.upToDate") };
+  return { kind: "differences", label: t("wizard.scenario.differences", { count }), count };
 }
 
 /** RAM estimada en reposo: siempre con «≈», porque es una estimación (04 §4.4). */
 export function idleRam(mb: number): string {
-  return `≈\u00a0${formatNumber(mb)}\u00a0MB en reposo`;
+  return t("wizard.scenario.idle", { mb: formatNumber(mb) });
 }

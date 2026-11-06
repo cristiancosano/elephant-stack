@@ -23,6 +23,9 @@ const NOW = Date.now();
 export const locale: Locale = new URLSearchParams(location.search).get("idioma") === "en" ? "en" : "es";
 const MIN = 60_000;
 
+/** Lo que escribe Rust en el idioma de la app: aquí, en el de la captura. */
+const rust = (es: string, en: string) => (locale === "en" ? en : es);
+
 function service(name: string, running: boolean, pid: number | null, registered = true): Service {
   return { name, status: running ? "started" : "none", running, registered, pid, exit_code: null };
 }
@@ -43,25 +46,25 @@ function component(id: string, kind: "service" | "tool", over: Partial<Component
 
 const components: Component[] = [
   component("postgresql@18", "service", {
-    description: "Base de datos PostgreSQL",
+    description: rust("Base de datos PostgreSQL", "PostgreSQL database"),
     version: "18.1",
     service: service("postgresql@18", true, 812),
   }),
-  component("redis", "service", { description: "Caché y colas", version: "8.2.2", service: service("redis", true, 845) }),
+  component("redis", "service", { description: rust("Caché y colas", "Cache and queues"), version: "8.2.2", service: service("redis", true, 845) }),
   component("mailpit", "service", {
-    description: "Correo de pruebas",
+    description: rust("Correo de pruebas", "Test mail"),
     version: "1.27.10",
     service: service("mailpit", true, 873),
   }),
   component("mysql", "service", {
-    description: "Base de datos MySQL",
+    description: rust("Base de datos MySQL", "MySQL database"),
     version: "9.5.0",
     service: service("mysql", false, null, false),
   }),
   component("php", "tool", { version: "8.4.27", origin: "Elephant" }),
   component("composer", "tool", { version: "2.8.12", origin: "Elephant" }),
   component("node", "tool", { version: "24.11.0", origin: "nvm" }),
-  component("meilisearch", "service", { description: "Búsqueda", installed: false }),
+  component("meilisearch", "service", { description: rust("Búsqueda", "Search"), installed: false }),
 ];
 
 const projects: Project[] = [
@@ -283,7 +286,14 @@ export const mcpSnippets: McpSnippets = {
   shell_guide: "elephant status · elephant logs errors --since 1h · elephant php use 8.3",
 };
 
-export const cards = CARDS;
+const CARD_TEXT_EN: Record<string, { name: string; phrase: string }> = {
+  laravel: { name: "Laravel", phrase: "Projects with SQLite. Nothing running." },
+  laravel_services: { name: "Laravel with services", phrase: "MySQL or PostgreSQL, Redis and test mail." },
+  terminal: { name: "Terminal only", phrase: "PHP and Composer in the terminal. Herd keeps serving your sites." },
+  custom: { name: "Custom", phrase: "Pick each piece. Starts from what you already have." },
+};
+
+export const cards = locale === "en" ? CARDS.map((c) => ({ ...c, ...CARD_TEXT_EN[c.id] })) : CARDS;
 export const wizardDetection = detection({
   formulas: ["postgresql@18", "redis", "mailpit", "mysql"],
   global_php: "8.4.27",

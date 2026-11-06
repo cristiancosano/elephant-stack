@@ -27,9 +27,21 @@ fn buttons() -> (&'static str, &'static str) {
 /// Margen sobre los 60 s del propio diálogo antes de matar `osascript`.
 const HARD_TIMEOUT: Duration = Duration::from_secs(70);
 
-pub const CANNOT_ASK: &str = "No se pudo pedir confirmación; cambia el modo en Ajustes > Agentes.";
-pub const DENIED_BY_PERSON: &str =
-    "La persona lo ha denegado en el diálogo de Elephant Stack. No lo intentes por otra vía.";
+/// Lo que recibe el agente cuando no se ha podido preguntar a la persona.
+pub fn cannot_ask() -> &'static str {
+    tr_str!(
+        "No se pudo pedir confirmación; cambia el modo en Ajustes > Agentes.",
+        "Couldn’t ask for confirmation. Change the mode in Settings > Agents."
+    )
+}
+
+/// Lo que recibe el agente cuando la persona dice que no.
+pub fn denied_by_person() -> &'static str {
+    tr_str!(
+        "La persona lo ha denegado en el diálogo de Elephant Stack. No lo intentes por otra vía.",
+        "The person denied it in the Elephant Stack dialog. Don’t try another way."
+    )
+}
 
 /// El diálogo de Elephant: funciona en cualquier modo del cliente.
 #[derive(Debug, Clone)]
@@ -64,8 +76,8 @@ impl Confirmer for DialogConfirmer {
         match run_with_timeout(&mut command, HARD_TIMEOUT) {
             Some((true, stdout)) => interpret(&stdout, allow),
             // Cancelar sale con error («User canceled», -128).
-            Some((false, _)) => Confirmation::Denied { reason: DENIED_BY_PERSON.to_string() },
-            None => Confirmation::Denied { reason: CANNOT_ASK.to_string() },
+            Some((false, _)) => Confirmation::Denied { reason: denied_by_person().to_string() },
+            None => Confirmation::Denied { reason: cannot_ask().to_string() },
         }
     }
 }
@@ -76,7 +88,7 @@ fn interpret(stdout: &str, allow: &str) -> Confirmation {
     if allowed {
         Confirmation::Allowed { by: "dialog".to_string() }
     } else {
-        Confirmation::Denied { reason: DENIED_BY_PERSON.to_string() }
+        Confirmation::Denied { reason: denied_by_person().to_string() }
     }
 }
 
@@ -188,9 +200,9 @@ mod tests {
     fn failures_deny_with_a_hint() {
         let (dir, path) = fake("echo 'execution error: No user interaction allowed. (-1713)' >&2; exit 1");
         let result = DialogConfirmer::with_program(path).confirm(&caller(), "x");
-        assert_eq!(result, Confirmation::Denied { reason: CANNOT_ASK.into() });
+        assert_eq!(result, Confirmation::Denied { reason: cannot_ask().into() });
         let missing = DialogConfirmer::with_program(dir.join("no-existe")).confirm(&caller(), "x");
-        assert_eq!(missing, Confirmation::Denied { reason: CANNOT_ASK.into() });
+        assert_eq!(missing, Confirmation::Denied { reason: cannot_ask().into() });
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -198,7 +210,7 @@ mod tests {
     fn cancel_is_a_denial_by_the_person() {
         let (dir, path) = fake("echo 'execution error: User canceled. (-128)' >&2; exit 1");
         let result = DialogConfirmer::with_program(path).confirm(&caller(), "x");
-        assert_eq!(result, Confirmation::Denied { reason: DENIED_BY_PERSON.into() });
+        assert_eq!(result, Confirmation::Denied { reason: denied_by_person().into() });
         let _ = std::fs::remove_dir_all(dir);
     }
 }

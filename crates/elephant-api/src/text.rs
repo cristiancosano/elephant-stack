@@ -1,6 +1,8 @@
 //! Ayudas para la salida compacta de la CLI: columnas alineadas y tiempos
 //! relativos, que gastan pocos tokens y no dependen de la zona horaria.
 
+use elephant_core::tr;
+
 use crate::{UNTRUSTED_BEGIN, UNTRUSTED_END};
 
 /// Columnas separadas por dos espacios, sin espacios al final de línea.
@@ -30,10 +32,19 @@ pub(crate) fn table(rows: &[Vec<String>]) -> String {
 pub(crate) fn ago(ts_ms: i64, now_ms: i64) -> String {
     let secs = (now_ms - ts_ms).max(0) / 1000;
     match secs {
-        0..=59 => format!("hace {secs} s"),
-        60..=3599 => format!("hace {} min", secs / 60),
-        3600..=86_399 => format!("hace {} h", secs / 3600),
-        _ => format!("hace {} d", secs / 86_400),
+        0..=59 => tr!("hace {secs} s", "{secs} s ago"),
+        60..=3599 => {
+            let n = secs / 60;
+            tr!("hace {n} min", "{n} min ago")
+        }
+        3600..=86_399 => {
+            let n = secs / 3600;
+            tr!("hace {n} h", "{n} h ago")
+        }
+        _ => {
+            let n = secs / 86_400;
+            tr!("hace {n} d", "{n} d ago")
+        }
     }
 }
 
@@ -128,6 +139,8 @@ mod tests {
     fn relative_times() {
         assert_eq!(ago(0, 5_000), "hace 5 s");
         assert_eq!(ago(0, 180_000), "hace 3 min");
+        let english = elephant_core::i18n::with_locale(elephant_core::i18n::Locale::En, || ago(0, 180_000));
+        assert_eq!(english, "3 min ago");
         assert_eq!(ago(0, 7_200_000), "hace 2 h");
         assert_eq!(ago(10, 0), "hace 0 s");
     }

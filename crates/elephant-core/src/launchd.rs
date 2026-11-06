@@ -30,7 +30,7 @@ pub fn homebrew_jobs() -> Result<Vec<LaunchJob>, String> {
         .arg("list")
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("No se pudo ejecutar launchctl: {error}"))?;
+        .map_err(|error| crate::tr!("No se pudo ejecutar launchctl: {error}", "Couldn’t run launchctl: {error}"))?;
     if !output.status.success() {
         return Err("launchctl list ha fallado.".to_string());
     }

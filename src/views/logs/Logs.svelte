@@ -10,13 +10,14 @@
   import type { LogGroup } from "../../lib/bindings/LogGroup";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
   import { onUiCommand } from "../../lib/events";
-  import { plural, formatBytes, formatNumber } from "../../lib/format";
+  import { formatBytes } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import { errorMessage, logsAddRoot, logsClear, logsMarkSeen, openInEditor, pickFolder } from "../../lib/ipc";
   import { copyText } from "../../lib/logs/clipboard";
   import {
     ALL_PROJECTS,
     FILTER_KEYS,
-    MODE_OPTIONS,
+    modeOptions,
     NO_PROJECT,
     SYSTEM,
     clearedFilters,
@@ -177,7 +178,7 @@
   function groupProjects(g: LogGroup): string {
     if (g.projects.length === 0) return labelFor(g.sample);
     const first = names.get(g.projects[0]) ?? g.projects[0];
-    return g.projects.length === 1 ? first : `${first} y ${g.projects.length - 1} más`;
+    return g.projects.length === 1 ? first : t("logs.projects.more", { first, count: g.projects.length - 1 });
   }
 
   function selectIndex(i: number) {
@@ -200,7 +201,7 @@
 
   let list: VirtualList | undefined = $state();
   store.onShift = (rows) => list?.shiftBy(rows);
-  store.onTruncated = () => toast("Un archivo de log se ha vaciado o rotado. Lo nuevo seguirá apareciendo.");
+  store.onTruncated = () => toast(t("logs.truncated"));
 
   const rowCount = $derived(grouped ? store.groups.length : store.count);
 
@@ -243,9 +244,9 @@
 
   // ── Acciones ──────────────────────────────────────────────────────────────
 
-  function showError(e: unknown, unavailable = "Esta acción todavía no está disponible.") {
+  function showError(e: unknown, unavailable?: string) {
     const message = errorMessage(e);
-    toast(isNotAvailable(message) ? unavailable : message, { tone: "error" });
+    toast(isNotAvailable(message) ? (unavailable ?? t("logs.unavailable")) : message, { tone: "error" });
   }
 
   async function copyEntry(entry: LogEntry) {
@@ -253,7 +254,7 @@
     const text = d && d.body.trim() !== "" ? d.body : entryLine(entry, labelFor(entry));
     try {
       await copyText(text);
-      toast("Entrada copiada.", { tone: "success" });
+      toast(t("logs.copied"), { tone: "success" });
     } catch (e) {
       showError(e);
     }
@@ -269,7 +270,7 @@
     }
     try {
       await copyText(markdown);
-      toast("Copiado como Markdown.", { tone: "success" });
+      toast(t("logs.copiedMarkdown"), { tone: "success" });
     } catch (e) {
       showError(e);
     }
@@ -280,15 +281,15 @@
   }
 
   async function addFolder() {
-    const path = await pickFolder("Elige una carpeta con proyectos").catch(() => null);
+    const path = await pickFolder(t("logs.addFolder.pick")).catch(() => null);
     if (!path) return;
     try {
       const list = await logsAddRoot(path);
       store.setProjects(list);
-      toast("Carpeta añadida.", { tone: "success" });
+      toast(t("logs.addFolder.done"), { tone: "success" });
       void store.load(filters);
     } catch (e) {
-      showError(e, "Todavía no se pueden añadir carpetas.");
+      showError(e, t("logs.addFolder.unavailable"));
     }
   }
 
@@ -302,7 +303,7 @@
     clearing = true;
     try {
       await logsClear(fileKey);
-      toast("Archivo de log vaciado.", { tone: "success" });
+      toast(t("logs.cleared"), { tone: "success" });
       selected = null;
       void store.load(filters);
     } catch (e) {
@@ -339,15 +340,15 @@
     selected = entry;
     pendingEntry = null;
     const items: MenuEntry[] = [
-      { text: "Copiar", action: () => void copyEntry(entry) },
-      { text: "Copiar como Markdown", action: () => void copyMarkdown(entry) },
+      { text: t("logs.menu.copy"), action: () => void copyEntry(entry) },
+      { text: t("logs.menu.copyMarkdown"), action: () => void copyMarkdown(entry) },
     ];
     const file = entry.exception?.file;
-    if (file) items.push({ text: "Abrir en el editor", action: () => openEditor(file, entry.exception?.line ?? null) });
-    items.push("separator", { text: "Mostrar en el inspector", action: () => (inspectorOpen = true) });
+    if (file) items.push({ text: t("logs.menu.openEditor"), action: () => openEditor(file, entry.exception?.line ?? null) });
+    items.push("separator", { text: t("logs.menu.showInspector"), action: () => (inspectorOpen = true) });
     if (entry.project) {
       const project = entry.project;
-      items.push({ text: `Solo ${labelFor(entry)}`, action: () => setFilter({ project }) });
+      items.push({ text: t("logs.menu.onlyProject", { label: labelFor(entry) }), action: () => setFilter({ project }) });
     }
     void popupMenu(items, { x: event.clientX, y: event.clientY });
   }
@@ -357,11 +358,11 @@
     const rect = target?.getBoundingClientRect();
     const entry = current;
     const items: MenuEntry[] = [
-      { text: "Añadir carpeta de proyectos…", action: () => void addFolder() },
-      { text: "Ajustes de logs…", action: () => go("#/ajustes/logs") },
+      { text: t("logs.menu.addFolder"), action: () => void addFolder() },
+      { text: t("logs.menu.settings"), action: () => go("#/ajustes/logs") },
       "separator",
-      { text: "Copiar como Markdown", enabled: entry !== null, action: () => entry && void copyMarkdown(entry) },
-      { text: "Vaciar el archivo de log…", enabled: entry !== null && canClear(entry), action: () => (confirmClear = entry) },
+      { text: t("logs.menu.copyMarkdown"), enabled: entry !== null, action: () => entry && void copyMarkdown(entry) },
+      { text: t("logs.menu.clearFile"), enabled: entry !== null && canClear(entry), action: () => (confirmClear = entry) },
     ];
     void popupMenu(items, rect ? { x: rect.left, y: rect.bottom + 2 } : undefined);
   }
@@ -427,62 +428,68 @@
 
   const status = $derived.by(() => {
     const parts: string[] = [];
-    if (grouped) parts.push(plural(store.groups.length, "grupo"));
+    if (grouped) parts.push(t("logs.status.groups", { count: store.groups.length }));
     else {
-      parts.push(plural(store.count, "entrada"));
-      if (store.count >= RING_CAPACITY) parts.push(`se muestran las ${formatNumber(RING_CAPACITY)} más recientes`);
+      parts.push(t("logs.status.entries", { count: store.count }));
+      if (store.count >= RING_CAPACITY) parts.push(t("logs.status.capped", { count: RING_CAPACITY }));
     }
-    if (store.scannedBytes > 0) parts.push(`${formatBytes(store.scannedBytes)} leídos`);
-    if (store.dropped > 0) parts.push(`${formatNumber(store.dropped)} descartadas por llegar demasiado rápido`);
+    if (store.scannedBytes > 0) parts.push(t("logs.status.scanned", { bytes: formatBytes(store.scannedBytes) }));
+    if (store.dropped > 0) parts.push(t("logs.status.dropped", { count: store.dropped }));
     return parts.join(" · ");
   });
 
   const liveStatus = $derived(
-    !store.live ? "En pausa" : store.streamError ? "Sin directo" : store.streaming ? "En vivo" : "Conectando…",
+    !store.live
+      ? t("logs.status.paused")
+      : store.streamError
+        ? t("logs.status.noStream")
+        : store.streaming
+          ? t("logs.status.streaming")
+          : t("logs.status.connecting"),
   );
 
   const empty = $derived.by(() => {
     if (filters.source === "http") {
       return {
-        title: "Herd no guarda logs de acceso",
-        message: "Herd tiene access_log off. Verás las peticiones cuando Elephant gestione nginx.",
+        title: t("logs.empty.noAccessLog.title"),
+        message: t("logs.empty.noAccessLog.message"),
         action: undefined,
       };
     }
     if (store.projectsState === "ready" && store.projects.length === 0 && !isFiltered(filters)) {
       return {
-        title: "Todavía no hay proyectos",
-        message: "Elephant lee los logs de los sitios de Herd y de las carpetas de proyectos que añadas.",
-        action: { label: "Añadir carpeta…", onclick: () => void addFolder() },
+        title: t("logs.empty.noProjects.title"),
+        message: t("logs.empty.noProjects.message"),
+        action: { label: t("logs.empty.noProjects.action"), onclick: () => void addFolder() },
       };
     }
     if (isFiltered(filters)) {
       return {
-        title: "Nada con estos filtros",
-        message: store.live ? "Lo nuevo que coincida aparecerá aquí al instante." : undefined,
-        action: { label: "Quitar filtros", onclick: () => setFilter(clearedFilters(filters)) },
+        title: t("logs.empty.noMatches.title"),
+        message: store.live ? t("logs.empty.noMatches.message") : undefined,
+        action: { label: t("logs.empty.noMatches.action"), onclick: () => setFilter(clearedFilters(filters)) },
       };
     }
     return {
-      title: filters.range === "all" ? "Sin entradas" : "Sin entradas en este periodo",
-      message: store.live ? "Lo nuevo aparecerá aquí al instante." : undefined,
-      action: filters.range === "all" ? undefined : { label: "Ver todo", onclick: () => setFilter({ range: "all" }) },
+      title: filters.range === "all" ? t("logs.empty.nothing.title") : t("logs.empty.nothing.titleInRange"),
+      message: store.live ? t("logs.empty.nothing.message") : undefined,
+      action: filters.range === "all" ? undefined : { label: t("logs.empty.nothing.action"), onclick: () => setFilter({ range: "all" }) },
     };
   });
 </script>
 
 <section class="logs">
   <header class="toolbar" data-tauri-drag-region>
-    <h1 data-tauri-drag-region>Logs</h1>
+    <h1 data-tauri-drag-region>{t("logs.title")}</h1>
     <div class="actions">
-      <SegmentedControl options={[...MODE_OPTIONS]} value={filters.mode} label="Presentación" onchange={(mode) => setFilter({ mode })} />
-      <button type="button" class="live" aria-pressed={store.live} title="En vivo (⌘L)" onclick={toggleLive}>
+      <SegmentedControl options={modeOptions()} value={filters.mode} label={t("logs.mode.label")} onchange={(mode) => setFilter({ mode })} />
+      <button type="button" class="live" aria-pressed={store.live} title={t("logs.live.title")} onclick={toggleLive}>
         <span class="live-dot" class:on={store.live && store.streaming} aria-hidden="true"></span>
-        En vivo
+        {t("logs.live.label")}
       </button>
-      <Button variant="plain" onclick={clearView}>Limpiar</Button>
-      <IconButton icon="info" label={inspectorOpen ? "Ocultar el inspector" : "Mostrar el inspector"} onclick={() => (inspectorOpen = !inspectorOpen)} />
-      <IconButton icon="more" label="Más acciones" onclick={moreMenu} />
+      <Button variant="plain" onclick={clearView}>{t("logs.clearView")}</Button>
+      <IconButton icon="info" label={inspectorOpen ? t("logs.inspector.hide") : t("logs.inspector.show")} onclick={() => (inspectorOpen = !inspectorOpen)} />
+      <IconButton icon="more" label={t("common.moreActions")} onclick={moreMenu} />
     </div>
   </header>
 
@@ -490,30 +497,30 @@
 
   {#if unreadable.length > 0}
     <p class="notice" role="status">
-      {unreadable.length === 1 ? "Hay una fuente de log que no se puede leer" : `Hay ${unreadable.length} fuentes de log que no se pueden leer`}: {unreadable[0]}
+      {t("logs.unreadable", { count: unreadable.length, first: unreadable[0] ?? "" })}
     </p>
   {/if}
 
   <div class="body">
     <div class="main">
       {#if store.state === "unavailable"}
-        <EmptyState icon="logs" title="El visor de logs todavía no está disponible" message="Esta versión de Elephant Stack aún no lee los logs de tus proyectos." />
+        <EmptyState icon="logs" title={t("logs.viewer.unavailable.title")} message={t("logs.viewer.unavailable.message")} />
       {:else if store.state === "error"}
-        <EmptyState icon="warning" title="No se han podido leer los logs" message={store.error ?? undefined} action={{ label: "Reintentar", onclick: reload }} />
+        <EmptyState icon="warning" title={t("logs.viewer.error.title")} message={store.error ?? undefined} action={{ label: t("common.retry"), onclick: reload }} />
       {:else if store.state === "loading" && rowCount === 0}
         <div class="skeleton"><Skeleton lines={10} /></div>
       {:else if rowCount === 0 && !grouped && (store.loadingOlder || store.hasOlder)}
         <!-- Rust para al agotar el presupuesto de lectura: no es «sin resultados» si queda historial. -->
         {#if store.olderError}
-          <EmptyState icon="warning" title="No se ha podido seguir buscando" message={store.olderError} action={{ label: "Reintentar", onclick: () => void store.loadOlder() }} />
+          <EmptyState icon="warning" title={t("logs.older.errorTitle")} message={store.olderError} action={{ label: t("common.retry"), onclick: () => void store.loadOlder() }} />
         {:else if store.loadingOlder}
-          <EmptyState icon="logs" title="Buscando en el historial…" message={`${formatBytes(store.scannedBytes)} leídos hasta ahora.`} />
+          <EmptyState icon="logs" title={t("logs.older.searching")} message={t("logs.older.searchingMessage", { bytes: formatBytes(store.scannedBytes) })} />
         {:else}
           <EmptyState
             icon="logs"
-            title="Nada por ahora"
-            message={`No hay coincidencias en los ${formatBytes(store.scannedBytes)} más recientes, pero queda historial más antiguo.`}
-            action={{ label: "Seguir buscando", onclick: () => void store.loadOlder() }}
+            title={t("logs.older.noneYet.title")}
+            message={t("logs.older.noneYet.message", { bytes: formatBytes(store.scannedBytes) })}
+            action={{ label: t("logs.older.keepSearching"), onclick: () => void store.loadOlder() }}
           />
         {/if}
       {:else if rowCount === 0}
@@ -522,11 +529,12 @@
         {#if store.loadingOlder || store.olderError || (!grouped && store.olderPaused)}
           <div class="older" role="status">
             {#if store.olderError}
-              No se ha podido cargar más historial. <Button variant="plain" onclick={() => void store.loadOlder()}>Reintentar</Button>
+              {t("logs.older.loadFailed")} <Button variant="plain" onclick={() => void store.loadOlder()}>{t("common.retry")}</Button>
             {:else if store.loadingOlder}
-              Cargando historial…
+              {t("logs.older.loading")}
             {:else}
-              Nada más con estos filtros en lo último leído. <Button variant="plain" onclick={() => void store.loadOlder()}>Seguir buscando</Button>
+              {t("logs.older.nothingMore")}
+              <Button variant="plain" onclick={() => void store.loadOlder()}>{t("logs.older.keepSearching")}</Button>
             {/if}
           </div>
         {/if}
@@ -538,7 +546,7 @@
               bind:this={list}
               count={store.groups.length}
               rowHeight={ROW_HEIGHT}
-              label="Grupos de entradas"
+              label={t("logs.list.groups")}
               activeIndex={activeRow}
             >
               {#snippet row(i)}
@@ -559,7 +567,7 @@
               follow={following}
               onfollowchange={(v) => store.scrolled(v)}
               onnearstart={() => void store.loadOlder()}
-              label="Entradas de log"
+              label={t("logs.list.entries")}
               activeIndex={activeRow}
             >
               {#snippet row(i)}
@@ -595,7 +603,7 @@
       </footer>
     </div>
 
-    <Inspector open={inspectorOpen} width={inspectorWidth} onresize={(w) => (inspectorWidth = w)} label="Detalle de la entrada">
+    <Inspector open={inspectorOpen} width={inspectorWidth} onresize={(w) => (inspectorWidth = w)} label={t("logs.inspector.label")}>
       <div class="inspector-scroll">
         {#key detailId}
           <Detail
@@ -615,14 +623,14 @@
   </div>
 </section>
 
-<Sheet open={confirmClear !== null} title="¿Vaciar el archivo de log?" onclose={() => (confirmClear = null)}>
+<Sheet open={confirmClear !== null} title={t("logs.clear.title")} onclose={() => (confirmClear = null)}>
   <p class="sheet-text">
-    Se borrará todo el contenido del archivo de log de <strong>{confirmClear ? labelFor(confirmClear) : ""}</strong> que contiene esta entrada.
-    No se puede deshacer.
+    {t("logs.clear.bodyBefore")} <strong>{confirmClear ? labelFor(confirmClear) : ""}</strong>
+    {t("logs.clear.bodyAfter")}
   </p>
   <div class="sheet-actions">
-    <Button onclick={() => (confirmClear = null)}>Cancelar</Button>
-    <Button variant="destructive" busy={clearing} onclick={() => void clearFile()}>Vaciar archivo</Button>
+    <Button onclick={() => (confirmClear = null)}>{t("common.cancel")}</Button>
+    <Button variant="destructive" busy={clearing} onclick={() => void clearFile()}>{t("logs.clear.confirm")}</Button>
   </div>
 </Sheet>
 

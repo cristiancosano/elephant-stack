@@ -6,16 +6,20 @@ import type { Detection } from "../bindings/Detection";
 import type { Profile } from "../bindings/Profile";
 import type { ServiceWant } from "../bindings/ServiceWant";
 import type { VersionInfo } from "../bindings/VersionInfo";
+import "../i18n/locales/wizard";
+import { t } from "../i18n/index.svelte";
 
 /** Origen de las versiones propias en `VersionInfo.source`. */
 export const OWN_SOURCE = "Elephant Stack";
 
-/** El control de tres estados de cada servicio (C9). */
-export const SERVICE_WANT_OPTIONS: { value: ServiceWant; label: string }[] = [
-  { value: "keep", label: "No tocar" },
-  { value: "installed", label: "Instalado y apagado" },
-  { value: "autostart", label: "Al iniciar sesión" },
-];
+/** El control de tres estados de cada servicio (C9). Se resuelve al pintar. */
+export function serviceWantOptions(): { value: ServiceWant; label: string }[] {
+  return [
+    { value: "keep", label: t("wizard.customize.want.keep") },
+    { value: "installed", label: t("wizard.customize.want.installed") },
+    { value: "autostart", label: t("wizard.customize.want.autostart") },
+  ];
+}
 
 /**
  * Servicios que el asistente gestiona en esta versión (nginx y dnsmasq no entran,
@@ -23,14 +27,16 @@ export const SERVICE_WANT_OPTIONS: { value: ServiceWant; label: string }[] = [
  */
 export const WIZARD_SERVICES = ["mysql", "postgresql@18", "redis", "mailpit"] as const;
 
-const SERVICE_NAMES: Record<string, { name: string; purpose: string }> = {
-  mysql: { name: "MySQL", purpose: "Base de datos" },
-  mariadb: { name: "MariaDB", purpose: "Base de datos" },
-  postgresql: { name: "PostgreSQL", purpose: "Base de datos" },
-  redis: { name: "Redis", purpose: "Caché y colas" },
-  mailpit: { name: "Mailpit", purpose: "Correo de pruebas" },
-  nginx: { name: "nginx", purpose: "Servidor web" },
-  dnsmasq: { name: "dnsmasq", purpose: "DNS para dominios .test" },
+type Purpose = "database" | "cache" | "mail" | "web" | "dns";
+
+const SERVICE_NAMES: Record<string, { name: string; purpose: Purpose }> = {
+  mysql: { name: "MySQL", purpose: "database" },
+  mariadb: { name: "MariaDB", purpose: "database" },
+  postgresql: { name: "PostgreSQL", purpose: "database" },
+  redis: { name: "Redis", purpose: "cache" },
+  mailpit: { name: "Mailpit", purpose: "mail" },
+  nginx: { name: "nginx", purpose: "web" },
+  dnsmasq: { name: "dnsmasq", purpose: "dns" },
 };
 
 /** `postgresql@18` → «PostgreSQL 18»; un id desconocido se muestra tal cual. */
@@ -38,7 +44,10 @@ export function serviceLabel(id: string): { name: string; purpose: string | null
   const [base, version] = id.split("@");
   const known = SERVICE_NAMES[base];
   if (!known) return { name: id, purpose: null };
-  return { name: version ? `${known.name} ${version}` : known.name, purpose: known.purpose };
+  return {
+    name: version ? `${known.name} ${version}` : known.name,
+    purpose: t(`wizard.customize.purpose.${known.purpose}`),
+  };
 }
 
 /** Filas de la tabla de servicios: las del perfil más las conocidas, en orden estable. */
@@ -149,13 +158,18 @@ export interface DefaultPhpOption {
 
 /** Radio de la versión por defecto: una por rama marcada, más la automática. */
 export function defaultPhpOptions(profile: Profile, branches: readonly PhpBranch[]): DefaultPhpOption[] {
-  const options: DefaultPhpOption[] = [{ value: null, label: "Automática (la más reciente)" }];
+  const options: DefaultPhpOption[] = [{ value: null, label: t("wizard.customize.default.auto") }];
   const checked = new Set(checkedBranches(profile, branches));
   for (const b of branches) {
     if (!checked.has(b.branch)) continue;
     const version = b.installed ?? b.latest;
     if (!version) continue;
-    options.push({ value: version, label: b.installed ? `PHP ${version}` : `PHP ${version} (se descargará)` });
+    options.push({
+      value: version,
+      label: b.installed
+        ? t("wizard.customize.default.version", { version })
+        : t("wizard.customize.default.willDownload", { version }),
+    });
   }
   return options;
 }
@@ -166,11 +180,18 @@ export function setDefaultPhp(profile: Profile, version: string | null): Profile
 
 export type Toggle = "composer" | "shim" | "launch_at_login";
 
-export const TOGGLES: { key: Toggle; title: string; subtitle: string }[] = [
-  { key: "composer", title: "Composer", subtitle: "Su propio composer.phar, que usa el PHP de cada proyecto." },
-  { key: "shim", title: "Selector php", subtitle: "El comando php de la terminal elige la versión de cada proyecto." },
-  { key: "launch_at_login", title: "Abrir Elephant al iniciar sesión", subtitle: "Solo en la barra de menús." },
-];
+/** Interruptores de herramientas. Se resuelven al pintar. */
+export function toggles(): { key: Toggle; title: string; subtitle: string }[] {
+  return [
+    { key: "composer", title: "Composer", subtitle: t("wizard.customize.tools.composer.subtitle") },
+    { key: "shim", title: t("wizard.customize.tools.shim.title"), subtitle: t("wizard.customize.tools.shim.subtitle") },
+    {
+      key: "launch_at_login",
+      title: t("wizard.customize.tools.launchAtLogin.title"),
+      subtitle: t("wizard.customize.tools.launchAtLogin.subtitle"),
+    },
+  ];
+}
 
 export function setToggle(profile: Profile, key: Toggle, value: boolean): Profile {
   return { ...profile, [key]: value };

@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-use elephant_core::paths;
+use elephant_core::{paths, tr};
 use elephant_core::setup::{
     self, ApplyContext, ApplyOutcome, ApplyReport, Catalog, Detection, Plan, Profile, ProfileInput,
     SETUP_VERSION, ScenarioCard, ScenarioId, SetupFile, SetupProgress, ShellPreview,
@@ -42,7 +42,10 @@ impl<'a> Running<'a> {
     fn start(flag: &'a Mutex<bool>) -> Result<Self, String> {
         let mut running = lock(flag);
         if *running {
-            return Err("Ya se está aplicando un plan. Espera a que termine.".into());
+            return Err(tr!(
+                "Ya se está aplicando un plan. Espera a que termine.",
+                "A plan is already being applied. Wait for it to finish."
+            ));
         }
         *running = true;
         Ok(Self(flag))
@@ -167,7 +170,12 @@ pub async fn setup_apply(
             .as_ref()
             .filter(|(_, plan)| plan.id == plan_id)
             .map(|(input, _)| input.clone())
-            .ok_or("Este plan ya no es el último que has revisado. Vuelve a revisarlo.")?;
+            .ok_or_else(|| {
+                tr!(
+                    "Este plan ya no es el último que has revisado. Vuelve a revisarlo.",
+                    "This plan is no longer the latest one you reviewed. Review it again."
+                )
+            })?;
         state.cancel.store(false, Ordering::Relaxed);
 
         let fresh = plan_for(&app, &input)?;
@@ -179,7 +187,7 @@ pub async fn setup_apply(
             } else {
                 autolaunch.disable()
             };
-            result.map_err(|error| format!("No se pudo cambiar el inicio de sesión: {error}"))
+            result.map_err(|error| tr!("No se pudo cambiar el inicio de sesión: {error}", "Couldn’t change the login item: {error}"))
         };
         let ctx = ApplyContext {
             shim_source,

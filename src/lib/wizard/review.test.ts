@@ -90,8 +90,10 @@ describe("totalsLine", () => {
 
 describe("avisos", () => {
   it("no repite el aviso del PATH cuando se enseña el de «Añadirlo por mí»", () => {
+    const pathNotice = "El selector php no está en el PATH de tu terminal. Puedes añadirlo a ~/.zshrc.";
     const withPath = plan([], {
-      notices: ["El selector php no está en el PATH de tu terminal. Puedes añadirlo a ~/.zshrc.", "Herd sigue sirviendo tus sitios .test."],
+      notices: [pathNotice, "Herd sigue sirviendo tus sitios .test."],
+      path_notice: pathNotice,
     });
     expect(visibleNotices(withPath, true)).toEqual(["Herd sigue sirviendo tus sitios .test."]);
     expect(visibleNotices(withPath, false)).toHaveLength(2);

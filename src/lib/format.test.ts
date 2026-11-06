@@ -8,7 +8,6 @@ import {
   formatNumber,
   formatRelative,
   formatShortDate,
-  plural,
   shouldShowCpu,
 } from "./format";
 
@@ -76,18 +75,6 @@ describe("formatDuration", () => {
     expect(formatDuration(42_000)).toBe(s("42~s"));
     expect(formatDuration(125_000)).toBe(s("2~min 5~s"));
     expect(formatDuration(180_000)).toBe(s("3~min"));
-  });
-});
-
-describe("plural", () => {
-  it("concuerda con el número", () => {
-    expect(plural(0, "servicio")).toBe("0 servicios");
-    expect(plural(1, "servicio")).toBe("1 servicio");
-    expect(plural(3, "error")).toBe("3 errores");
-    expect(plural(2, "vez")).toBe("2 veces");
-    expect(plural(2, "análisis")).toBe("2 análisis");
-    expect(plural(2, "versión", "versiones")).toBe("2 versiones");
-    expect(plural(12345, "entrada")).toBe("12.345 entradas");
   });
 });
 

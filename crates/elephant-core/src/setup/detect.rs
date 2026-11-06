@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use super::presets::{self, Engine};
 use super::{Detection, FileState, HerdInfo, PathState, PortUse};
 use crate::brew::{self, Service};
-use crate::paths;
+use crate::{paths, tr};
 use crate::php::VersionInfo;
 
 /// Puertos que miran los escenarios: MySQL, PostgreSQL, Redis y Mailpit.
@@ -180,7 +180,8 @@ pub(crate) fn owner_hint(
         .iter()
         .find(|s| s.running && presets::engine(&s.name) == engine)
     {
-        return Some(format!("{} de Homebrew", presets::label(&service.name)));
+        let name = presets::label(&service.name);
+        return Some(tr!("{name} de Homebrew", "{name} from Homebrew"));
     }
     let known: &[&str] = match engine {
         Engine::Mysql => &["mysqld", "mariadbd"],
@@ -192,7 +193,7 @@ pub(crate) fn owner_hint(
         if owner == user || owner.is_empty() {
             name.to_string()
         } else {
-            format!("{name} de {owner}")
+            tr!("{name} de {owner}", "{name} from {owner}")
         }
     };
     // Primero un proceso con el nombre del motor; después las apps que lo

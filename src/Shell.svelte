@@ -18,6 +18,7 @@
   import { onUiCommand } from "./lib/events";
   import type { Route } from "./lib/route";
   import type { Snapshot } from "./lib/bindings/Snapshot";
+  import { t } from "./lib/i18n/index.svelte";
 
   let {
     snapshot,
@@ -114,7 +115,7 @@
 
   // Un error al arrancar se cuenta una vez; los siguientes snapshots lo borran.
   $effect(() => {
-    if (error) toast(`No se pudo leer el estado: ${error}`, { tone: "error" });
+    if (error) toast(t("shell.snapshotFailed", { error }), { tone: "error" });
   });
 
   const enter = $derived({
@@ -129,7 +130,7 @@
     <Sidebar {snapshot} {route} ontoggle={toggleSidebar} />
   {:else}
     <div class="reopen">
-      <IconButton icon="sidebar" label="Mostrar la barra lateral" onclick={toggleSidebar} />
+      <IconButton icon="sidebar" label={t("shell.sidebar.show")} onclick={toggleSidebar} />
     </div>
   {/if}
 

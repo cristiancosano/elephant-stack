@@ -17,9 +17,17 @@ Las decisiones de diseño están en [`docs/decisions/`](docs/decisions/): el pla
 - **Asistente de configuración** en la primera ejecución: elige un escenario (Laravel, Laravel con servicios, terminal…), revisa el plan antes de aplicar nada y deja Elephant listo. «No cambiar nada» no ejecuta ningún comando.
 - **Canal de agentes.** La orden `elephant` da a Claude Code (u otro agente) el estado del entorno, los logs y los errores 500, y le deja arrancar servicios o cambiar de PHP pidiendo confirmación con un diálogo de Elephant.
 
-**Idiomas.** Español e inglés: la ventana, el menú de la barra, el de la aplicación y la orden `elephant` siguen el idioma de macOS o el que elijas en Ajustes ▸ General ▸ Idioma, que se aplica al momento. Cómo añadir textos y el glosario: [`docs/i18n.md`](docs/i18n.md).
-
 Arrancar o detener un servicio no cambia el arranque al iniciar sesión. Cambiar ese ajuste sí reinicia el servicio si está en marcha, o lo arranca un momento si está parado, porque Homebrew no permite hacerlo de otra forma. El consumo se mide cada 5 s y solo con la ventana visible; la RAM es la suma de RSS del servicio y sus hijos.
+
+## Idiomas
+
+Elephant Stack está en **español** e **inglés**: la ventana, el asistente, el menú de la barra, el de la aplicación, el diálogo de confirmación de los agentes, los errores y la salida de texto de la orden `elephant`.
+
+- **Cómo se elige.** Por defecto sigue a macOS (Ajustes del Sistema ▸ General ▸ Idioma y región): español si el primer idioma preferido es español; inglés con cualquier otro.
+- **Cómo se cambia.** En Ajustes ▸ General ▸ Idioma: Sistema, Español o English. Se aplica al momento, también a los menús, y se guarda en `~/.elephant-stack/settings.json` (`"language": "system" | "es" | "en"`). La orden `elephant` lee ese mismo ajuste en cada ejecución.
+- **Qué no cambia de idioma.** La salida `--json` y el `structuredContent` de MCP (ids, códigos y campos), y las descripciones del catálogo de operaciones y del plugin de Claude Code, que se quedan en español y los agentes leen igual en cualquier idioma. Por eso `elephant --help` en inglés deja en español la línea de cada operación.
+
+Cómo añadir textos o un idioma nuevo, y el glosario: [`docs/i18n.md`](docs/i18n.md).
 
 ## Versiones de PHP
 
@@ -79,6 +87,7 @@ export PATH="$HOME/.elephant-stack/bin:$PATH"
 
 | Ruta | Qué es |
 |---|---|
+| `crates/elephant-i18n` | Idioma (`Locale`, `locale()`) y las macros `tr!` y `tr_str!`, que comparten core y el motor de logs. |
 | `crates/elephant-core` | Núcleo síncrono: Homebrew, componentes, PHP, ajustes, tareas, cerrojo de Homebrew, ocultación de secretos y el asistente (`setup/`). Sin Tauri ni tokio. |
 | `crates/elephant-logs` | Motor de logs: descubre proyectos (Herd y tus carpetas), lee hacia atrás, busca, agrupa y sigue el directo. |
 | `crates/elephant-api` | Catálogo de operaciones del canal de agentes, política de confirmación y plantillas del plugin. |

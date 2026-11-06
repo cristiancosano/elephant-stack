@@ -6,6 +6,7 @@
 use elephant_logs::{
     EntryDetail, Frame, HttpBrief, LogEntry, LogLevel, LogQuery, SourceKind, SourceState, StatusFilter, projects,
 };
+use elephant_core::tr;
 use serde::{Deserialize, Serialize};
 
 use super::Level;
@@ -144,9 +145,10 @@ fn check_source_id(id: &str) -> Result<(), String> {
     if shaped && id.len() <= 128 {
         Ok(())
     } else {
-        Err(format!(
-            "«{}» no es un id de fuente: usa uno de `elephant logs sources` (por ejemplo laravel_app:shop), nunca una ruta.",
-            truncate_chars(id, 64)
+        let id = truncate_chars(id, 64);
+        Err(tr!(
+            "«{id}» no es un id de fuente: usa uno de `elephant logs sources` (por ejemplo laravel_app:shop), nunca una ruta.",
+            "“{id}” isn’t a source ID: use one from `elephant logs sources` (for example laravel_app:shop), never a path."
         ))
     }
 }
@@ -157,7 +159,7 @@ fn known_source(cx: &Ctx, id: &str) -> Result<elephant_logs::LogSource, String> 
         .into_iter()
         .map(|s| s.source)
         .find(|s| s.id == id)
-        .ok_or_else(|| format!("No hay ninguna fuente de logs «{id}». Mira `elephant logs sources`."))
+        .ok_or_else(|| tr!("No hay ninguna fuente de logs «{id}». Mira `elephant logs sources`.", "There’s no log source “{id}”. See `elephant logs sources`."))
 }
 
 /// Id, nombre o host → id de proyecto.
@@ -168,7 +170,10 @@ fn resolve_project(cx: &Ctx, needle: &str) -> Result<String, String> {
     let all = projects::discover(&cx.home);
     projects::resolve(&all, needle)
         .map(|p| p.id.clone())
-        .ok_or_else(|| format!("No conozco el proyecto «{}». Mira `elephant project list`.", truncate_chars(needle, 64)))
+        .ok_or_else(|| {
+            let p = truncate_chars(needle, 64);
+            tr!("No conozco el proyecto «{p}». Mira `elephant project list`.", "Unknown project “{p}”. See `elephant project list`.")
+        })
 }
 
 fn check_since(text: &str) -> Result<(), String> {
@@ -252,16 +257,19 @@ impl Op for LogsSources {
     }
 
     fn text(o: &SourcesOut) -> String {
-        let mut rows = vec![vec!["SOURCE".to_string(), "PROYECTO".into(), "ESTADO".into(), "ARCHIVOS".into()]];
+        let mut rows =
+            vec![vec!["SOURCE".to_string(), tr!("PROYECTO", "PROJECT"), tr!("ESTADO", "STATUS"), tr!("ARCHIVOS", "FILES")]];
         for s in &o.sources {
             let state = match (&s.message, s.state.as_str()) {
-                (Some(message), _) => format!("no se puede leer: {message}"),
-                (None, "missing") => "sin archivos".to_string(),
+                (Some(message), _) => tr!("no se puede leer: {message}", "can’t be read: {message}"),
+                (None, "missing") => tr!("sin archivos", "no files"),
                 _ => "ok".to_string(),
             };
             rows.push(vec![s.id.clone(), opt(s.project.as_deref()), state, s.files.to_string()]);
         }
-        format!("{} fuentes\n{}", o.sources.len(), crate::text::table(&rows))
+        let n = o.sources.len();
+        let count = if n == 1 { tr!("1 fuente", "1 source") } else { tr!("{n} fuentes", "{n} sources") };
+        format!("{count}\n{}", crate::text::table(&rows))
     }
 }
 
@@ -303,7 +311,7 @@ fn entries_text(title: String, o: &EntriesOut) -> String {
     let lines: Vec<String> = o.entries.iter().map(|e| entry_text(e, now)).collect();
     let mut text = format!("{title}\n{}", log_block(&lines));
     if let Some(cursor) = &o.next_cursor {
-        text.push_str(&format!("\nMás antiguas: usa `--cursor {cursor}`."));
+        text.push_str(&tr!("\nMás antiguas: usa `--cursor {cursor}`.", "\nOlder: use `--cursor {cursor}`."));
     }
     text
 }
@@ -326,7 +334,7 @@ impl Op for LogsTail {
 
     fn validate(cx: &Ctx, a: &mut TailArgs) -> Result<(), String> {
         if a.lines > 500 {
-            return Err("--lines admite como mucho 500.".into());
+            return Err(tr!("--lines admite como mucho 500.", "--lines accepts at most 500."));
         }
         if a.lines == 0 {
             a.lines = 100;
@@ -345,7 +353,13 @@ impl Op for LogsTail {
     }
 
     fn text(o: &EntriesOut) -> String {
-        entries_text(format!("{} entradas, de la más antigua a la más reciente", o.entries.len()), o)
+        let n = o.entries.len();
+        let title = if n == 1 {
+            tr!("1 entrada", "1 entry")
+        } else {
+            tr!("{n} entradas, de la más antigua a la más reciente", "{n} entries, oldest first")
+        };
+        entries_text(title, o)
     }
 }
 
@@ -394,7 +408,10 @@ pub(crate) struct SearchArgs {
 /// `5xx` → clase 5; `>=500` → desde 500; `404` → exactamente 404.
 fn parse_status(text: &str) -> Result<(StatusFilter, Option<u16>), String> {
     let text = text.trim().to_ascii_lowercase();
-    let error = || format!("Estado no válido: «{}». Usa 5xx, 4xx, 404 o >=500.", truncate_chars(&text, 16));
+    let error = || {
+        let s = truncate_chars(&text, 16);
+        tr!("Estado no válido: «{s}». Usa 5xx, 4xx, 404 o >=500.", "Invalid status: “{s}”. Use 5xx, 4xx, 404 or >=500.")
+    };
     if let Some(class) = text.strip_suffix("xx") {
         let class: u8 = class.parse().map_err(|_| error())?;
         return if (1..=5).contains(&class) { Ok((StatusFilter::Class(class), None)) } else { Err(error()) };
@@ -428,7 +445,7 @@ impl Op for LogsSearch {
 
     fn validate(cx: &Ctx, a: &mut SearchArgs) -> Result<(), String> {
         if a.limit > 200 {
-            return Err("--limit admite como mucho 200.".into());
+            return Err(tr!("--limit admite como mucho 200.", "--limit accepts at most 200."));
         }
         if a.limit == 0 {
             a.limit = 50;
@@ -488,7 +505,13 @@ impl Op for LogsSearch {
     }
 
     fn text(o: &EntriesOut) -> String {
-        entries_text(format!("{} entradas, de la más reciente a la más antigua", o.entries.len()), o)
+        let n = o.entries.len();
+        let title = if n == 1 {
+            tr!("1 entrada", "1 entry")
+        } else {
+            tr!("{n} entradas, de la más reciente a la más antigua", "{n} entries, newest first")
+        };
+        entries_text(title, o)
     }
 }
 
@@ -576,24 +599,27 @@ impl Op for LogsErrors {
 
     fn text(o: &ErrorsOut) -> String {
         if o.groups.is_empty() {
-            return format!("Sin errores desde hace {}", o.since);
+            let since = &o.since;
+            return tr!("Sin errores desde hace {since}", "No errors in the last {since}");
         }
         let now = elephant_core::now_ms();
         let mut lines = Vec::new();
         for g in &o.groups {
             let mut line = format!("{}× {}", g.count, entry_text(&g.sample, now));
             if let Some(r) = &g.nearest_request {
-                line.push_str(&format!(" · petición cercana: {} {} {}", r.method, r.path, r.status));
+                let (method, path, status) = (&r.method, &r.path, r.status);
+                line.push_str(&tr!(" · petición cercana: {method} {path} {status}", " · nearby request: {method} {path} {status}"));
             }
             lines.push(line);
             lines.extend(g.frames.iter().filter(|f| !f.vendor).take(3).map(frame_text));
         }
-        format!(
-            "{} grupos de errores desde hace {} (detalle: elephant logs entry ID)\n{}",
-            o.groups.len(),
-            o.since,
-            log_block(&lines)
-        )
+        let (n, since) = (o.groups.len(), &o.since);
+        let title = if n == 1 {
+            tr!("1 grupo de errores desde hace {since} (detalle: elephant logs entry ID)", "1 error group in the last {since} (details: elephant logs entry ID)")
+        } else {
+            tr!("{n} grupos de errores desde hace {since} (detalle: elephant logs entry ID)", "{n} error groups in the last {since} (details: elephant logs entry ID)")
+        };
+        format!("{title}\n{}", log_block(&lines))
     }
 }
 
@@ -639,7 +665,8 @@ impl Op for LogsEntry {
         if valid {
             Ok(())
         } else {
-            Err(format!("Id de entrada no válido: «{}».", truncate_chars(&a.id, 64)))
+            let id = truncate_chars(&a.id, 64);
+            Err(tr!("Id de entrada no válido: «{id}».", "Invalid entry ID: “{id}”."))
         }
     }
 
@@ -663,16 +690,18 @@ impl Op for LogsEntry {
         let now = elephant_core::now_ms();
         let mut lines = vec![entry_text(&o.entry, now)];
         if !o.frames.is_empty() {
-            lines.push("Traza:".to_string());
+            lines.push(tr!("Traza:", "Stack trace:"));
             lines.extend(o.frames.iter().map(frame_text));
         }
         if let Some(context) = &o.context {
-            lines.push(format!("Contexto: {}", truncate_chars(&context.to_string(), 1000)));
+            let context = truncate_chars(&context.to_string(), 1000);
+            lines.push(tr!("Contexto: {context}", "Context: {context}"));
         }
         if o.frames.is_empty() && o.entry.exception.is_none() {
             lines.push(o.body.clone());
         }
-        format!("Entrada {}\n{}", o.entry.id, log_block(&lines))
+        let id = &o.entry.id;
+        format!("{}\n{}", tr!("Entrada {id}", "Entry {id}"), log_block(&lines))
     }
 }
 

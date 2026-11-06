@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use elephant_core::php::{self, VersionInfo};
 use elephant_core::project::{self, PhpReason, ProjectPhp};
 use elephant_core::ops;
+use elephant_core::tr;
 use serde::{Deserialize, Serialize};
 
 use super::{check_php_version, user_dir};
@@ -62,29 +63,35 @@ impl Op for PhpVersions {
 
     fn text(o: &VersionsOut) -> String {
         let active = o.global.as_ref().map(|v| v.key.as_str());
-        let mut rows = vec![vec!["VERSIÓN".to_string(), "ORIGEN".into(), "CLAVE".into(), String::new()]];
+        let mut rows = vec![vec![tr!("VERSIÓN", "VERSION"), tr!("ORIGEN", "SOURCE"), tr!("CLAVE", "KEY"), String::new()]];
         for v in &o.versions {
             let mark = if Some(v.key.as_str()) == active { "global" } else { "" };
             rows.push(vec![v.id.clone(), v.source.to_string(), v.key.clone(), mark.to_string()]);
         }
         let project = &o.project;
         let reason = match project.reason {
-            PhpReason::ProjectFile => format!(
-                "por {}",
-                project.file.as_ref().map(|f| f.display().to_string()).unwrap_or_else(|| ".php-version".into())
-            ),
-            PhpReason::Global => "por el ajuste global".to_string(),
-            PhpReason::Newest => "la más reciente (no hay nada elegido)".to_string(),
+            PhpReason::ProjectFile => {
+                let file =
+                    project.file.as_ref().map(|f| f.display().to_string()).unwrap_or_else(|| ".php-version".into());
+                tr!("por {file}", "from {file}")
+            }
+            PhpReason::Global => tr!("por el ajuste global", "from the global setting"),
+            PhpReason::Newest => tr!("la más reciente (no hay nada elegido)", "newest (nothing chosen)"),
         };
+        let dir = project.dir.display();
         let here = match &project.version {
-            Some(v) => format!("{} usa PHP {} {reason}", project.dir.display(), v.id),
-            None => format!(
-                "{}: {} ({reason})",
-                project.dir.display(),
-                project.error.as_deref().unwrap_or("sin versión")
-            ),
+            Some(v) => {
+                let id = &v.id;
+                tr!("{dir} usa PHP {id} {reason}", "{dir} uses PHP {id} {reason}")
+            }
+            None => {
+                let error = project.error.clone().unwrap_or_else(|| tr!("sin versión", "no version"));
+                format!("{dir}: {error} ({reason})")
+            }
         };
-        format!("{} versiones de PHP\n{}\n{here}", o.versions.len(), table(&rows))
+        let n = o.versions.len();
+        let count = if n == 1 { tr!("1 versión de PHP", "1 PHP version") } else { tr!("{n} versiones de PHP", "{n} PHP versions") };
+        format!("{count}\n{}\n{here}", table(&rows))
     }
 }
 
@@ -123,7 +130,8 @@ impl Op for PhpSetGlobal {
     }
 
     fn confirm_text(a: &UseArgs) -> String {
-        format!("cambiar el PHP global a {}", a.version)
+        let v = &a.version;
+        tr!("cambiar el PHP global a {v}", "change the global PHP to {v}")
     }
 
     fn run(_cx: &Ctx, a: UseArgs, _on_line: &mut dyn FnMut(&str)) -> Result<UseOut, String> {
@@ -132,8 +140,11 @@ impl Op for PhpSetGlobal {
 
     fn text(o: &UseOut) -> String {
         match &o.global {
-            Some(v) => format!("PHP global: {} ({})", v.id, v.source),
-            None => "PHP global cambiado".to_string(),
+            Some(v) => {
+                let (id, source) = (&v.id, &v.source);
+                tr!("PHP global: {id} ({source})", "Global PHP: {id} ({source})")
+            }
+            None => tr!("PHP global cambiado", "Global PHP changed"),
         }
     }
 }
@@ -181,7 +192,8 @@ impl Op for PhpSetProject {
 
     fn confirm_text(a: &IsolateArgs) -> String {
         let dir = crate::text::dialog_path(a.dir.as_deref());
-        format!("usar PHP {} en el proyecto {dir}", a.version)
+        let version = &a.version;
+        tr!("usar PHP {version} en el proyecto {dir}", "use PHP {version} in project {dir}")
     }
 
     fn run(cx: &Ctx, a: IsolateArgs, _on_line: &mut dyn FnMut(&str)) -> Result<IsolateOut, String> {
@@ -191,6 +203,7 @@ impl Op for PhpSetProject {
     }
 
     fn text(o: &IsolateOut) -> String {
-        format!("{} usa PHP {} (.php-version)", o.dir.display(), o.version)
+        let (dir, version) = (o.dir.display(), &o.version);
+        tr!("{dir} usa PHP {version} (.php-version)", "{dir} uses PHP {version} (.php-version)")
     }
 }

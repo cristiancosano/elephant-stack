@@ -3,6 +3,8 @@
   // proyectos y cuándo se vio por última vez.
   import type { LogGroup } from "../../lib/bindings/LogGroup";
   import { formatNumber, formatRelative } from "../../lib/format";
+  import "../../lib/i18n/locales/logs";
+  import { t } from "../../lib/i18n/index.svelte";
   import LevelPill from "./LevelPill.svelte";
 
   let { group, projects, selected, now }: { group: LogGroup; projects: string; selected: boolean; now: number } = $props();
@@ -14,7 +16,7 @@
 </script>
 
 <div class="cells" class:selected>
-  <span role="gridcell" aria-selected={selected} class="count num" title="Veces">×{formatNumber(group.count)}</span>
+  <span role="gridcell" aria-selected={selected} class="count num" title={t("logs.group.count")}>×{formatNumber(group.count)}</span>
   <span role="gridcell" aria-selected={selected} class="level"><LevelPill level={sample.level} /></span>
   <span role="gridcell" aria-selected={selected} class="project" title={projects}>{projects}</span>
   <span role="gridcell" aria-selected={selected} class="message">{text}</span>

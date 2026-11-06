@@ -9,6 +9,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
+use elephant_core::tr;
+
 const MARKETPLACE: &str = include_str!("../plugin/.claude-plugin/marketplace.json");
 const PLUGIN: &str = include_str!("../plugin/elephant/.claude-plugin/plugin.json");
 const WRAPPER: &str = include_str!("../plugin/elephant/bin/elephant");
@@ -50,10 +52,10 @@ pub const PROMPTS: [PromptSpec; 2] = [
 /// El texto de un prompt con sus argumentos. Un argumento obligatorio vacío
 /// es un error.
 pub fn render_prompt(name: &str, args: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
-    let spec = PROMPTS.iter().find(|p| p.name == name).ok_or_else(|| format!("No existe el prompt «{name}»."))?;
+    let spec = PROMPTS.iter().find(|p| p.name == name).ok_or_else(|| tr!("No existe el prompt «{name}».", "There’s no prompt “{name}”."))?;
     for (arg, _, required) in spec.arguments {
         if *required && args(arg).is_none_or(|v| v.trim().is_empty()) {
-            return Err(format!("Falta el argumento «{arg}»."));
+            return Err(tr!("Falta el argumento «{arg}».", "Missing argument “{arg}”."));
         }
     }
     let value = |arg: &str| args(arg).map(|v| one_token(&v)).unwrap_or_default();
@@ -140,16 +142,19 @@ pub fn files() -> Vec<(&'static str, String, bool)> {
 /// de una versión vieja. Se niega a sustituir una carpeta que no sea suya.
 pub fn write_plugin(dir: &Path) -> Result<Vec<PathBuf>, String> {
     if !dir.is_absolute() {
-        return Err(format!("La carpeta del plugin debe ser una ruta absoluta: {}", dir.display()));
+        let dir = dir.display();
+        return Err(tr!("La carpeta del plugin debe ser una ruta absoluta: {dir}", "The plugin folder must be an absolute path: {dir}"));
     }
     if dir.exists() && !dir.join(VERSION_FILE).is_file() {
         let empty = fs::read_dir(dir).map(|mut entries| entries.next().is_none()).unwrap_or(false);
         if !empty {
-            return Err(format!("{} ya existe y no es un plugin de Elephant Stack.", dir.display()));
+            let dir = dir.display();
+            return Err(tr!("{dir} ya existe y no es un plugin de Elephant Stack.", "{dir} already exists and isn’t an Elephant Stack plugin."));
         }
     }
-    let parent = dir.parent().ok_or("Carpeta del plugin no válida.")?;
-    let name = dir.file_name().ok_or("Carpeta del plugin no válida.")?.to_string_lossy().into_owned();
+    let invalid = || tr!("Carpeta del plugin no válida.", "Invalid plugin folder.");
+    let parent = dir.parent().ok_or_else(invalid)?;
+    let name = dir.file_name().ok_or_else(invalid)?.to_string_lossy().into_owned();
     fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     let staging = parent.join(format!(".{name}.new-{}", std::process::id()));
     let old = parent.join(format!(".{name}.old-{}", std::process::id()));
@@ -161,7 +166,10 @@ pub fn write_plugin(dir: &Path) -> Result<Vec<PathBuf>, String> {
         if let Some(folder) = target.parent() {
             fs::create_dir_all(folder).map_err(|error| error.to_string())?;
         }
-        fs::write(&target, content).map_err(|error| format!("No se pudo escribir {}: {error}", target.display()))?;
+        fs::write(&target, content).map_err(|error| {
+            let path = target.display();
+            tr!("No se pudo escribir {path}: {error}", "Couldn’t write {path}: {error}")
+        })?;
         if executable {
             fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).map_err(|error| error.to_string())?;
         }

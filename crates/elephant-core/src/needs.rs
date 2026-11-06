@@ -13,7 +13,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::brew::{self, Operation, Service};
-use crate::{lock, stamp};
+use crate::{lock, stamp, tr};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -81,18 +81,27 @@ fn read_needs(dir: &Path) -> Result<Needs, String> {
     Ok(needs_from_env(&parse_env(&read_env(dir)?)))
 }
 
+fn unreadable(path: &Path, error: &std::io::Error) -> String {
+    let path = path.display();
+    tr!("No se ha podido leer {path}: {error}", "Couldn’t read {path}: {error}")
+}
+
 fn read_env(dir: &Path) -> Result<String, String> {
     let path = dir.join(".env");
     let file = fs::File::open(&path).map_err(|error| match error.kind() {
-        ErrorKind::NotFound => format!("No hay .env en {}.", dir.display()),
-        _ => format!("No se ha podido leer {}: {error}", path.display()),
+        ErrorKind::NotFound => {
+            let dir = dir.display();
+            tr!("No hay .env en {dir}.", "No .env in {dir}.")
+        }
+        _ => unreadable(&path, &error),
     })?;
     let mut bytes = Vec::new();
     file.take(MAX_ENV_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|error| format!("No se ha podido leer {}: {error}", path.display()))?;
+        .map_err(|error| unreadable(&path, &error))?;
     if bytes.len() as u64 > MAX_ENV_BYTES {
-        return Err(format!("{} es demasiado grande para ser un .env.", path.display()));
+        let path = path.display();
+        return Err(tr!("{path} es demasiado grande para ser un .env.", "{path} is too big to be a .env file."));
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
@@ -249,9 +258,10 @@ fn needs_from_env(env: &HashMap<String, String>) -> Needs {
         if is_local(env, "DB_HOST") {
             need(service, format!("{service}: DB_CONNECTION={connection}"));
         } else {
-            reasons.push(format!(
-                "Sin {service}: la base de datos está en {} (DB_HOST).",
-                get(env, "DB_HOST")
+            let host = get(env, "DB_HOST");
+            reasons.push(tr!(
+                "Sin {service}: la base de datos está en {host} (DB_HOST).",
+                "No {service}: the database is at {host} (DB_HOST)."
             ));
         }
     }
@@ -266,22 +276,18 @@ fn needs_from_env(env: &HashMap<String, String>) -> Needs {
         if is_local(env, "REDIS_HOST") {
             need("redis", format!("redis: {}", drivers.join(", ")));
         } else {
-            reasons.push(format!(
-                "Sin redis: Redis está en {} (REDIS_HOST).",
-                get(env, "REDIS_HOST")
-            ));
+            let host = get(env, "REDIS_HOST");
+            reasons.push(tr!("Sin redis: Redis está en {host} (REDIS_HOST).", "No redis: Redis is at {host} (REDIS_HOST)."));
         }
     }
 
     let mailer_key = if env.contains_key("MAIL_MAILER") { "MAIL_MAILER" } else { "MAIL_DRIVER" };
     if get(env, mailer_key).eq_ignore_ascii_case("smtp") && get(env, "MAIL_PORT") == "1025" {
         if is_local(env, "MAIL_HOST") {
-            need("mailpit", format!("mailpit: {mailer_key}=smtp y MAIL_PORT=1025"));
+            need("mailpit", tr!("mailpit: {mailer_key}=smtp y MAIL_PORT=1025", "mailpit: {mailer_key}=smtp and MAIL_PORT=1025"));
         } else {
-            reasons.push(format!(
-                "Sin mailpit: el SMTP está en {} (MAIL_HOST).",
-                get(env, "MAIL_HOST")
-            ));
+            let host = get(env, "MAIL_HOST");
+            reasons.push(tr!("Sin mailpit: el SMTP está en {host} (MAIL_HOST).", "No mailpit: SMTP is at {host} (MAIL_HOST)."));
         }
     }
 
@@ -397,7 +403,10 @@ fn execute(plan: &StartPlan, start: &mut dyn FnMut(&str) -> Result<(), String>) 
         problems: plan
             .missing
             .iter()
-            .map(|need| format!("{} no está instalado", display_name(need)))
+            .map(|need| {
+                let name = display_name(need);
+                tr!("{name} no está instalado", "{name} isn’t installed")
+            })
             .collect(),
     };
     for name in &plan.start {
@@ -416,7 +425,8 @@ impl Outcome {
         }
         let mut message = format!("{}.", self.problems.join(". "));
         if !self.started.is_empty() {
-            message.push_str(&format!(" Se ha arrancado {}.", self.started.join(", ")));
+            let list = self.started.join(", ");
+            message.push_str(&tr!(" Se ha arrancado {list}.", " Started {list}."));
         }
         Err(message)
     }

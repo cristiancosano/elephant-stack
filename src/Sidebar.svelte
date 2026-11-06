@@ -8,7 +8,8 @@
   import type { Snapshot } from "./lib/bindings/Snapshot";
   import { phpBranch, runningPids, services, sites } from "./lib/stores/app.svelte";
   import { totalMemoryKb, usage } from "./lib/stores/usage.svelte";
-  import { formatMemory, formatNumber, plural } from "./lib/format";
+  import { formatMemory, formatNumber } from "./lib/format";
+  import { t } from "./lib/i18n/index.svelte";
 
   let {
     snapshot,
@@ -38,7 +39,11 @@
   // Lo que se anuncia: solo cuántos servicios hay en marcha. La memoria cambia
   // en cada sondeo de 5 s y, como región viva, VoiceOver la leería sin parar.
   const runningAnnouncement = $derived(
-    !snapshot ? "" : runningCount === 0 ? "Nada en marcha" : `${formatNumber(runningCount)} en marcha`,
+    !snapshot
+      ? ""
+      : runningCount === 0
+        ? t("shell.nav.nothingRunning")
+        : t("shell.nav.runningCount", { count: runningCount }),
   );
   const summary = $derived(
     runningCount > 0 && memoryKb > 0 ? `${runningAnnouncement} · ${formatMemory(memoryKb)}` : runningAnnouncement,
@@ -51,50 +56,59 @@
     const php = s ? phpBranch(s) : null;
     const unseen = s?.logs.unseen_errors ?? 0;
     return [
-      { view: "panel", href: "#/panel", label: "Panel", icon: "panel" },
+      { view: "panel", href: "#/panel", label: t("shell.nav.overview"), icon: "panel" },
       {
         view: "sitios",
         href: "#/sitios",
-        label: "Sitios",
+        label: t("shell.nav.sites"),
         icon: "sitios",
         count: siteCount > 0 ? formatNumber(siteCount) : undefined,
-        countLabel: plural(siteCount, "sitio"),
+        countLabel: t("shell.nav.sitesCount", { count: siteCount }),
       },
       {
         view: "servicios",
         href: "#/servicios",
-        label: "Servicios",
+        label: t("shell.nav.services"),
         icon: "servicios",
         count: installed > 0 ? `${runningCount}/${installed}` : undefined,
-        countLabel: `${runningCount} de ${plural(installed, "servicio")} en marcha`,
+        countLabel: t("shell.nav.servicesRunning", { running: runningCount, count: installed }),
       },
       {
         view: "php",
         href: "#/php",
-        label: "PHP",
+        label: t("shell.nav.php"),
         icon: "php",
         count: php ?? undefined,
-        countLabel: php ? `PHP ${php} por defecto` : undefined,
+        countLabel: php ? t("shell.nav.defaultPhp", { php }) : undefined,
       },
       {
         view: "logs",
         href: "#/logs",
-        label: "Logs",
+        label: t("shell.nav.logs"),
         icon: "logs",
         count: unseen > 0 ? formatNumber(unseen) : undefined,
-        countLabel: plural(unseen, "error sin ver", "errores sin ver"),
+        countLabel: t("shell.nav.unseenErrors", { count: unseen }),
         alert: unseen > 0,
       },
     ];
   });
 
-  const settings: Item = { view: "ajustes", href: "#/ajustes/general", label: "Ajustes", icon: "ajustes" };
+  const settings: Item = $derived({
+    view: "ajustes",
+    href: "#/ajustes/general",
+    label: t("shell.nav.settings"),
+    icon: "ajustes",
+  });
 
   const agents = $derived.by(() => {
     const mcp = snapshot?.mcp;
     if (!mcp?.linked) return null;
-    const mode = { read_only: "solo lectura", confirm: "activo", trusted: "sin confirmación" }[mcp.mode];
-    return `Agentes · ${mode}`;
+    const mode = {
+      read_only: t("shell.nav.agentMode.readOnly"),
+      confirm: t("shell.nav.agentMode.confirm"),
+      trusted: t("shell.nav.agentMode.trusted"),
+    }[mcp.mode];
+    return t("shell.nav.agents", { mode });
   });
 
   let nav: HTMLElement | undefined = $state();
@@ -126,7 +140,7 @@
 
 <aside class="sidebar">
   <div class="top" data-tauri-drag-region>
-    <IconButton icon="sidebar" label="Ocultar la barra lateral" onclick={ontoggle} />
+    <IconButton icon="sidebar" label={t("shell.sidebar.hide")} onclick={ontoggle} />
   </div>
 
   <header class="header" data-tauri-drag-region>
@@ -136,7 +150,7 @@
   </header>
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <nav aria-label="Secciones" bind:this={nav} {onkeydown}>
+  <nav aria-label={t("shell.nav.label")} bind:this={nav} {onkeydown}>
     <ul class="list">
       {#each main as it (it.view)}
         <li>{@render item(it)}</li>

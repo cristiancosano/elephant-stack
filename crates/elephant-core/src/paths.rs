@@ -8,7 +8,7 @@ pub fn home() -> Result<PathBuf, String> {
     env::var_os("HOME")
         .filter(|home| !home.is_empty())
         .map(PathBuf::from)
-        .ok_or_else(|| "HOME no está definido.".to_string())
+        .ok_or_else(|| crate::tr!("HOME no está definido.", "HOME isn’t set."))
 }
 
 /// `~/.elephant-stack`: ajustes, versiones de PHP, tareas, cerrojos y logs.

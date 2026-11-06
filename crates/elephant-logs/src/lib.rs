@@ -1,7 +1,7 @@
 //! Motor de logs de Elephant Stack (02): descubre los proyectos, lee sus logs
 //! de Laravel, nginx y PHP-FPM, y los sirve a la app y al canal de agentes.
 //!
-//! No depende de `elephant-core` ni de tokio. Solo escribe en
+//! No depende de `elephant-core` ni de tokio; los textos usan `elephant-i18n`. Solo escribe en
 //! `~/.elephant-stack/projects.json`, salvo [`clear`]. No oculta secretos: lo
 //! que va a un agente pasa por `elephant_core::redact` (C6).
 //!
@@ -32,7 +32,8 @@ mod tail;
 mod util;
 
 /// Mensaje común de lo que todavía no está disponible. Ya no lo devuelve
-/// ninguna función de la crate; se conserva porque es parte del contrato.
+/// ninguna función de la crate; se conserva porque es parte del contrato. Es un
+/// centinela que se compara (también en la interfaz): no se traduce.
 pub const NOT_AVAILABLE: &str = "Todavía no disponible.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]

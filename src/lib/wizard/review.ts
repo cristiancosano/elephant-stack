@@ -4,7 +4,9 @@
 import type { Plan } from "../bindings/Plan";
 import type { Step } from "../bindings/Step";
 import type { StepGroup } from "../bindings/StepGroup";
-import { formatBytes, plural } from "../format";
+import { formatBytes } from "../format";
+import "../i18n/locales/wizard";
+import { t } from "../i18n/index.svelte";
 import { runnableSteps } from "./run";
 import { idleRam } from "./scenario";
 
@@ -16,24 +18,28 @@ export interface ReviewSection {
   footer: string | null;
 }
 
-const TITLES: Record<ReviewSection["id"], string> = {
-  download: "Se descargará",
-  brew_install: "Se instalará con Homebrew",
-  configure: "Se configurará",
-  start: "Arrancará al iniciar sesión",
-};
+function sectionTitle(id: ReviewSection["id"]): string {
+  switch (id) {
+    case "download":
+      return t("wizard.review.kind.download");
+    case "brew_install":
+      return t("wizard.review.kind.brewInstall");
+    case "configure":
+      return t("wizard.review.kind.configure");
+    case "start":
+      return t("wizard.review.kind.start");
+  }
+}
 
 const ORDER: ReviewSection["id"][] = ["download", "brew_install", "configure", "start"];
-
-/** Aviso del plan que repite lo que ya dice el aviso «Añadirlo por mí» del PATH. */
-const PATH_NOTICE = "El selector php no está en el PATH";
 
 /**
  * Avisos que se enseñan en la revisión. Si se muestra el aviso del PATH con su
  * botón (`setup_shell_preview` con `needed`), el del plan sobra.
  */
 export function visibleNotices(plan: Plan, pathNoticeShown: boolean): string[] {
-  return pathNoticeShown ? plan.notices.filter((n) => !n.startsWith(PATH_NOTICE)) : plan.notices;
+  // El backend marca cuál es el aviso del PATH (`path_notice`): no se compara el texto.
+  return pathNoticeShown ? plan.notices.filter((n) => n !== plan.path_notice) : plan.notices;
 }
 
 /** Bytes que descarga un paso (solo las descargas de PHP traen tamaño). */
@@ -50,11 +56,11 @@ export function reviewSections(plan: Plan): ReviewSection[] {
     let footer: string | null = null;
     if (id === "download") {
       const bytes = plan.totals.download_bytes || steps.reduce((sum, s) => sum + stepBytes(s), 0);
-      if (bytes > 0) footer = `${formatBytes(bytes)} en total.`;
+      if (bytes > 0) footer = t("wizard.review.totalSize", { size: formatBytes(bytes) });
     } else if (id === "brew_install" && steps.some((s) => s.action.kind === "brew_install")) {
-      footer = "Homebrew puede actualizar librerías que estas fórmulas necesitan.";
+      footer = t("wizard.review.brewFooter");
     }
-    sections.push({ id, title: TITLES[id], steps, footer });
+    sections.push({ id, title: sectionTitle(id), steps, footer });
   }
   return sections;
 }
@@ -66,7 +72,7 @@ export function optionalSteps(plan: Plan): Step[] {
 
 /** Texto secundario de un opcional: lo que el título no dice. */
 export function optionalNote(step: Step): string | null {
-  return step.restarts_service ? "El servicio se reiniciará un momento." : null;
+  return step.restarts_service ? t("wizard.review.restarts") : null;
 }
 
 /** Plan vacío: el Mac ya está como pide el escenario. */
@@ -82,7 +88,7 @@ export function applyCount(plan: Plan, accepted: readonly string[]): number {
 /** Botón principal de la revisión: «Aplicar (N pasos)» o «Hecho» si no hay nada que hacer. */
 export function applyLabel(plan: Plan, accepted: readonly string[]): string {
   const n = applyCount(plan, accepted);
-  return n === 0 ? "Hecho" : `Aplicar (${plural(n, "paso")})`;
+  return n === 0 ? t("wizard.review.done") : t("wizard.review.apply", { count: n });
 }
 
 /** Solo las claves opcionales que existen en el plan: el backend ignora las demás. */
@@ -94,7 +100,8 @@ export function sanitizeAccepted(plan: Plan, accepted: readonly string[]): strin
 /** Resumen de la cabecera: «≈ 25 MB en reposo · 65 MB de descarga». */
 export function totalsLine(plan: Plan): string {
   const parts = [idleRam(plan.totals.idle_ram_mb)];
-  if (plan.totals.download_bytes > 0) parts.push(`${formatBytes(plan.totals.download_bytes)} de descarga`);
-  if (plan.totals.brew_formulas > 0) parts.push(plural(plan.totals.brew_formulas, "fórmula"));
+  if (plan.totals.download_bytes > 0)
+    parts.push(t("wizard.review.download", { size: formatBytes(plan.totals.download_bytes) }));
+  if (plan.totals.brew_formulas > 0) parts.push(t("wizard.review.formulas", { count: plan.totals.brew_formulas }));
   return parts.join(" · ");
 }

@@ -9,6 +9,9 @@ import type { LogEntry } from "../bindings/LogEntry";
 import { formatDuration } from "../format";
 import { hasContent, prettyJson } from "./json";
 import { levelLabel, sourceLabel } from "./model";
+import "../i18n/locales/logs";
+import { t } from "../i18n/index.svelte";
+
 
 /** Frames propios que se copian en Markdown (C14). */
 export const MARKDOWN_OWN_FRAMES = 8;
@@ -103,36 +106,37 @@ export function entryMarkdown(detail: EntryDetail, project: string): string {
   const parts: string[] = [];
   parts.push(`### ${levelLabel(e.level)} · ${project} · ${formatTimestamp(e.ts_ms)}`);
 
-  const meta: string[] = [`**Fuente:** ${sourceLabel(e.kind)}${e.channel ? ` (canal \`${e.channel}\`)` : ""}`];
+  const channel = e.channel ? ` (${t("logs.markdown.channel")} \`${e.channel}\`)` : "";
+  const meta: string[] = [`**${t("logs.markdown.source")}:** ${sourceLabel(e.kind)}${channel}`];
   if (e.host) meta.push(`**Host:** ${e.host}`);
   const http = httpSummary(e);
-  if (http) meta.push(`**Petición:** \`${http}\``);
+  if (http) meta.push(`**${t("logs.markdown.request")}:** \`${http}\``);
   parts.push(meta.join("  \n"));
 
   parts.push(fence(e.message));
 
   if (e.exception) {
     const x = e.exception;
-    const where = x.file ? ` en \`${x.file}${x.line !== null ? `:${x.line}` : ""}\`` : "";
-    parts.push(`**Excepción:** \`${x.class}\`${where}  \n${x.message}`);
+    const where = x.file ? ` ${t("logs.markdown.at")} \`${x.file}${x.line !== null ? `:${x.line}` : ""}\`` : "";
+    parts.push(`**${t("logs.markdown.exception")}:** \`${x.class}\`${where}  \n${x.message}`);
   }
 
   if (detail.frames.length > 0) {
-    const t = trimFrames(detail.frames);
-    const lines = t.shown.map(frameLine);
-    if (t.omittedOwn > 0) lines.push(`+${t.omittedOwn} frames propios más`);
-    if (t.omittedVendor > 0) lines.push(`+${t.omittedVendor} frames de vendor`);
-    parts.push(`**Traza**\n\n${fence(lines.join("\n"))}`);
+    const trimmed = trimFrames(detail.frames);
+    const lines = trimmed.shown.map(frameLine);
+    if (trimmed.omittedOwn > 0) lines.push(t("logs.markdown.moreOwn", { count: trimmed.omittedOwn }));
+    if (trimmed.omittedVendor > 0) lines.push(t("logs.markdown.moreVendor", { count: trimmed.omittedVendor }));
+    parts.push(`**${t("logs.markdown.stackTrace")}**\n\n${fence(lines.join("\n"))}`);
   } else if (detail.body.trim() !== "" && detail.body.trim() !== e.message.trim()) {
     const body =
       detail.body.length > MARKDOWN_BODY_CHARS
-        ? `${detail.body.slice(0, MARKDOWN_BODY_CHARS)}\n… (recortado)`
+        ? `${detail.body.slice(0, MARKDOWN_BODY_CHARS)}\n${t("logs.markdown.truncated")}`
         : detail.body;
-    parts.push(`**Entrada completa**\n\n${fence(body)}`);
+    parts.push(`**${t("logs.markdown.raw")}**\n\n${fence(body)}`);
   }
 
   if (hasContent(detail.context)) {
-    parts.push(`**Contexto**\n\n${fence(prettyJson(detail.context).text, "json")}`);
+    parts.push(`**${t("logs.markdown.context")}**\n\n${fence(prettyJson(detail.context).text, "json")}`);
   }
 
   return `${parts.join("\n\n")}\n`;

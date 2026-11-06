@@ -29,6 +29,7 @@
     versionForProject,
   } from "../lib/stores/app.svelte";
   import { formatBytes } from "../lib/format";
+  import { t } from "../lib/i18n/index.svelte";
   import { mergePhpVersions } from "../lib/php-versions";
   import type { Catalog } from "../lib/bindings/Catalog";
   import type { PhpRelease } from "../lib/bindings/PhpRelease";
@@ -60,11 +61,11 @@
 
   async function useInProject(v: VersionInfo) {
     try {
-      const dir = await pickFolder(`Carpeta del proyecto que usará PHP ${v.id}`);
+      const dir = await pickFolder(t("php.useIn.pickFolder", { version: v.id }));
       if (!dir) return;
       await setProjectPhp(dir, v.key);
       const name = dir.split("/").filter(Boolean).pop() ?? dir;
-      toast(`${name} usará PHP ${v.id} (.php-version).`, { tone: "success" });
+      toast(t("php.useIn.done", { name, version: v.id }), { tone: "success" });
     } catch (e) {
       fail(e);
     }
@@ -75,7 +76,7 @@
     if (!v) return;
     try {
       await setProjectPhp(p.root, key);
-      toast(`${p.name} usará PHP ${v.id} (.php-version).`, { tone: "success" });
+      toast(t("php.useIn.done", { name: p.name, version: v.id }), { tone: "success" });
     } catch (e) {
       fail(e);
     }
@@ -86,7 +87,14 @@
     // Sin coincidencia, una opción que solo describe el estado actual y no hace nada.
     const current = matched
       ? []
-      : [{ value: "", label: p.php_version ? `${p.php_version} · no instalada` : "Por defecto" }];
+      : [
+          {
+            value: "",
+            label: p.php_version
+              ? t("php.projects.notInstalled", { version: p.php_version })
+              : t("php.projects.byDefault"),
+          },
+        ];
     return { value: matched?.key ?? "", options: [...current, ...options] };
   }
 
@@ -116,8 +124,8 @@
   const entries = $derived(mergePhpVersions(versions, releases));
   const footer = $derived(
     catalog?.offline
-      ? "Sin conexión: las versiones no instaladas son las de la última consulta."
-      : "La marcada es la versión por defecto, la que se usa fuera de cualquier proyecto con .php-version. Las no instaladas se descargan de php-builds.",
+      ? t("php.footer.offline")
+      : t("php.footer.default"),
   );
 
   async function download(version: string) {
@@ -128,7 +136,7 @@
       });
       const failed = report.failed[0];
       if (failed) toast(failed[1], { tone: "error" });
-      else toast(`PHP ${version} está listo.`, { tone: "success" });
+      else toast(t("php.install.done", { version }), { tone: "success" });
       void refresh().catch(() => {});
     } catch (e) {
       fail(e);
@@ -153,8 +161,8 @@
       const moved = replaced.projects.length;
       toast(
         moved > 0
-          ? `PHP ${old.id} actualizada a ${next.version}, también en ${moved === 1 ? "1 proyecto" : `${moved} proyectos`}.`
-          : `PHP ${old.id} actualizada a ${next.version}.`,
+          ? t("php.update.doneWithProjects", { old: old.id, next: next.version, count: moved })
+          : t("php.update.done", { old: old.id, next: next.version }),
         { tone: "success" },
       );
     } catch (e) {
@@ -168,7 +176,7 @@
 
 <div class="view">
   <header class="toolbar" data-tauri-drag-region>
-    <h1 data-tauri-drag-region>PHP</h1>
+    <h1 data-tauri-drag-region>{t("php.title")}</h1>
     {#if busy}<ProgressRing label={busy.label} />{/if}
   </header>
 
@@ -180,19 +188,19 @@
         {#if entries.length === 0 && !catalogLoading}
           <EmptyState
             icon="php"
-            title="No hay ninguna versión de PHP"
-            message="No hay versiones instaladas y no se ha podido consultar las disponibles."
-            action={{ label: "Reintentar", onclick: () => void loadCatalog() }}
+            title={t("php.empty.title")}
+            message={t("php.empty.message")}
+            action={{ label: t("common.retry"), onclick: () => void loadCatalog() }}
           />
         {:else}
-          <Group title="Versiones" footer={footer}>
+          <Group title={t("php.versions.title")} {footer}>
             {#each entries as e (e.key)}
               {#if e.kind === "installed"}
                 {@const v = e.version}
                 {@const active = v.key === activeKey}
                 <Row
                   title={v.id}
-                  subtitle={active ? `${v.source} · Por defecto` : v.source}
+                  subtitle={active ? t("php.installedDefault", { source: v.source }) : v.source}
                   selected={active}
                   onactivate={() => void makeDefault(v)}
                 >
@@ -200,37 +208,37 @@
                     <span class="mark" class:on={active}><Icon name="check" /></span>
                   {/snippet}
                   {#snippet trailing()}
-                    {#if active}<Badge tone="accent" label="Por defecto" />{/if}
+                    {#if active}<Badge tone="accent" label={t("php.badge.default")} />{/if}
                     {#if e.update}
                       {@const next = e.update}
                       {#if next.version in downloading}
                         <ProgressRing
                           value={downloading[next.version]}
-                          label={`Actualizando PHP ${v.id} a ${next.version}`}
+                          label={t("php.update.busy", { version: v.id, next: next.version })}
                         />
                       {:else}
                         <Button variant="primary" onclick={() => void update(v, next)}>
-                          Actualizar a {next.version}<span class="visually-hidden"> (PHP {v.id})</span>
+                          {t("php.update.action", { next: next.version })}<span class="visually-hidden"> (PHP {v.id})</span>
                         </Button>
                       {/if}
                     {/if}
                     <Button onclick={() => void useInProject(v)}>
-                      Usar en proyecto…<span class="visually-hidden"> (PHP {v.id})</span>
+                      {t("php.useIn.action")}<span class="visually-hidden"> (PHP {v.id})</span>
                     </Button>
                   {/snippet}
                 </Row>
               {:else}
                 {@const r = e.release}
-                <Row title={r.version} subtitle={`No instalada · ${formatBytes(r.size)}`}>
+                <Row title={r.version} subtitle={t("php.remote.notInstalled", { size: formatBytes(r.size) })}>
                   {#snippet leading()}
                     <span class="mark"><Icon name="check" /></span>
                   {/snippet}
                   {#snippet trailing()}
                     {#if r.version in downloading}
-                      <ProgressRing value={downloading[r.version]} label={`Instalando PHP ${r.version}`} />
+                      <ProgressRing value={downloading[r.version]} label={t("php.install.busy", { version: r.version })} />
                     {:else}
                       <Button onclick={() => void download(r.version)}>
-                        Instalar<span class="visually-hidden"> PHP {r.version}</span>
+                        {t("php.install.action")}<span class="visually-hidden"> PHP {r.version}</span>
                       </Button>
                     {/if}
                   {/snippet}
@@ -242,11 +250,11 @@
                 <Skeleton lines={1} />
               {:else}
                 <Row
-                  title="No se pudo consultar las versiones disponibles"
-                  subtitle="Comprueba la conexión y vuelve a intentarlo en unos minutos."
+                  title={t("php.catalog.errorTitle")}
+                  subtitle={t("php.catalog.errorMessage")}
                 >
                   {#snippet trailing()}
-                    <Button onclick={() => void loadCatalog()}>Reintentar</Button>
+                    <Button onclick={() => void loadCatalog()}>{t("common.retry")}</Button>
                   {/snippet}
                 </Row>
               {/if}
@@ -255,7 +263,7 @@
         {/if}
 
         {#if projects.length > 0}
-          <Group title="Proyectos" footer="Elegir una versión escribe .php-version en la carpeta del proyecto.">
+          <Group title={t("php.projects.title")} footer={t("php.projects.footer")}>
             {#each projects as p (p.id)}
               {@const choice = projectChoice(p)}
               <Row title={p.name} subtitle={tildePath(p.root)}>
@@ -263,7 +271,7 @@
                   <Select
                     options={choice.options}
                     value={choice.value}
-                    label={`PHP de ${p.name}`}
+                    label={t("php.projects.selectLabel", { name: p.name })}
                     onchange={(key) => void setForProject(p, key)}
                   />
                 {/snippet}

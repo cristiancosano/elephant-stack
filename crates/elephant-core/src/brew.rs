@@ -7,6 +7,7 @@ use std::thread;
 use serde::{Deserialize, Serialize};
 
 use crate::lock::BrewLock;
+use crate::tr;
 use crate::paths;
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
@@ -82,7 +83,7 @@ fn brew_path() -> Result<PathBuf, String> {
         .map(Path::new)
         .find(|path| path.is_file())
         .map(Path::to_path_buf)
-        .ok_or_else(|| "No se ha encontrado Homebrew.".to_string())
+        .ok_or_else(|| tr!("No se ha encontrado Homebrew.", "Homebrew wasn’t found."))
 }
 
 /// Lecturas: no necesitan el cerrojo.
@@ -93,13 +94,14 @@ fn run_brew_read(args: &[&str]) -> Result<String, String> {
         .env("HOMEBREW_NO_AUTO_UPDATE", "1")
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("No se pudo ejecutar brew: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar brew: {error}", "Couldn’t run brew: {error}"))?;
 
     if output.status.success() {
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!("brew {} falló: {}", args.join(" "), stderr.trim()))
+    let (args, stderr) = (args.join(" "), stderr.trim());
+    Err(tr!("brew {args} falló: {stderr}", "brew {args} failed: {stderr}"))
 }
 
 /// Escrituras: exigen el cerrojo y entregan stdout y stderr línea a línea.
@@ -122,7 +124,7 @@ fn run_streaming(program: &Path, args: &[&str], on_line: &mut dyn FnMut(&str)) -
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("No se pudo ejecutar brew: {error}"))?;
+        .map_err(|error| tr!("No se pudo ejecutar brew: {error}", "Couldn’t run brew: {error}"))?;
 
     // `on_line` no es Send: los hilos leen y este hilo entrega las líneas.
     let (sender, receiver) = mpsc::channel::<(bool, String)>();
@@ -157,19 +159,20 @@ fn run_streaming(program: &Path, args: &[&str], on_line: &mut dyn FnMut(&str)) -
     }
     let status = child
         .wait()
-        .map_err(|error| format!("No se pudo esperar a brew: {error}"))?;
+        .map_err(|error| tr!("No se pudo esperar a brew: {error}", "Couldn’t wait for brew: {error}"))?;
+    let args = args.join(" ");
     if status.success() {
         Ok(())
     } else if last_error.is_empty() {
-        Err(format!("brew {} falló ({status}).", args.join(" ")))
+        Err(tr!("brew {args} falló ({status}).", "brew {args} failed ({status})."))
     } else {
-        Err(format!("brew {} falló: {last_error}", args.join(" ")))
+        Err(tr!("brew {args} falló: {last_error}", "brew {args} failed: {last_error}"))
     }
 }
 
 fn parse_services(json: &str) -> Result<Vec<Service>, String> {
     serde_json::from_str(json)
-        .map_err(|error| format!("Respuesta inesperada de brew services: {error}"))
+        .map_err(|error| tr!("Respuesta inesperada de brew services: {error}", "Unexpected response from brew services: {error}"))
 }
 
 pub fn list_services() -> Result<Vec<Service>, String> {
@@ -191,7 +194,7 @@ pub fn install_formula(
     on_line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
     if name.starts_with('-') || name.is_empty() {
-        return Err(format!("Nombre de fórmula no válido: {name}"));
+        return Err(tr!("Nombre de fórmula no válido: {name}", "Invalid formula name: {name}"));
     }
     run_brew_write(lock, &["install", name], on_line)
 }
@@ -203,7 +206,7 @@ pub fn apply(lock: &BrewLock, name: &str, operation: Operation) -> Result<Vec<Se
     let service = services
         .iter()
         .find(|service| service.name == name)
-        .ok_or_else(|| format!("Servicio desconocido: {name}"))?;
+        .ok_or_else(|| tr!("Servicio desconocido: {name}", "Unknown service: {name}"))?;
 
     for step in plan(operation, service) {
         let mut args = vec!["services"];

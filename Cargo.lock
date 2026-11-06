@@ -846,6 +846,7 @@ dependencies = [
 name = "elephant-core"
 version = "0.1.0"
 dependencies = [
+ "elephant-i18n",
  "elephant-php",
  "jiff",
  "schemars 1.2.3",
@@ -856,9 +857,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "elephant-i18n"
+version = "0.1.0"
+dependencies = [
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "ts-rs",
+]
+
+[[package]]
 name = "elephant-logs"
 version = "0.1.0"
 dependencies = [
+ "elephant-i18n",
  "elephant-php",
  "jiff",
  "memchr",

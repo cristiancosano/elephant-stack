@@ -1,6 +1,8 @@
 // Regla de seguir la cola (01 §7.5): como en Terminal, solo se sigue si estás abajo
 // del todo. Al subir se deja de seguir y se cuentan las entradas nuevas para la
 // píldora «N nuevas ↓». Volver abajo (con el scroll o con la píldora) lo reanuda.
+import "../i18n/locales/logs";
+import { t } from "../i18n/index.svelte";
 
 export interface FollowState {
   following: boolean;
@@ -30,6 +32,6 @@ export function jumpedToEnd(): FollowState {
 /** Texto de la píldora, o `null` si no hay que mostrarla. */
 export function unseenLabel(s: FollowState): string | null {
   if (s.following || s.unseen === 0) return null;
-  const n = s.unseen > 9999 ? "9999+" : new Intl.NumberFormat("es-ES").format(s.unseen);
-  return s.unseen === 1 ? "1 nueva" : `${n} nuevas`;
+  if (s.unseen > 9999) return t("logs.pillMax");
+  return t("logs.pill", { count: s.unseen });
 }

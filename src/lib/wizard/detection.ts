@@ -2,7 +2,8 @@
 // («Herd en marcha · 12 sitios .test», «PostgreSQL 18 en marcha»; 04 §4.11).
 
 import type { Detection } from "../bindings/Detection";
-import { plural } from "../format";
+import "../i18n/locales/wizard";
+import { fmt, t } from "../i18n/index.svelte";
 import { OWN_SOURCE, branchOf, serviceLabel } from "./customize";
 
 export type FindingTone = "ok" | "info" | "warning";
@@ -13,29 +14,24 @@ export interface Finding {
   tone: FindingTone;
 }
 
-function joinList(items: string[]): string {
-  if (items.length <= 1) return items.join("");
-  return `${items.slice(0, -1).join(", ")} y ${items[items.length - 1]}`;
-}
-
 export function findings(d: Detection): Finding[] {
   const out: Finding[] = [];
 
   if (!d.arch_arm64) {
-    out.push({ id: "arch", text: "Este Mac no es Apple Silicon: los PHP de Elephant no funcionarán", tone: "warning" });
+    out.push({ id: "arch", text: t("wizard.detect.notAppleSilicon"), tone: "warning" });
   }
 
   if (d.formulas.length > 0) {
-    out.push({ id: "brew", text: `Homebrew · ${plural(d.formulas.length, "fórmula")}`, tone: "ok" });
+    out.push({ id: "brew", text: t("wizard.detect.brew", { count: d.formulas.length }), tone: "ok" });
   } else {
-    out.push({ id: "brew", text: "Sin fórmulas de Homebrew", tone: "info" });
+    out.push({ id: "brew", text: t("wizard.detect.noBrew"), tone: "info" });
   }
 
   if (d.herd) {
-    const parts = [d.herd.running ? "Herd en marcha" : "Herd instalado"];
+    const parts = [d.herd.running ? t("wizard.detect.herdRunning") : t("wizard.detect.herdInstalled")];
     if (d.herd.sites !== null) {
       const tld = d.herd.tld ? ` .${d.herd.tld.replace(/^\./, "")}` : "";
-      parts.push(`${plural(d.herd.sites, "sitio")}${tld}`);
+      parts.push(t("wizard.detect.herdSites", { count: d.herd.sites, tld }));
     }
     out.push({ id: "herd", text: parts.join(" · "), tone: "ok" });
   }
@@ -50,30 +46,30 @@ export function findings(d: Detection): Finding[] {
     others.set(v.source, list);
   }
   const php: string[] = [];
-  if (own.length) php.push(`PHP ${joinList(own)} ${own.length === 1 ? "propio" : "propios"}`);
-  for (const [origin, branches] of others) php.push(`PHP ${joinList(branches)} de ${origin}`);
+  if (own.length) php.push(t("wizard.detect.phpOwn", { count: own.length, list: fmt.list(own) }));
+  for (const [origin, branches] of others) php.push(t("wizard.detect.php", { list: fmt.list(branches), origin }));
   out.push(
     php.length
       ? { id: "php", text: php.join(" · "), tone: "ok" }
-      : { id: "php", text: "Sin ninguna versión de PHP", tone: "info" },
+      : { id: "php", text: t("wizard.detect.noPhp"), tone: "info" },
   );
 
-  if (d.composer_phar) out.push({ id: "composer", text: "Composer propio", tone: "ok" });
+  if (d.composer_phar) out.push({ id: "composer", text: t("wizard.detect.composer"), tone: "ok" });
 
   for (const s of d.services) {
     if (!s.running) continue;
-    out.push({ id: `svc:${s.name}`, text: `${serviceLabel(s.name).name} en marcha`, tone: "ok" });
+    out.push({ id: `svc:${s.name}`, text: t("wizard.detect.running", { name: serviceLabel(s.name).name }), tone: "ok" });
   }
 
   if (d.path === "active") {
-    out.push({ id: "path", text: "Selector php en la terminal", tone: "ok" });
+    out.push({ id: "path", text: t("wizard.detect.shim"), tone: "ok" });
   } else if (d.path === "shadowed_by_herd") {
-    out.push({ id: "path", text: "El php de Herd va antes que el de Elephant en la terminal", tone: "info" });
+    out.push({ id: "path", text: t("wizard.detect.herdFirst"), tone: "info" });
   }
 
   for (const p of d.ports) {
     if (!p.busy || !p.owner_hint) continue;
-    out.push({ id: `port:${p.port}`, text: `El puerto ${p.port} lo usa ${p.owner_hint}`, tone: "info" });
+    out.push({ id: `port:${p.port}`, text: t("wizard.detect.port", { port: String(p.port), owner: p.owner_hint }), tone: "info" });
   }
 
   return out;
@@ -82,5 +78,5 @@ export function findings(d: Detection): Finding[] {
 /** Banda de la bienvenida cuando Herd está instalado. */
 export function herdBanner(d: Detection | null): string | null {
   if (!d?.herd) return null;
-  return "Herd está instalado. Elephant convive con él: no toca sus sitios, su PHP ni sus servicios.";
+  return t("wizard.detect.herd");
 }

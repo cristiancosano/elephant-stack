@@ -45,7 +45,10 @@ pub fn services_bulk(op: Operation) -> Result<Vec<Service>, String> {
 fn check_bulk(op: Operation) -> Result<(), String> {
     match op {
         Operation::Restart | Operation::TurnOff => Ok(()),
-        _ => Err("Solo se pueden reiniciar o detener todos los servicios a la vez.".to_string()),
+        _ => Err(crate::tr!(
+            "Solo se pueden reiniciar o detener todos los servicios a la vez.",
+            "Only restart or stop can be applied to all services at once."
+        )),
     }
 }
 

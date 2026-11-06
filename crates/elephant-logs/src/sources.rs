@@ -20,6 +20,8 @@ use jiff::tz::TimeZone;
 
 use crate::parse::{FileCtx, Format};
 use crate::projects::{self, Config};
+use elephant_i18n::tr;
+
 use crate::util::{glob_match, path_key};
 use crate::{LogSource, Project, ProjectOverride, SourceKind, SourceState, SourceStatus};
 
@@ -234,11 +236,15 @@ fn global(id: &str, kind: SourceKind, dir: &Path, pattern: &str) -> (LogSource, 
 
 fn unreadable(path: &Path) -> SourceState {
     SourceState::Unreadable {
-        message: format!(
-            "Sin permiso para leer {}. Si está en Documentos, Escritorio o Descargas, \
-             da acceso a Elephant Stack en Ajustes del Sistema ▸ Privacidad y seguridad.",
-            path.display()
-        ),
+        message: {
+            let path = path.display();
+            tr!(
+                "Sin permiso para leer {path}. Si está en Documentos, Escritorio o Descargas, \
+                 da acceso a Elephant Stack en Ajustes del Sistema ▸ Privacidad y seguridad.",
+                "No permission to read {path}. If it’s in Documents, Desktop or Downloads, \
+                 give Elephant Stack access in System Settings ▸ Privacy & Security."
+            )
+        },
     }
 }
 

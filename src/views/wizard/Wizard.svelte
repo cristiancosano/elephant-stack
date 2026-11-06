@@ -2,6 +2,7 @@
   // Asistente a ventana completa (01 §7.8, C9): banda con el degradado de marca,
   // indicador de puntos, la pantalla actual y la barra de botones abajo.
   // Textos del área diferida «wizard» (docs/i18n.md): viajan con esta vista.
+  import { t } from "../../lib/i18n/index.svelte";
   import "../../lib/i18n/locales/wizard";
   import { untrack } from "svelte";
   import { cubicOut } from "svelte/easing";
@@ -34,13 +35,7 @@
   const firstRun = $derived(snapshot?.setup_needed ?? true);
   const showCancel = $derived(!firstRun && s.screen !== "welcome" && s.screen !== "apply" && !wizard.running);
 
-  const SCREEN_NAMES = {
-    welcome: "Bienvenida",
-    scenario: "Escenario",
-    customize: "Personalizar",
-    review: "Revisar",
-    apply: "Aplicar",
-  } as const;
+  const screenName = (screen: typeof s.screen) => t(`wizard.screen.${screen}`);
 
   const reducedMotion =
     typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -75,7 +70,7 @@
   <div class="hero" aria-hidden="true"></div>
 
   <header class="top" data-tauri-drag-region>
-    <ol class="dots" aria-label="Paso {step + 1} de {path.length}: {SCREEN_NAMES[s.screen]}">
+    <ol class="dots" aria-label={t("wizard.progress", { step: step + 1, total: path.length, name: screenName(s.screen) })}>
       {#each path as screen, i (screen)}
         <li class="dot" class:current={i === step} class:done={i < step} aria-hidden="true"></li>
       {/each}
@@ -105,15 +100,15 @@
       <div class="left">
         {#if s.screen === "welcome"}
           <Button variant="plain" busy={wizard.busy === "skip"} onclick={() => void wizard.skip()}>
-            Ya tengo mi entorno: no cambiar nada
+            {t("wizard.keepAsIs")}
           </Button>
         {:else if showCancel}
-          <Button variant="plain" onclick={() => wizard.close()}>Cancelar</Button>
+          <Button variant="plain" onclick={() => wizard.close()}>{t("common.cancel")}</Button>
         {/if}
       </div>
       <div class="right">
         {#if canGoBack(s)}
-          <Button onclick={() => wizard.back()}>Atrás</Button>
+          <Button onclick={() => wizard.back()}>{t("wizard.back")}</Button>
         {/if}
         <Button variant="primary" disabled={!main.enabled} busy={wizard.busy === "profile"} onclick={runPrimary}>
           {main.label}

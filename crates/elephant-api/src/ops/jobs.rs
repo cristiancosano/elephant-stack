@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use elephant_core::jobs::{self, JobInfo, JobState};
+use elephant_core::{tr, tr_str};
 use serde::{Deserialize, Serialize};
 
 use crate::policy::read_result;
@@ -50,7 +51,7 @@ impl Op for JobStatus {
 
     fn validate(_cx: &Ctx, a: &mut JobArgs) -> Result<(), String> {
         if a.wait > 90 {
-            return Err("--wait admite como mucho 90 segundos.".into());
+            return Err(tr!("--wait admite como mucho 90 segundos.", "--wait accepts at most 90 seconds."));
         }
         // Un id mal formado es un error de uso (código 2), no un fallo.
         jobs::check_id(&a.job_id)
@@ -91,25 +92,22 @@ impl Op for JobStatus {
 
     fn text(o: &JobOut) -> String {
         let state = match o.job.state {
-            JobState::Queued => "en cola",
-            JobState::Running => "en marcha",
-            JobState::Succeeded => "terminada",
-            JobState::Failed => "fallida",
+            JobState::Queued => tr_str!("en cola", "queued"),
+            JobState::Running => tr_str!("en marcha", "running"),
+            JobState::Succeeded => tr_str!("terminada", "finished"),
+            JobState::Failed => tr_str!("fallida", "failed"),
         };
-        let mut lines = vec![format!(
-            "Tarea {} ({}): {state}{}",
-            o.job.id,
-            o.job.kind,
-            o.job.message.as_deref().map(|m| format!(" · {m}")).unwrap_or_default()
-        )];
+        let (id, kind) = (&o.job.id, &o.job.kind);
+        let message = o.job.message.as_deref().map(|m| format!(" · {m}")).unwrap_or_default();
+        let mut lines = vec![tr!("Tarea {id} ({kind}): {state}{message}", "Job {id} ({kind}): {state}{message}")];
         if let Some(text) = &o.result_text {
             lines.push(text.clone());
         } else if !o.log.is_empty() && o.job.state != JobState::Succeeded {
-            lines.push("Últimas líneas:".into());
+            lines.push(tr!("Últimas líneas:", "Last lines:"));
             lines.extend(o.log.iter().map(|l| format!("  {l}")));
         }
         if o.job.state.is_active() {
-            lines.push(format!("Sigue con `elephant job show {} --wait 60`.", o.job.id));
+            lines.push(tr!("Sigue con `elephant job show {id} --wait 60`.", "Follow it with `elephant job show {id} --wait 60`."));
         }
         lines.join("\n")
     }

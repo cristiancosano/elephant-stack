@@ -37,7 +37,8 @@
   } from "../lib/stores/app.svelte";
   import { totalMemoryKb, usage } from "../lib/stores/usage.svelte";
   import { go } from "../lib/router.svelte";
-  import { formatMemory, formatRelative, plural } from "../lib/format";
+  import { formatMemory, formatRelative } from "../lib/format";
+  import { t } from "../lib/i18n/index.svelte";
   import type { LogEntry } from "../lib/bindings/LogEntry";
   import type { Snapshot } from "../lib/bindings/Snapshot";
   import type { Route } from "../lib/route";
@@ -153,8 +154,8 @@
   });
 
   function projectName(id: string | null): string {
-    if (!id) return "Sistema";
-    return snapshot?.projects.find((p) => p.id === id)?.name ?? "Proyecto";
+    if (!id) return t("common.system");
+    return snapshot?.projects.find((p) => p.id === id)?.name ?? t("common.project");
   }
 
   function logsHref(entry: LogEntry): string {
@@ -166,8 +167,8 @@
 
 <div class="view">
   <header class="toolbar" data-tauri-drag-region>
-    <h1 data-tauri-drag-region>Panel</h1>
-    <IconButton icon="restart" label="Actualizar" onclick={() => void refresh().catch(fail)} />
+    <h1 data-tauri-drag-region>{t("panel.title")}</h1>
+    <IconButton icon="restart" label={t("common.refresh")} onclick={() => void refresh().catch(fail)} />
   </header>
 
   <div class="scroll">
@@ -175,7 +176,7 @@
       {#if !snapshot || !heroState}
         <div class="hero ok"><Skeleton lines={2} /></div>
       {:else}
-        <section class="hero {heroState.tone}" aria-label="Estado">
+        <section class="hero {heroState.tone}" aria-label={t("panel.hero.label")}>
           <div class="hero-text">
             <h2 class="hero-title" aria-live="polite">{heroState.title}</h2>
             <p class="hero-detail num">{heroState.detail}</p>
@@ -197,22 +198,22 @@
 
         <div class="grid">
           <section class="card" aria-labelledby="card-php">
-            <h2 class="card-title" id="card-php">PHP por defecto</h2>
+            <h2 class="card-title" id="card-php">{t("panel.php.title")}</h2>
             {#if phpChoices.length === 0}
-              <p class="muted">No hay ninguna versión instalada.</p>
-              <a class="link" href="#/php">Ir a PHP</a>
+              <p class="muted">{t("panel.php.empty")}</p>
+              <a class="link" href="#/php">{t("panel.php.goToPhp")}</a>
             {:else if phpChoices.length <= SEGMENTED_MAX}
               <SegmentedControl
                 options={phpChoices}
                 value={activeKey}
-                label="Versión de PHP por defecto"
+                label={t("panel.php.selectLabel")}
                 onchange={(key) => void setDefaultPhp(key)}
               />
             {:else}
               <Select
                 options={phpChoices}
                 value={activeKey}
-                label="Versión de PHP por defecto"
+                label={t("panel.php.selectLabel")}
                 onchange={(key) => void setDefaultPhp(key)}
               />
             {/if}
@@ -222,10 +223,10 @@
           </section>
 
           <section class="card" aria-labelledby="card-services">
-            <h2 class="card-title" id="card-services">Servicios</h2>
+            <h2 class="card-title" id="card-services">{t("panel.services.title")}</h2>
             {#if quick.length === 0}
-              <p class="muted">Ningún servicio está en marcha ni arranca al iniciar sesión.</p>
-              <a class="link" href="#/servicios">Ver servicios</a>
+              <p class="muted">{t("panel.services.empty")}</p>
+              <a class="link" href="#/servicios">{t("panel.services.viewAll")}</a>
             {:else}
               <ul class="lines">
                 {#each quick as c (c.id)}
@@ -236,7 +237,9 @@
                       <span class="line-text">{c.id}</span>
                       <Switch
                         checked={service.running}
-                        label={`${service.running ? "Detener" : "Arrancar"} ${c.id}`}
+                        label={service.running
+                          ? t("panel.services.toggleStop", { id: c.id })
+                          : t("panel.services.toggleStart", { id: c.id })}
                         disabled={locked}
                         onchange={(on) => void operate(c.id, on)}
                       />
@@ -248,13 +251,13 @@
           </section>
 
           <section class="card" aria-labelledby="card-errors">
-            <h2 class="card-title" id="card-errors">Errores recientes</h2>
+            <h2 class="card-title" id="card-errors">{t("panel.errors.title")}</h2>
             {#if !errorsAvailable}
-              <p class="muted">Los logs todavía no están disponibles.</p>
+              <p class="muted">{t("panel.errors.unavailable")}</p>
             {:else if errors.length === 0}
               <div class="calm">
                 <Icon name="check" />
-                <p class="muted">Sin errores en la última hora</p>
+                <p class="muted">{t("panel.errors.none")}</p>
               </div>
             {:else}
               <ul class="lines">
@@ -276,40 +279,42 @@
           <section class="card" aria-labelledby="card-mail">
             <h2 class="card-title" id="card-mail">Mailpit</h2>
             {#if !mailpit?.installed}
-              <p class="muted">Recoge el correo que envían tus proyectos, sin que salga de tu Mac.</p>
-              <a class="link" href="#/servicios">Instalar desde Servicios</a>
+              <p class="muted">{t("panel.mailpit.description")}</p>
+              <a class="link" href="#/servicios">{t("panel.mailpit.installFromServices")}</a>
             {:else if !mailpit.running}
-              <p class="muted">Está detenido.</p>
+              <p class="muted">{t("panel.mailpit.stopped")}</p>
               <div>
-                <Button disabled={locked} onclick={() => void operate("mailpit", true)}>Arrancar Mailpit</Button>
+                <Button disabled={locked} onclick={() => void operate("mailpit", true)}>{t("panel.mailpit.start")}</Button>
               </div>
             {:else}
               <p class="muted num">
-                {mailpit.messages === null ? "En marcha" : plural(mailpit.messages, "correo")}
+                {mailpit.messages === null
+                  ? t("panel.mailpit.running")
+                  : t("panel.mailpit.messages", { count: mailpit.messages })}
               </p>
               <div>
-                <Button onclick={() => void openUrl(mailpit.url).catch(fail)}>Abrir Mailpit</Button>
+                <Button onclick={() => void openUrl(mailpit.url).catch(fail)}>{t("panel.mailpit.open")}</Button>
               </div>
             {/if}
           </section>
         </div>
 
         {#if siteList.length > 0}
-          <Group title="Sitios">
+          <Group title={t("panel.sites.title")}>
             {#each siteList as p (p.id)}
               <Row title={p.hosts[0] ?? p.name} subtitle={p.name}>
                 {#snippet leading()}<Icon name="globe" />{/snippet}
                 {#snippet trailing()}
                   <IconButton
                     icon="open"
-                    label={`Abrir ${p.hosts[0]} en el navegador`}
+                    label={t("common.openInBrowser", { host: p.hosts[0] ?? p.name })}
                     onclick={() => void siteAction(p.id, "browser").catch(fail)}
                   />
                 {/snippet}
               </Row>
             {/each}
           </Group>
-          <a class="link more" href="#/sitios">Ver todos los sitios</a>
+          <a class="link more" href="#/sitios">{t("panel.sites.viewAll")}</a>
         {/if}
       {/if}
     </div>

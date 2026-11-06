@@ -27,12 +27,37 @@ pub mod validate;
 
 mod fsutil;
 
+pub use elephant_i18n::{tr, tr_str};
+
 #[cfg(test)]
 mod testutil;
 
 /// Mensaje común de las funciones que todavía no están implementadas. Quien
 /// llama lo trata como «función no disponible» y oculta lo que dependa de ella.
+/// Es un centinela que se compara (también en la interfaz): no se traduce.
 pub const NOT_AVAILABLE: &str = "Todavía no disponible.";
+
+/// Error de lo que solo se puede hacer con permisos de administrador (código
+/// de salida 5 de la CLI). Hoy no lo devuelve ninguna función de core; quien
+/// lo devuelva tiene que usar esta función, y quien lo clasifique,
+/// [`is_needs_admin`], que lo reconoce en cualquier idioma.
+pub fn needs_admin_error() -> String {
+    tr!(
+        "Esta acción necesita permisos de administrador: hazla desde Elephant Stack.",
+        "This needs administrator privileges: do it from Elephant Stack."
+    )
+}
+
+/// `true` si `message` viene de [`needs_admin_error`], en el idioma que sea
+/// (la CLI puede leer un error escrito por otro proceso con otro idioma).
+pub fn is_needs_admin(message: &str) -> bool {
+    i18n::Locale::ALL
+        .into_iter()
+        .any(|locale| message.contains(&i18n::with_locale(locale, needs_admin_error)))
+        || ["permisos de administrador", "administrator privileges"]
+            .iter()
+            .any(|marker| message.contains(marker))
+}
 
 /// Milisegundos desde 1970 en UTC.
 pub fn now_ms() -> i64 {

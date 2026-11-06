@@ -24,6 +24,8 @@ import {
 } from "../wizard/machine";
 import { inputFromSetupFile, preselectedDatabase, presetInput } from "../wizard/scenario";
 import { toast } from "../../ui/toasts.svelte";
+import "../i18n/locales/wizard";
+import { t } from "../i18n/index.svelte";
 
 /** Entradas por ruta: `#/asistente/escenario` (Cambiar de escenario) y `#/asistente/revisar`. */
 export type WizardEntry = "escenario" | "revisar" | null;
@@ -178,7 +180,7 @@ class WizardStore {
       const profile = await ipc.setupProfile(basedOn ? presetInput(basedOn, database) : null);
       if (seq === this.#session) this.dispatch({ type: "customize", profile, basedOn, database });
     } catch (e) {
-      if (seq === this.#session) toast(`No se ha podido preparar la personalización: ${ipc.errorMessage(e)}`, { tone: "error" });
+      if (seq === this.#session) toast(t("wizard.errors.customizeFailed", { error: ipc.errorMessage(e) }), { tone: "error" });
     } finally {
       if (seq === this.#session) this.busy = null;
     }
@@ -268,7 +270,7 @@ class WizardStore {
     try {
       await ipc.setupCancel();
     } catch (e) {
-      toast(`No se ha podido cancelar: ${ipc.errorMessage(e)}`, { tone: "error" });
+      toast(t("wizard.errors.cancelFailed", { error: ipc.errorMessage(e) }), { tone: "error" });
     }
   }
 
@@ -297,7 +299,7 @@ class WizardStore {
       await ipc.setupSkip();
       this.close();
     } catch (e) {
-      toast(`No se ha podido guardar: ${ipc.errorMessage(e)}`, { tone: "error" });
+      toast(t("wizard.errors.saveFailed", { error: ipc.errorMessage(e) }), { tone: "error" });
     } finally {
       this.busy = null;
     }
@@ -312,12 +314,15 @@ class WizardStore {
 
 export const wizard = new WizardStore();
 
+/** Lo que se puede copiar desde el asistente: cada uno tiene su aviso (concuerda en género). */
+export type CopyKind = "command" | "guide" | "snippet" | "block";
+
 /** Copia al portapapeles y lo confirma con un aviso. */
-export async function copyText(text: string, what: string): Promise<void> {
+export async function copyText(text: string, what: CopyKind): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    toast(`${what} copiado`, { tone: "success" });
+    toast(t(`wizard.copied.${what}`), { tone: "success" });
   } catch {
-    toast(`No se ha podido copiar ${what.toLowerCase()}`, { tone: "error" });
+    toast(t(`wizard.copyFailed.${what}`), { tone: "error" });
   }
 }

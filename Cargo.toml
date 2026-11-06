@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "shim",
+    "crates/elephant-i18n",
     "crates/elephant-core",
     "crates/elephant-logs",
     "crates/elephant-api",
@@ -25,6 +26,7 @@ schemars = "1"
 clap = { version = "=4.6.7", features = ["derive"] }
 ts-rs = { version = "=12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 elephant-php = { path = "shim" }
+elephant-i18n = { path = "crates/elephant-i18n" }
 elephant-core = { path = "crates/elephant-core" }
 elephant-logs = { path = "crates/elephant-logs" }
 elephant-api = { path = "crates/elephant-api" }

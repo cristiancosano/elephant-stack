@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use elephant_core::audit::{self, AuditEntry};
 use elephant_core::jobs::{self, JobInfo, JobState};
 use elephant_core::settings::{self, McpMode};
-use elephant_core::{now_ms, now_rfc3339, paths};
+use elephant_core::{now_ms, now_rfc3339, paths, tr, tr_str};
 use serde_json::Value;
 
 use crate::{ApiError, Caller, Confirmation, Confirmer, Ctx, ErrorCode, Kind, OpMeta, Output, Reply, fit};
@@ -30,7 +30,13 @@ use crate::{ApiError, Caller, Confirmation, Confirmer, Ctx, ErrorCode, Kind, OpM
 pub const JOB_WAIT: Duration = Duration::from_secs(45);
 const POLL: Duration = Duration::from_millis(500);
 
-pub const READ_ONLY_DENIED: &str = "Elephant Stack está en modo «Solo lectura»: los agentes no pueden cambiar nada. Se cambia en Ajustes > Agentes.";
+/// Lo que recibe el agente al pedir una mutación en modo «Solo lectura».
+pub fn read_only_denied() -> String {
+    tr!(
+        "Elephant Stack está en modo «Solo lectura»: los agentes no pueden cambiar nada. Se cambia en Ajustes > Agentes.",
+        "Elephant Stack is in read-only mode: agents can’t change anything. Change it in Settings > Agents."
+    )
+}
 
 /// Cómo terminó la espera de una tarea larga.
 #[derive(Debug, Clone, PartialEq)]
@@ -65,7 +71,7 @@ pub fn invoke_with(
     on_progress: &mut dyn FnMut(&str),
 ) -> Result<Reply, ApiError> {
     let started = Instant::now();
-    let op = crate::find(id).ok_or_else(|| ApiError::usage(format!("Operación desconocida: {id}")))?;
+    let op = crate::find(id).ok_or_else(|| ApiError::usage(tr!("Operación desconocida: {id}", "Unknown operation: {id}")))?;
     let cx = rt.ctx();
     let audited = op.kind == Kind::Mutate || op.id.starts_with("logs_");
     let record = |args: &Value, confirmed_by: Option<String>, result: &Result<Reply, ApiError>| {
@@ -125,12 +131,14 @@ pub fn invoke_with(
 /// Pasos 3 y 4. Devuelve quién lo autorizó, para la auditoría.
 fn decide(mode: McpMode, caller: &Caller, confirmer: &dyn Confirmer, action: &str) -> Result<String, ApiError> {
     match mode {
-        McpMode::ReadOnly => Err(ApiError::new(ErrorCode::Denied, READ_ONLY_DENIED)),
+        McpMode::ReadOnly => Err(ApiError::new(ErrorCode::Denied, read_only_denied())),
         McpMode::Trusted => Ok("trusted".to_string()),
         McpMode::Confirm if !caller.is_agent() => Ok("tty".to_string()),
         McpMode::Confirm => {
             // Última defensa: ninguna parte del texto puede partirlo en líneas.
-            let text = crate::text::for_dialog(&format!("{} quiere {action}. ¿Permitir?", caller.display_name()), 400);
+            let who = caller.display_name();
+            let question = tr!("{who} quiere {action}. ¿Permitir?", "{who} wants to {action}. Allow?");
+            let text = crate::text::for_dialog(&question, 400);
             match confirmer.confirm(caller, &text) {
                 Confirmation::Allowed { by } => Ok(by),
                 Confirmation::Denied { reason } => Err(ApiError::new(ErrorCode::Denied, reason)),
@@ -153,7 +161,10 @@ fn run_long(
         JobWait::Failed(message) => Err(ApiError { job_id: Some(id), ..ApiError::from_core(message) }),
         JobWait::Running => Err(ApiError {
             code: ErrorCode::Running,
-            message: format!("La tarea {id} sigue en marcha. Consulta cómo va con `elephant job show {id} --wait 60`."),
+            message: tr!(
+                "La tarea {id} sigue en marcha. Consulta cómo va con `elephant job show {id} --wait 60`.",
+                "Job {id} is still running. Check on it with `elephant job show {id} --wait 60`."
+            ),
             job_id: Some(id),
         }),
     }
@@ -209,7 +220,7 @@ impl Runtime for SystemRuntime {
             .create(true)
             .append(true)
             .open(jobs::log_path(&job.id)?)
-            .map_err(|error| format!("No se pudo abrir el log de la tarea: {error}"))?;
+            .map_err(|error| tr!("No se pudo abrir el log de la tarea: {error}", "Couldn’t open the job log: {error}"))?;
         let log_err = log.try_clone().map_err(|error| error.to_string())?;
         // Grupo propio: si el cliente mata la sesión, la tarea termina igual.
         let spawned = Command::new(exe)
@@ -223,7 +234,7 @@ impl Runtime for SystemRuntime {
         let mut child = match spawned {
             Ok(child) => child,
             Err(error) => {
-                let message = format!("No se pudo lanzar la tarea: {error}");
+                let message = tr!("No se pudo lanzar la tarea: {error}", "Couldn’t launch the job: {error}");
                 finish_job(job, Err(message.clone()));
                 return Err(message);
             }
@@ -266,11 +277,14 @@ pub(crate) fn wait_for_job(id: &str, max: Duration, on_progress: &mut dyn FnMut(
             Ok(job) if job.state == JobState::Succeeded => {
                 return match read_result(id) {
                     Some(output) => JobWait::Done(output),
-                    None => JobWait::Failed("La tarea terminó, pero no se encuentra su resultado.".into()),
+                    None => JobWait::Failed(tr!(
+                        "La tarea terminó, pero no se encuentra su resultado.",
+                        "The job finished, but its result can’t be found."
+                    )),
                 };
             }
             Ok(job) if job.state == JobState::Failed => {
-                return JobWait::Failed(job.message.unwrap_or_else(|| "La tarea ha fallado.".into()));
+                return JobWait::Failed(job.message.unwrap_or_else(|| tr!("La tarea ha fallado.", "The job failed.")));
             }
             Ok(_) => {}
             Err(error) => return JobWait::Failed(error),
@@ -352,10 +366,11 @@ pub fn run_job(id: &str) -> Result<(), String> {
     let _alive = jobs::hold(id)?;
     let mut job = jobs::read(id)?;
     if job.state != JobState::Queued {
-        return Err(format!("La tarea {id} ya se ha ejecutado."));
+        return Err(tr!("La tarea {id} ya se ha ejecutado.", "Job {id} has already run."));
     }
     let Some(op) = crate::find(&job.kind).filter(|op| op.long) else {
-        let message = format!("Tarea desconocida: {}", job.kind);
+        let kind = &job.kind;
+        let message = tr!("Tarea desconocida: {kind}", "Unknown job: {kind}");
         finish_job(job, Err(message.clone()));
         return Err(message);
     };
@@ -384,16 +399,16 @@ pub fn run_job(id: &str) -> Result<(), String> {
     };
     let output = (op.prepare)(&cx, job.args.clone()).and_then(|prepared| (op.execute)(&cx, prepared.args, &mut on_line));
     let result = match output {
-        Ok(output) => write_result(id, &output).map(|()| output.text.lines().next().unwrap_or("Hecho.").to_string()),
+        Ok(output) => write_result(id, &output).map(|()| output.text.lines().next().unwrap_or(tr_str!("Hecho.", "Done.")).to_string()),
         Err(error) => Err(error.message),
     };
     let ok = result.is_ok();
     finish_job(job, result);
-    if ok { Ok(()) } else { Err(format!("La tarea {id} ha fallado.")) }
+    if ok { Ok(()) } else { Err(tr!("La tarea {id} ha fallado.", "Job {id} failed.")) }
 }
 
 fn write_result(id: &str, output: &Output) -> Result<(), String> {
-    let path = result_path(id).ok_or("Identificador de tarea no válido.")?;
+    let path = result_path(id).ok_or_else(|| tr!("Identificador de tarea no válido.", "Invalid job ID."))?;
     let value = serde_json::json!({"structured": output.structured, "text": output.text});
     write_atomic(&path, value.to_string().as_bytes())
 }
@@ -510,6 +525,21 @@ mod tests {
         let audit = rt.audit.borrow();
         assert!(!audit[0].ok && audit[0].confirmed_by.is_none());
         assert_eq!(audit[0].client.as_deref(), Some("claude-code 2.1.318"));
+    }
+
+    #[test]
+    fn the_dialog_and_the_denials_follow_the_language() {
+        use elephant_core::i18n::{Locale, with_locale};
+        with_locale(Locale::En, || {
+            let rt = Fake::new(McpMode::Confirm, agent());
+            let confirmer = Answer::new(false);
+            invoke_with(&rt, "service_control", restart_mysql(), &confirmer, &mut |_| {}).unwrap_err();
+            assert_eq!(*confirmer.asked.borrow(), ["Claude Code wants to restart mysql. Allow?"]);
+
+            let rt = Fake::new(McpMode::ReadOnly, agent());
+            let error = invoke_with(&rt, "service_control", restart_mysql(), &Answer::new(true), &mut |_| {}).unwrap_err();
+            assert!(error.message.starts_with("Elephant Stack is in read-only mode"), "{}", error.message);
+        });
     }
 
     #[test]

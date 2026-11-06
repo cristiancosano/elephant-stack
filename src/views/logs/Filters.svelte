@@ -5,15 +5,17 @@
   import type { ProjectSummary } from "../../lib/bindings/ProjectSummary";
   import {
     ALL_PROJECTS,
-    LEVEL_OPTIONS,
+    LEVEL_VALUES,
+    levelOptions,
     NO_PROJECT,
-    RANGE_OPTIONS,
-    SOURCE_OPTIONS,
+    rangeOptions,
+    sourceOptions,
     SYSTEM,
     type Filters,
     type LevelFilter,
   } from "../../lib/logs/filters";
   import { errorCount } from "../../lib/logs/model";
+  import { t } from "../../lib/i18n/index.svelte";
   import Icon from "../../ui/Icon.svelte";
   import SearchField from "../../ui/SearchField.svelte";
   import SegmentedControl from "../../ui/SegmentedControl.svelte";
@@ -32,14 +34,25 @@
   } = $props();
 
   const projectOptions = $derived.by(() => {
-    const options: { value: string; label: string; badge?: string }[] = [{ value: ALL_PROJECTS, label: "Todos los proyectos" }];
+    const options: { value: string; label: string; badge?: string }[] = [
+      { value: ALL_PROJECTS, label: t("logs.filters.allProjects") },
+    ];
     for (const s of projects) {
-      const errors = s.errors_24h > 0 ? `${errorCount(s.errors_24h, s.errors_capped)} ${s.errors_24h === 1 && !s.errors_capped ? "error" : "errores"}` : undefined;
+      const errors =
+        s.errors_24h > 0
+          ? t("logs.filters.errors", {
+              count: s.errors_24h,
+              n: errorCount(s.errors_24h, s.errors_capped),
+            })
+          : undefined;
       options.push({ value: s.project.id, label: s.project.name, badge: errors });
     }
-    options.push({ value: NO_PROJECT, label: "Sin proyecto" }, { value: SYSTEM, label: "Sistema" });
+    options.push(
+      { value: NO_PROJECT, label: t("logs.filters.noProject") },
+      { value: SYSTEM, label: t("logs.filters.system") },
+    );
     // Un enlace con un proyecto que ya no existe: se muestra para poder quitarlo.
-    if (!options.some((o) => o.value === filters.project)) options.push({ value: filters.project, label: "Proyecto desconocido" });
+    if (!options.some((o) => o.value === filters.project)) options.push({ value: filters.project, label: t("logs.filters.unknownProject") });
     return options;
   });
 
@@ -56,23 +69,23 @@
     const delta = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
     if (delta === 0) return;
     event.preventDefault();
-    const next = (index + delta + LEVEL_OPTIONS.length) % LEVEL_OPTIONS.length;
-    onchange({ level: LEVEL_OPTIONS[next].value });
+    const next = (index + delta + LEVEL_VALUES.length) % LEVEL_VALUES.length;
+    onchange({ level: LEVEL_VALUES[next] });
     chips[next]?.focus();
   }
 </script>
 
-<div class="filters" role="toolbar" aria-label="Filtros de logs">
+<div class="filters" role="toolbar" aria-label={t("logs.filters.label")}>
   <div class="search">
-    <SearchField value={filters.text} placeholder="Buscar en los logs" label="Buscar texto" {focusToken} oninput={(text) => onchange({ text })} />
+    <SearchField value={filters.text} placeholder={t("logs.filters.searchPlaceholder")} label={t("logs.filters.searchLabel")} {focusToken} oninput={(text) => onchange({ text })} />
   </div>
 
-  <Select options={projectOptions} value={filters.project} label="Proyecto" onchange={(project) => onchange({ project })} />
+  <Select options={projectOptions} value={filters.project} label={t("logs.filters.project")} onchange={(project) => onchange({ project })} />
 
-  <SegmentedControl options={[...SOURCE_OPTIONS]} value={filters.source} label="Fuente" onchange={(source) => onchange({ source })} />
+  <SegmentedControl options={sourceOptions()} value={filters.source} label={t("logs.filters.source")} onchange={(source) => onchange({ source })} />
 
-  <div class="levels" role="radiogroup" aria-label="Nivel mínimo">
-    {#each LEVEL_OPTIONS as option, i (option.value)}
+  <div class="levels" role="radiogroup" aria-label={t("logs.filters.minLevel")}>
+    {#each levelOptions() as option, i (option.value)}
       <button
         bind:this={chips[i]}
         type="button"
@@ -89,11 +102,11 @@
     {/each}
   </div>
 
-  <Select options={[...RANGE_OPTIONS]} value={filters.range} label="Periodo" onchange={(range) => onchange({ range })} />
+  <Select options={rangeOptions()} value={filters.range} label={t("logs.filters.range")} onchange={(range) => onchange({ range })} />
 
   {#if filters.status}
-    <button type="button" class="chip removable" aria-label="Quitar el filtro de estado {filters.status}" onclick={() => onchange({ status: null })}>
-      Estado {filters.status}
+    <button type="button" class="chip removable" aria-label={t("logs.filters.statusRemove", { status: filters.status })} onclick={() => onchange({ status: null })}>
+      {t("logs.filters.statusChip", { status: filters.status })}
       <Icon name="x" />
     </button>
   {/if}

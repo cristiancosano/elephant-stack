@@ -12,4 +12,9 @@ id: string, scenario: ScenarioId, steps: Array<Step>,
 /**
  * «Ya lo tienes».
  */
-satisfied: Array<string>, notices: Array<string>, conflicts: Array<Conflict>, totals: Totals, };
+satisfied: Array<string>, notices: Array<string>, 
+/**
+ * El aviso de `notices` que dice que el selector php no está en el PATH,
+ * si está. La interfaz lo oculta cuando enseña su propio aviso con botón.
+ */
+path_notice: string | null, conflicts: Array<Conflict>, totals: Totals, };

@@ -8,7 +8,7 @@
 
   import type { ProjectSummary } from "../../lib/bindings/ProjectSummary";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
-  import { plural } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import {
     errorMessage,
     logsAddRoot,
@@ -79,7 +79,7 @@
   }
 
   async function addRoot() {
-    const path = await pickFolder("Elige una carpeta con proyectos").catch(() => null);
+    const path = await pickFolder(t("logs.settings.roots.pick")).catch(() => null);
     if (!path) return;
     adding = true;
     try {
@@ -88,11 +88,11 @@
       await loadRoots();
       status = "ready";
       const found = summaries.filter((s) => !before.has(s.project.id)).length;
-      toast(found > 0 ? `Carpeta añadida: ${plural(found, "proyecto nuevo", "proyectos nuevos")}.` : "Carpeta añadida. No se han encontrado proyectos nuevos.", {
+      toast(found > 0 ? t("logs.settings.roots.added", { count: found }) : t("logs.settings.roots.addedNone"), {
         tone: "success",
       });
     } catch (e) {
-      showError(e, "Todavía no se pueden añadir carpetas.");
+      showError(e, t("logs.settings.roots.addUnavailable"));
     } finally {
       adding = false;
     }
@@ -103,9 +103,9 @@
     try {
       summaries = await logsRemoveRoot(folder.path);
       await loadRoots();
-      toast(`Se ha dejado de buscar proyectos en ${tildePath(folder.path, home)}.`, { tone: "success" });
+      toast(t("logs.settings.roots.removed", { path: tildePath(folder.path, home) }), { tone: "success" });
     } catch (e) {
-      showError(e, "Todavía no se pueden quitar carpetas.");
+      showError(e, t("logs.settings.roots.removeUnavailable"));
     } finally {
       busyRoot = null;
     }
@@ -135,19 +135,19 @@
     saving = true;
     try {
       summaries = await logsSetOverride(target.project.id, buildOverride(timezone, globsText));
-      toast(`Guardado para ${target.project.name}.`, { tone: "success" });
+      toast(t("logs.settings.saved", { name: target.project.name }), { tone: "success" });
       editing = null;
     } catch (e) {
-      showError(e, "Todavía no se pueden guardar ajustes de proyecto.");
+      showError(e, t("logs.settings.saveUnavailable"));
     } finally {
       saving = false;
     }
   }
 
   function sourceState(s: ProjectSummary["sources"][number]): string {
-    if (s.state.kind === "missing") return "no existe";
+    if (s.state.kind === "missing") return t("logs.settings.sourceMissing");
     if (s.state.kind === "unreadable") return s.state.message;
-    return plural(s.files.length, "archivo");
+    return t("logs.settings.files", { count: s.files.length });
   }
 </script>
 
@@ -155,44 +155,44 @@
   {#if status === "loading"}
     <Skeleton lines={6} />
   {:else if status === "unavailable"}
-    <EmptyState icon="logs" title="Los ajustes de logs todavía no están disponibles" message="Esta versión de Elephant Stack aún no lee los logs de tus proyectos." />
+    <EmptyState icon="logs" title={t("logs.settings.unavailable.title")} message={t("logs.settings.unavailable.message")} />
   {:else if status === "error"}
-    <EmptyState icon="warning" title="No se han podido leer los proyectos" message={loadError ?? undefined} action={{ label: "Reintentar", onclick: () => void load() }} />
+    <EmptyState icon="warning" title={t("logs.settings.loadError")} message={loadError ?? undefined} action={{ label: t("common.retry"), onclick: () => void load() }} />
   {:else}
     <Group
-      title="Carpetas de proyectos"
-      footer="Además de los sitios de Herd, Elephant busca proyectos en estas carpetas, hasta dos niveles por debajo. Solo lee: no cambia nada en ellas."
+      title={t("logs.settings.roots.title")}
+      footer={t("logs.settings.roots.footer")}
     >
       {#each roots as folder (folder.path)}
-        <Row title={tildePath(folder.path, home)} subtitle={folder.projects.length > 0 ? folder.projects.map((p) => p.name).join(", ") : "Sin proyectos"}>
+        <Row title={tildePath(folder.path, home)} subtitle={folder.projects.length > 0 ? folder.projects.map((p) => p.name).join(", ") : t("logs.settings.roots.noProjects")}>
           {#snippet trailing()}
-            <Button variant="plain" busy={busyRoot === folder.path} disabled={busyRoot !== null} onclick={() => void removeRoot(folder)}>Quitar</Button>
+            <Button variant="plain" busy={busyRoot === folder.path} disabled={busyRoot !== null} onclick={() => void removeRoot(folder)}>{t("logs.settings.roots.remove")}</Button>
           {/snippet}
         </Row>
       {:else}
-        <Row title="Ninguna carpeta" subtitle="Añade la carpeta donde guardas tus proyectos para ver sus logs." />
+        <Row title={t("logs.settings.roots.empty.title")} subtitle={t("logs.settings.roots.empty.message")} />
       {/each}
     </Group>
     <div class="add">
-      <Button busy={adding} onclick={() => void addRoot()}>Añadir carpeta…</Button>
+      <Button busy={adding} onclick={() => void addRoot()}>{t("logs.settings.roots.add")}</Button>
     </div>
 
-    <Group title="Proyectos" footer="La zona horaria solo afecta a los logs de Laravel, que se escriben sin zona. La hora se muestra siempre en la del Mac.">
+    <Group title={t("logs.settings.projects.title")} footer={t("logs.settings.projects.footer")}>
       {#each summaries as s (s.project.id)}
-        <Row title={s.project.name} subtitle="{originLabel(s.project.origin)} · zona {s.project.log_tz}">
+        <Row title={s.project.name} subtitle={t("logs.settings.projects.subtitle", { origin: originLabel(s.project.origin), tz: s.project.log_tz })}>
           {#snippet trailing()}
-            <Button variant="plain" onclick={() => go(`#/logs?project=${encodeURIComponent(s.project.id)}`)}>Ver logs</Button>
-            <Button onclick={() => edit(s)}>Ajustar…</Button>
+            <Button variant="plain" onclick={() => go(`#/logs?project=${encodeURIComponent(s.project.id)}`)}>{t("logs.settings.projects.viewLogs")}</Button>
+            <Button onclick={() => edit(s)}>{t("logs.settings.projects.adjust")}</Button>
           {/snippet}
         </Row>
       {:else}
-        <Row title="Todavía no hay proyectos" subtitle="Aparecerán los sitios de Herd y los de tus carpetas." />
+        <Row title={t("logs.settings.projects.empty.title")} subtitle={t("logs.settings.projects.empty.message")} />
       {/each}
     </Group>
   {/if}
 </div>
 
-<Sheet open={editing !== null} title="Logs de {editing?.project.name ?? ''}" onclose={() => (editing = null)}>
+<Sheet open={editing !== null} title={t("logs.settings.sheetTitle", { name: editing?.project.name ?? "" })} onclose={() => (editing = null)}>
   {#if editing}
     <form
       class="form"
@@ -202,12 +202,12 @@
       }}
     >
       <label class="field">
-        <span class="label">Zona horaria de los logs</span>
+        <span class="label">{t("logs.settings.tz.label")}</span>
         <input
           type="text"
           list="logs-timezones"
           bind:value={timezone}
-          placeholder="Automática (ahora {editing.project.log_tz})"
+          placeholder={t("logs.settings.tz.placeholder", { tz: editing.project.log_tz })}
           autocomplete="off"
           spellcheck="false"
           aria-invalid={tzError !== null}
@@ -219,16 +219,16 @@
           {/each}
         </datalist>
         <span class="hint" id="tz-hint">
-          {tzError ?? "Vacío: la de config/app.php o la de APP_TIMEZONE en .env; si no hay ninguna, UTC."}
+          {tzError ?? t("logs.settings.tz.help")}
         </span>
       </label>
 
       <label class="field">
-        <span class="label">Rutas de logs extra</span>
+        <span class="label">{t("logs.settings.paths.label")}</span>
         <textarea
           rows="3"
           bind:value={globsText}
-          placeholder="/ruta/absoluta/storage/worker/*.log"
+          placeholder={t("logs.settings.paths.placeholder")}
           spellcheck="false"
           aria-invalid={globErrors.length > 0}
           aria-describedby="globs-hint"
@@ -237,14 +237,14 @@
           {#if globErrors.length > 0}
             {globErrors[0]}
           {:else}
-            Una por línea, además de storage/logs/*.log. El * solo puede ir en el nombre del archivo.
+            {t("logs.settings.paths.help")}
           {/if}
         </span>
       </label>
 
       {#if editing.sources.length > 0}
         <div class="sources">
-          <span class="label">Se leen ahora</span>
+          <span class="label">{t("logs.settings.readingNow")}</span>
           <ul>
             {#each editing.sources as src (src.source.id)}
               <li class:bad={src.state.kind !== "ok"}>
@@ -259,8 +259,8 @@
 
 
       <div class="actions">
-        <Button onclick={() => (editing = null)}>Cancelar</Button>
-        <Button variant="primary" busy={saving} disabled={!valid} onclick={() => void save()}>Guardar</Button>
+        <Button onclick={() => (editing = null)}>{t("common.cancel")}</Button>
+        <Button variant="primary" busy={saving} disabled={!valid} onclick={() => void save()}>{t("common.save")}</Button>
       </div>
     </form>
   {/if}

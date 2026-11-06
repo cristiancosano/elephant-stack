@@ -10,6 +10,7 @@ use sha2::{Digest, Sha256};
 use super::PathState;
 use super::ShellPreview;
 use super::detect;
+use crate::tr;
 
 const START: &str = "# >>> elephant-stack >>>";
 const END: &str = "# <<< elephant-stack <<<";
@@ -155,7 +156,10 @@ fn read(path: &Path) -> Result<String, String> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(text),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
-        Err(error) => Err(format!("No se pudo leer {}: {error}", path.display())),
+        Err(error) => {
+            let path = path.display();
+            Err(tr!("No se pudo leer {path}: {error}", "Couldn’t read {path}: {error}"))
+        }
     }
 }
 
@@ -170,7 +174,10 @@ pub fn apply(home: &Path, hash_seen: &str) -> Result<(), String> {
         return Ok(());
     };
     if hash(&current, &next) != hash_seen {
-        return Err("~/.zshrc ha cambiado desde que viste el cambio. Vuelve a revisarlo.".into());
+        return Err(tr!(
+            "~/.zshrc ha cambiado desde que viste el cambio. Vuelve a revisarlo.",
+            "~/.zshrc changed since you saw the change. Review it again."
+        ));
     }
 
     let target = fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
@@ -180,21 +187,19 @@ pub fn apply(home: &Path, hash_seen: &str) -> Result<(), String> {
     if target.exists() {
         let backup = backup_path(home);
         fs::copy(&target, &backup).map_err(|error| {
-            format!(
-                "No se pudo copiar {} a {}: {error}",
-                target.display(),
-                backup.display()
-            )
+            let (from, to) = (target.display(), backup.display());
+            tr!("No se pudo copiar {from} a {to}: {error}", "Couldn’t copy {from} to {to}: {error}")
         })?;
     }
-    let dir = target.parent().ok_or("Ruta de ~/.zshrc no válida.")?;
+    let dir = target.parent().ok_or_else(|| tr!("Ruta de ~/.zshrc no válida.", "Invalid ~/.zshrc path."))?;
     let tmp = dir.join(format!(".zshrc.elephant-{}.tmp", std::process::id()));
     let result = fs::write(&tmp, &next)
         .and_then(|()| fs::set_permissions(&tmp, fs::Permissions::from_mode(mode)))
         .and_then(|()| fs::rename(&tmp, &target));
     if let Err(error) = result {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("No se pudo guardar {}: {error}", target.display()));
+        let target = target.display();
+        return Err(tr!("No se pudo guardar {target}: {error}", "Couldn’t save {target}: {error}"));
     }
     Ok(())
 }

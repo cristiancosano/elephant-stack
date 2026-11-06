@@ -16,6 +16,7 @@
   import type { Settings } from "../../lib/bindings/Settings";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
   import { formatRelative } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import { copyText } from "../../lib/logs/clipboard";
   import Badge from "../../ui/Badge.svelte";
   import Button from "../../ui/Button.svelte";
@@ -30,38 +31,48 @@
 
   let { snapshot }: { snapshot: Snapshot | null } = $props();
 
-  const MODES: { value: McpMode; label: string }[] = [
-    { value: "read_only", label: "Solo lectura" },
-    { value: "confirm", label: "Confirmar" },
-    { value: "trusted", label: "De confianza" },
-  ];
+  const modes = $derived<{ value: McpMode; label: string }[]>([
+    { value: "read_only", label: t("agents.mode.readOnly") },
+    { value: "confirm", label: t("agents.mode.confirm") },
+    { value: "trusted", label: t("agents.mode.trusted") },
+  ]);
 
-  const MODE_HELP: Record<McpMode, string> = {
-    read_only: "Los agentes pueden leer el estado y los logs, pero no cambiar nada.",
-    confirm:
-      "Cada cambio que pide un agente (reiniciar un servicio, cambiar el PHP, crear un proyecto) muestra un diálogo de Elephant Stack. Los scripts y git hooks cuentan como agentes. Lo que se escribe en una terminal cuenta como tuyo y no pregunta: un agente que ejecuta órdenes en su propia terminal sin anunciarse (sin CLAUDECODE ni AI_AGENT) también pasaría por ti. Para esos agentes, conéctalos por MCP, que siempre pregunta, o usa Solo lectura.",
-    trusted: "Los agentes cambian el entorno sin preguntar. Úsalo solo si confías en lo que ejecutan.",
-  };
+  function modeHelp(m: McpMode): string {
+    if (m === "read_only") return t("agents.mode.help.readOnly");
+    if (m === "trusted") return t("agents.mode.help.trusted");
+    return t("agents.mode.help.confirm");
+  }
 
   const ALLOW_SNIPPET = `"permissions": {\n  "allow": ["Bash(elephant *)"]\n}`;
   const ASK_SNIPPET = `"permissions": {\n  "allow": ["Bash(elephant *)"],\n  "ask": ["Bash(elephant service *)", "Bash(elephant project create *)"]\n}`;
 
-  const TOOL_NAMES: Record<string, string> = {
-    initialize: "Conexión MCP",
-    elephant_status: "Estado",
-    service_control: "Servicio",
-    php_set_global: "PHP global",
-    php_set_project: "PHP del proyecto",
-    component_install: "Instalar componente",
-    project_start_services: "Arrancar servicios del proyecto",
-    project_create: "Crear proyecto",
-    logs_tail: "Leer logs",
-    logs_search: "Buscar en logs",
-    logs_errors_summary: "Resumen de errores",
-    logs_entry: "Entrada de log",
-    logs_sources: "Fuentes de logs",
-    logs_watch: "Vigilar logs",
-  };
+  const TOOL_KEYS = {
+    initialize: "agents.audit.tool.initialize",
+    elephant_status: "agents.audit.tool.elephantStatus",
+    service_control: "agents.audit.tool.serviceControl",
+    php_set_global: "agents.audit.tool.phpSetGlobal",
+    php_set_project: "agents.audit.tool.phpSetProject",
+    component_install: "agents.audit.tool.componentInstall",
+    project_start_services: "agents.audit.tool.projectStartServices",
+    project_create: "agents.audit.tool.projectCreate",
+    logs_tail: "agents.audit.tool.logsTail",
+    logs_search: "agents.audit.tool.logsSearch",
+    logs_errors_summary: "agents.audit.tool.logsErrorsSummary",
+    logs_entry: "agents.audit.tool.logsEntry",
+    logs_sources: "agents.audit.tool.logsSources",
+    logs_watch: "agents.audit.tool.logsWatch",
+  } as const;
+
+  function toolName(tool: string): string {
+    const key = TOOL_KEYS[tool as keyof typeof TOOL_KEYS];
+    return key ? t(key) : tool;
+  }
+
+  /** La denegación la escribe el proceso que la decide, en su idioma: se reconoce en los dos. */
+  function isDenied(error: string | null): boolean {
+    const text = (error ?? "").toLowerCase();
+    return ["deneg", "denied", "solo lectura", "read-only"].some((word) => text.includes(word));
+  }
 
   let status = $state.raw<McpStatus | null>(null);
   let statusError: string | null = $state(null);
@@ -117,7 +128,7 @@
     try {
       await ipc.setSettings({ ...settings, mcp: { ...settings.mcp, mode: next } });
     } catch (e) {
-      toast(`No se pudo cambiar el modo: ${ipc.errorMessage(e)}`, { tone: "error" });
+      toast(t("agents.mode.changeFailed", { error: ipc.errorMessage(e) }), { tone: "error" });
     } finally {
       pendingMode = null;
     }
@@ -151,8 +162,8 @@
       connectOpen = false;
       toast(
         status.claude_registered
-          ? "Claude Code ya tiene el plugin de Elephant Stack. Funciona en las sesiones nuevas."
-          : "Se han ejecutado los comandos, pero Claude Code no muestra el plugin todavía.",
+          ? t("agents.plugin.connected")
+          : t("agents.plugin.notVisible"),
         { tone: status.claude_registered ? "success" : "info" },
       );
     } catch (e) {
@@ -175,30 +186,30 @@
     }
   }
 
-  async function copy(text: string, what: string) {
+  async function copy(text: string, done: string) {
     try {
       await copyText(text);
-      toast(`${what} copiado`, { tone: "success" });
+      toast(done, { tone: "success" });
     } catch (e) {
       toast(ipc.errorMessage(e), { tone: "error" });
     }
   }
 
   function modeLabel(m: McpMode): string {
-    return MODES.find((o) => o.value === m)?.label ?? m;
+    return modes.find((o) => o.value === m)?.label ?? m;
   }
 
   function clientLabel(client: string | null): string {
-    if (!client) return "Desconocido";
+    if (!client) return t("agents.audit.client.unknown");
     if (client.startsWith("claude-code")) return client.replace("claude-code", "Claude Code");
     if (client.startsWith("mcp:")) return client.slice(4);
-    if (client === "tty") return "Terminal";
-    if (client === "script") return "Script";
+    if (client === "tty") return t("agents.audit.client.terminal");
+    if (client === "script") return t("agents.audit.client.script");
     return client;
   }
 
   function entryTitle(e: AuditEntry): string {
-    const name = TOOL_NAMES[e.tool] ?? e.tool;
+    const name = toolName(e.tool);
     const args = (e.args ?? {}) as Record<string, unknown>;
     const detail = [args.operation, args.name, args.version, args.id, args.project]
       .filter((v): v is string => typeof v === "string" && v.length > 0)
@@ -210,142 +221,160 @@
     const when = Date.parse(e.at);
     const parts = [clientLabel(e.client)];
     if (!Number.isNaN(when)) parts.push(formatRelative(when));
-    if (e.confirmed_by === "dialog" || e.confirmed_by === "elicitation") parts.push("confirmado");
+    if (e.confirmed_by === "dialog" || e.confirmed_by === "elicitation") parts.push(t("agents.audit.confirmed"));
     if (e.error) parts.push(e.error);
     return parts.join(" · ");
   }
 </script>
 
 <Group
-  title="Modo"
-  footer={`${MODE_HELP[mode]} Las lecturas nunca piden confirmación. Ni los agentes ni la orden elephant pueden cambiar el modo.`}
+  title={t("agents.mode.title")}
+  footer={t("agents.mode.footer", { help: modeHelp(mode) })}
 >
-  <Row title="Qué pueden hacer los agentes">
+  <Row title={t("agents.mode.rowTitle")}>
     {#snippet leading()}<Icon name="lock" />{/snippet}
     {#snippet trailing()}
-      <SegmentedControl options={MODES} value={mode} label="Modo del canal de agentes" onchange={(v) => void changeMode(v)} />
+      <SegmentedControl options={modes} value={mode} label={t("agents.mode.label")} onchange={(v) => void changeMode(v)} />
     {/snippet}
   </Row>
 </Group>
 
 {#if statusError}
-  <Group title="Orden elephant">
-    <Row title="No se ha podido leer el estado" subtitle={statusError} />
+  <Group title={t("agents.link.title")}>
+    <Row title={t("agents.link.statusError")} subtitle={statusError} />
   </Group>
 {:else if !status}
   <Skeleton lines={4} />
 {:else}
   <Group
-    title="Orden elephant"
-    footer="Los agentes usan la orden elephant para leer logs, ver el estado y, con tu permiso, cambiar servicios o el PHP. No queda ningún proceso abierto: cada orden se ejecuta y termina."
+    title={t("agents.link.title")}
+    footer={t("agents.link.footer")}
   >
     <Row
-      title="Activar la orden elephant"
-      subtitle={status.linked ? `${status.link_path}${status.target ? ` → ${status.target}` : ""}` : "Desactivada"}
+      title={t("agents.link.switch")}
+      subtitle={status.linked ? `${status.link_path}${status.target ? ` → ${status.target}` : ""}` : t("agents.link.off")}
     >
       {#snippet leading()}<Icon name="terminal" />{/snippet}
       {#snippet trailing()}
-        <Switch checked={status?.linked ?? false} disabled={linking} label="Activar la orden elephant" onchange={(v) => void setLinked(v)} />
+        <Switch checked={status?.linked ?? false} disabled={linking} label={t("agents.link.switch")} onchange={(v) => void setLinked(v)} />
       {/snippet}
     </Row>
     <Row
-      title="Probar conexión"
+      title={t("agents.test.title")}
       subtitle={testError ??
         (test
-          ? `${test.tools} operaciones · modo ${modeLabel(test.mode).toLowerCase()} · ${test.latency_ms} ms`
+          ? t("agents.test.result", {
+              tools: test.tools,
+              mode: modeLabel(test.mode).toLowerCase(),
+              ms: test.latency_ms,
+            })
           : lastUsed
-            ? `Usado ${formatRelative(lastUsed)}`
-            : "Todavía no lo ha usado ningún agente")}
+            ? t("agents.test.lastUsed", { when: formatRelative(lastUsed) })
+            : t("agents.test.neverUsed"))}
     >
       {#snippet trailing()}
-        <Button busy={testing} onclick={() => void runTest()}>Probar</Button>
+        <Button busy={testing} onclick={() => void runTest()}>{t("agents.test.action")}</Button>
       {/snippet}
     </Row>
   </Group>
 
   <Group
-    title="Claude Code"
-    footer="El plugin trae una skill que enseña a Claude Code a usar elephant y no arranca ningún servidor. Durante la skill, las órdenes elephant no piden permiso en Claude Code; los cambios siguen pasando por el diálogo de Elephant Stack."
+    title={t("agents.claude.title")}
+    footer={t("agents.claude.footer")}
   >
     <Row
-      title="Plugin de Elephant Stack"
-      subtitle={status.claude_path ? status.claude_path : "No se encuentra la orden claude"}
+      title={t("agents.claude.plugin")}
+      subtitle={status.claude_path ? status.claude_path : t("agents.claude.notFound")}
     >
       {#snippet leading()}<Icon name="agent" />{/snippet}
       {#snippet trailing()}
         <span class="state">
           {#if status?.claude_registered}
-            <Badge tone="green" label="Conectado" />
+            <Badge tone="green" label={t("agents.claude.connected")} />
           {:else}
-            <Badge label="Sin conectar" />
+            <Badge label={t("agents.claude.notConnected")} />
           {/if}
           <Button
             variant={status?.claude_registered ? "secondary" : "primary"}
             disabled={!status?.claude_path}
             onclick={() => (connectOpen = true)}
           >
-            {status?.claude_registered ? "Volver a conectar…" : "Conectar…"}
+            {status?.claude_registered ? t("agents.claude.reconnect") : t("agents.claude.connect")}
           </Button>
         </span>
       {/snippet}
     </Row>
     <Row
-      title="Permisos fuera de la skill"
-      subtitle="Pégalo en ~/.claude/settings.json para que elephant no pida permiso cada vez."
+      title={t("agents.permissions.title")}
+      subtitle={t("agents.permissions.subtitle")}
     >
       {#snippet trailing()}
         <span class="state">
-          <Button variant="plain" onclick={() => void copy(ASK_SNIPPET, "Fragmento con más avisos")}>Con más avisos</Button>
-          <Button onclick={() => void copy(ALLOW_SNIPPET, "Fragmento de permisos")}>Copiar</Button>
+          <Button variant="plain" onclick={() => void copy(ASK_SNIPPET, t("agents.copied.askSnippet"))}
+            >{t("agents.permissions.moreAsks")}</Button
+          >
+          <Button onclick={() => void copy(ALLOW_SNIPPET, t("agents.copied.allowSnippet"))}>{t("common.copy")}</Button>
         </span>
       {/snippet}
     </Row>
   </Group>
 
   <Group
-    title="Otros agentes con terminal"
-    footer="Cursor, Codex o Gemini CLI pueden usar la misma orden elephant. Pega la guía en AGENTS.md o en las reglas del agente."
+    title={t("agents.guide.title")}
+    footer={t("agents.guide.footer")}
   >
-    <Row title="Guía de uso de elephant">
+    <Row title={t("agents.guide.row")}>
       {#snippet leading()}<Icon name="copy" />{/snippet}
       {#snippet trailing()}
-        <Button disabled={!snippets?.shell_guide} onclick={() => snippets && void copy(snippets.shell_guide, "Guía")}>Copiar guía</Button>
+        <Button disabled={!snippets?.shell_guide} onclick={() => snippets && void copy(snippets.shell_guide, t("agents.copied.guide"))}
+          >{t("agents.guide.copy")}</Button
+        >
       {/snippet}
     </Row>
   </Group>
 
   {#if hasMcp && snippets}
     <Group
-      title="Clientes MCP"
-      footer="Para los clientes que solo hablan MCP. Se arranca con elephant mcp cuando el cliente lo pide y aplica el mismo modo y las mismas confirmaciones."
+      title={t("agents.mcp.title")}
+      footer={t("agents.mcp.footer")}
     >
       <Row title="Claude Desktop" subtitle="claude_desktop_config.json">
-        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.claude_desktop, "Fragmento de Claude Desktop")}>Copiar</Button>{/snippet}
+        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.claude_desktop, t("agents.copied.claudeDesktop"))}
+            >{t("common.copy")}</Button
+          >{/snippet}
       </Row>
       <Row title="Cursor" subtitle="~/.cursor/mcp.json">
-        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.cursor, "Fragmento de Cursor")}>Copiar</Button>{/snippet}
+        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.cursor, t("agents.copied.cursor"))}
+            >{t("common.copy")}</Button
+          >{/snippet}
       </Row>
       <Row title="VS Code" subtitle=".vscode/mcp.json">
-        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.vscode, "Fragmento de VS Code")}>Copiar</Button>{/snippet}
+        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.vscode, t("agents.copied.vscode"))}
+            >{t("common.copy")}</Button
+          >{/snippet}
       </Row>
-      <Row title="Proyecto (.mcp.json)" subtitle="Sin rutas personales: se puede subir al repositorio">
-        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.project_json, "Fragmento .mcp.json")}>Copiar</Button>{/snippet}
+      <Row title={t("agents.mcp.project")} subtitle={t("agents.mcp.projectSubtitle")}>
+        {#snippet trailing()}<Button onclick={() => snippets && void copy(snippets.project_json, t("agents.copied.projectJson"))}
+            >{t("common.copy")}</Button
+          >{/snippet}
       </Row>
-      <Row title="Avanzado: Claude Code por MCP" subtitle="Duplica el plugin y abre un proceso en cada sesión: no hace falta si usas el plugin.">
-        {#snippet trailing()}<Button variant="plain" onclick={() => void copy(claudeMcpCommand, "Comando")}>Copiar comando</Button>{/snippet}
+      <Row title={t("agents.mcp.advanced")} subtitle={t("agents.mcp.advancedSubtitle")}>
+        {#snippet trailing()}<Button variant="plain" onclick={() => void copy(claudeMcpCommand, t("agents.copied.command"))}
+            >{t("agents.mcp.copyCommand")}</Button
+          >{/snippet}
       </Row>
     </Group>
   {/if}
 
-  <Group title="Actividad" footer="Se registran los cambios (también los denegados) y las lecturas de logs, sin su contenido.">
+  <Group title={t("agents.audit.title")} footer={t("agents.audit.footer")}>
     {#if activity.length === 0}
-      <Row title="Sin actividad todavía" />
+      <Row title={t("agents.audit.empty")} />
     {:else}
       {#each activity as entry, i (`${entry.at}-${i}`)}
         <Row title={entryTitle(entry)} subtitle={entrySubtitle(entry)}>
           {#snippet trailing()}
             {#if !entry.ok}
-              <Badge tone="red" label={entry.error?.includes("deneg") || entry.error?.includes("Solo lectura") ? "Denegado" : "Error"} />
+              <Badge tone="red" label={isDenied(entry.error) ? t("agents.audit.denied") : t("agents.audit.error")} />
             {/if}
           {/snippet}
         </Row>
@@ -354,24 +383,23 @@
   </Group>
 {/if}
 
-<Sheet open={connectOpen} title="Conectar Claude Code" onclose={() => (connectOpen = false)}>
-  <p class="text">Elephant Stack escribirá el plugin en su carpeta y ejecutará estos comandos de Claude Code:</p>
+<Sheet open={connectOpen} title={t("agents.connectSheet.title")} onclose={() => (connectOpen = false)}>
+  <p class="text">{t("agents.connectSheet.intro")}</p>
   <pre class="code">{snippets?.claude_command ?? "claude plugin marketplace add ~/.elephant-stack/share/claude-plugin\nclaude plugin install elephant@elephant-stack -s user"}</pre>
-  <p class="text">No se modifica ningún otro ajuste de Claude Code. El plugin funciona en las sesiones nuevas.</p>
+  <p class="text">{t("agents.connectSheet.note")}</p>
   <div class="actions">
-    <Button onclick={() => (connectOpen = false)} disabled={connecting}>Cancelar</Button>
-    <Button variant="primary" busy={connecting} onclick={() => void connect()}>Conectar</Button>
+    <Button onclick={() => (connectOpen = false)} disabled={connecting}>{t("common.cancel")}</Button>
+    <Button variant="primary" busy={connecting} onclick={() => void connect()}>{t("agents.connectSheet.confirm")}</Button>
   </div>
 </Sheet>
 
-<Sheet open={disableOpen} title="Desactivar la orden elephant" onclose={() => (disableOpen = false)}>
+<Sheet open={disableOpen} title={t("agents.disableSheet.title")} onclose={() => (disableOpen = false)}>
   <p class="text">
-    Se quitará la orden elephant y se desinstalará el plugin de Claude Code (claude plugin uninstall
-    elephant@elephant-stack). Los agentes dejarán de poder usar Elephant Stack.
+    {t("agents.disableSheet.text")}
   </p>
   <div class="actions">
-    <Button onclick={() => (disableOpen = false)} disabled={linking}>Cancelar</Button>
-    <Button variant="destructive" busy={linking} onclick={() => void runLink(false)}>Desactivar</Button>
+    <Button onclick={() => (disableOpen = false)} disabled={linking}>{t("common.cancel")}</Button>
+    <Button variant="destructive" busy={linking} onclick={() => void runLink(false)}>{t("agents.disableSheet.confirm")}</Button>
   </div>
 </Sheet>
 

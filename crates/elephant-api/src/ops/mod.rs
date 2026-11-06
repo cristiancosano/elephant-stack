@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use clap::{ArgMatches, Command, FromArgMatches};
 use serde::{Deserialize, Serialize};
+use elephant_core::tr;
 use serde_json::Value;
 
 use crate::{ApiError, Ctx, ErrorCode, Op, OpMeta, Output, Prepared};
@@ -72,7 +73,7 @@ fn from_matches_of<O: Op>(matches: &ArgMatches) -> Result<Value, clap::Error> {
 fn parse<O: Op>(value: Value) -> Result<O::Args, ApiError> {
     // MCP manda `{}` o nada cuando no hay argumentos.
     let value = if value.is_null() { Value::Object(Default::default()) } else { value };
-    serde_json::from_value(value).map_err(|error| ApiError::usage(format!("Argumentos no válidos: {error}")))
+    serde_json::from_value(value).map_err(|error| ApiError::usage(tr!("Argumentos no válidos: {error}", "Invalid arguments: {error}")))
 }
 
 fn prepare_of<O: Op>(cx: &Ctx, value: Value) -> Result<Prepared, ApiError> {
@@ -104,7 +105,8 @@ pub(crate) fn check_service_name(name: &str) -> Result<(), String> {
     if valid {
         Ok(())
     } else {
-        Err(format!("Nombre de servicio no válido: «{}».", crate::fit::truncate_chars(name, 64)))
+        let name = crate::fit::truncate_chars(name, 64);
+        Err(tr!("Nombre de servicio no válido: «{name}».", "Invalid service name: “{name}”."))
     }
 }
 
@@ -124,7 +126,11 @@ pub(crate) fn check_php_version(version: &str) -> Result<(), String> {
     if number_ok && source_ok {
         Ok(())
     } else {
-        Err(format!("Versión de PHP no válida: «{}». Usa, por ejemplo, 8.4 o 8.4.27.", crate::fit::truncate_chars(version, 32)))
+        let v = crate::fit::truncate_chars(version, 32);
+        Err(tr!(
+            "Versión de PHP no válida: «{v}». Usa, por ejemplo, 8.4 o 8.4.27.",
+            "Invalid PHP version: “{v}”. Use, for example, 8.4 or 8.4.27."
+        ))
     }
 }
 

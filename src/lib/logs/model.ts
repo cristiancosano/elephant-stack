@@ -6,8 +6,14 @@ import type { LogLevel } from "../bindings/LogLevel";
 import type { Project } from "../bindings/Project";
 import type { ProjectOrigin } from "../bindings/ProjectOrigin";
 import type { SourceKind } from "../bindings/SourceKind";
+// Textos del área diferida «logs»: este módulo la registra al cargarse.
+import "../i18n/locales/logs";
+import { t } from "../i18n/index.svelte";
 
-/** Mensaje de los stubs de Rust (00 §4.4): la función todavía no existe. */
+/**
+ * Mensaje de los stubs de Rust (00 §4.4): la función todavía no existe. Es un
+ * centinela que se compara con el error de Rust, no un texto: no se traduce.
+ */
 export const NOT_AVAILABLE = "Todavía no disponible.";
 
 export function isNotAvailable(message: string): boolean {
@@ -34,19 +40,8 @@ export function atLeast(level: LogLevel, min: LogLevel): boolean {
   return levelRank(level) >= levelRank(min);
 }
 
-const LEVEL_LABELS: Record<LogLevel, string> = {
-  debug: "Debug",
-  info: "Info",
-  notice: "Nota",
-  warning: "Aviso",
-  error: "Error",
-  critical: "Crítico",
-  alert: "Alerta",
-  emergency: "Emergencia",
-};
-
 export function levelLabel(level: LogLevel): string {
-  return LEVEL_LABELS[level];
+  return t(`logs.level.${level}`);
 }
 
 /**
@@ -68,15 +63,15 @@ export function sourceLabel(kind: SourceKind): string {
   return SOURCE_LABELS[kind];
 }
 
-const ORIGIN_LABELS: Record<ProjectOrigin, string> = {
-  elephant: "Elephant Stack",
-  herd_parked: "Herd",
-  herd_linked: "Herd (enlazado)",
-  user: "Tus carpetas",
-};
+const ORIGIN_KEYS = {
+  elephant: "logs.origin.elephant",
+  herd_parked: "logs.origin.herdParked",
+  herd_linked: "logs.origin.herdLinked",
+  user: "logs.origin.user",
+} as const satisfies Record<ProjectOrigin, string>;
 
 export function originLabel(origin: ProjectOrigin): string {
-  return ORIGIN_LABELS[origin];
+  return t(ORIGIN_KEYS[origin]);
 }
 
 /** Familia de color de un estado HTTP (tokens `--http-*`). */
@@ -90,8 +85,8 @@ export function httpClass(status: number): "2xx" | "3xx" | "4xx" | "5xx" {
 /** Columna «proyecto» de una fila: nombre, host sin sitio, «Sistema» o «Sin proyecto». */
 export function projectLabel(entry: LogEntry, names: ReadonlyMap<string, string>): string {
   if (entry.project) return names.get(entry.project) ?? entry.project;
-  if (entry.kind === "php_fpm") return "Sistema";
-  return entry.host ?? "Sin proyecto";
+  if (entry.kind === "php_fpm") return t("logs.project.system");
+  return entry.host ?? t("logs.project.none");
 }
 
 /** `Illuminate\\Database\\QueryException` → `QueryException`. */

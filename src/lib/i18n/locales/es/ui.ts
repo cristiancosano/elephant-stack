@@ -3,5 +3,8 @@
 import type { Tree } from "../../types";
 
 export default {
-  // La ola 2 lo rellena (docs/i18n.md).
+  toast: { close: "Cerrar aviso" },
+  search: { clear: "Borrar búsqueda" },
+  progress: { label: "En curso" },
+  inspector: { label: "Inspector", resize: "Ancho del inspector" },
 } as const satisfies Tree;

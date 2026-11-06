@@ -2,6 +2,7 @@
   // Revisión (04 §4.11 paso 3): el plan entero antes de ejecutar nada.
   import type { Step } from "../../lib/bindings/Step";
   import { formatBytes } from "../../lib/format";
+  import { t } from "../../lib/i18n/index.svelte";
   import { wizard } from "../../lib/stores/wizard.svelte";
   import { choiceLabel } from "../../lib/wizard/machine";
   import {
@@ -43,7 +44,7 @@
 
 <section class="review">
   <header class="head">
-    <h1 class="title">Revisa los cambios</h1>
+    <h1 class="title">{t("wizard.review.title")}</h1>
     <p class="lead">
       <span class="choice">{label}</span>
       {#if plan}<span class="num"> · {totalsLine(plan)}</span>{/if}
@@ -53,28 +54,28 @@
   {#if s.stale}
     <p class="banner" role="alert">
       <Icon name="warning" />
-      <span>Tu Mac ha cambiado desde la revisión anterior y no se ha aplicado nada. Este es el plan actualizado.</span>
+      <span>{t("wizard.review.replanned")}</span>
     </p>
   {/if}
 
   {#if wizard.planError}
     <EmptyState
       icon="warning"
-      title="No se ha podido calcular el plan"
+      title={t("wizard.review.errorTitle")}
       message={wizard.planError}
-      action={{ label: "Reintentar", onclick: () => wizard.retryPlan() }}
+      action={{ label: t("common.retry"), onclick: () => wizard.retryPlan() }}
     />
   {:else if !plan}
     <div class="loading" aria-busy="true">
-      <p class="visually-hidden">Calculando el plan…</p>
+      <p class="visually-hidden">{t("wizard.review.calculating")}</p>
       <Skeleton lines={6} />
     </div>
   {:else}
     {#if isEmptyPlan(plan)}
       <div class="empty">
         <span class="done" aria-hidden="true"><Icon name="check" size={20} /></span>
-        <p class="empty-title">Tu Mac ya está como pide <em>{label}</em></p>
-        <p class="empty-text">No hay nada que instalar ni que cambiar. Pulsa «Hecho» para terminar.</p>
+        <p class="empty-title">{t("wizard.review.upToDateBefore")} <em>{label}</em></p>
+        <p class="empty-text">{t("wizard.review.upToDateText")}</p>
       </div>
     {/if}
 
@@ -87,7 +88,7 @@
     {/each}
 
     {#if optionals.length}
-      <Group title="Cambios opcionales" footer="Vienen desmarcados: solo se hacen si los marcas.">
+      <Group title={t("wizard.review.optionalTitle")} footer={t("wizard.review.optionalFooter")}>
         {#each optionals as step (step.key)}
           <Row title={step.title} subtitle={subtitle(step, optionalNote(step))}>
             {#snippet trailing()}
@@ -106,7 +107,7 @@
 
     {#if plan.satisfied.length}
       <div class="muted">
-        <Group title="Ya lo tienes">
+        <Group title={t("wizard.review.satisfied")}>
           {#each plan.satisfied as item (item)}
             <Row title={item}>
               {#snippet leading()}<span class="satisfied"><Icon name="check" /></span>{/snippet}
@@ -117,7 +118,7 @@
     {/if}
 
     {#if plan.conflicts.length}
-      <Group title="No se hará">
+      <Group title={t("wizard.review.skipped")}>
         {#each plan.conflicts as c (c.key)}
           <Row title={c.reason}>
             {#snippet leading()}<span class="conflict"><Icon name="warning" /></span>{/snippet}
@@ -128,7 +129,7 @@
 
     {@const notices = visibleNotices(plan, wizard.shell !== null)}
     {#if notices.length}
-      <Group title="Avisos">
+      <Group title={t("wizard.review.notices")}>
         {#each notices as notice (notice)}
           <Row title={notice}>
             {#snippet leading()}<span class="notice"><Icon name="info" /></span>{/snippet}
@@ -142,7 +143,7 @@
     {#if hasCommands}
       <div class="commands">
         <Button variant="plain" onclick={() => (showCommands = !showCommands)}>
-          {showCommands ? "Ocultar comandos" : "Ver comandos"}
+          {showCommands ? t("wizard.review.hideCommands") : t("wizard.review.showCommands")}
         </Button>
       </div>
     {/if}

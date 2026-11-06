@@ -31,7 +31,7 @@ pub fn usage_for(pids: &[i64]) -> Result<Vec<Usage>, String> {
         // Con locale español, `ps` escribe la CPU con coma decimal.
         .env("LC_ALL", "C")
         .output()
-        .map_err(|error| format!("No se pudo ejecutar ps: {error}"))?;
+        .map_err(|error| crate::tr!("No se pudo ejecutar ps: {error}", "Couldn’t run ps: {error}"))?;
     if !output.status.success() {
         return Err("ps ha fallado.".to_string());
     }

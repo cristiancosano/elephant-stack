@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use elephant_core::brew::Operation;
-use elephant_core::{i18n, needs, ops};
+use elephant_core::{i18n, needs, ops, tr, tr_str};
 use elephant_core::settings::{self, Editor, Settings};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -26,11 +26,15 @@ const PHP: &str = "php";
 
 fn busy_label(op: Operation) -> &'static str {
     match op {
-        Operation::TurnOn | Operation::TurnOnWithAutostart => "Arrancando…",
-        Operation::TurnOff => "Deteniendo…",
-        Operation::Restart => "Reiniciando…",
-        Operation::EnableAutostart => "Activando el arranque al iniciar sesión…",
-        Operation::DisableAutostart => "Quitando el arranque al iniciar sesión…",
+        Operation::TurnOn | Operation::TurnOnWithAutostart => tr_str!("Arrancando…", "Starting…"),
+        Operation::TurnOff => tr_str!("Deteniendo…", "Stopping…"),
+        Operation::Restart => tr_str!("Reiniciando…", "Restarting…"),
+        Operation::EnableAutostart => {
+            tr_str!("Activando el arranque al iniciar sesión…", "Turning on start at login…")
+        }
+        Operation::DisableAutostart => {
+            tr_str!("Quitando el arranque al iniciar sesión…", "Turning off start at login…")
+        }
     }
 }
 
@@ -60,22 +64,26 @@ pub fn service_operation(app: &AppHandle, name: &str, op: Operation) -> Result<(
 
 pub fn services_bulk(app: &AppHandle, op: Operation) -> Result<(), String> {
     let label = match op {
-        Operation::TurnOff => "Deteniendo todos…",
-        _ => "Reiniciando todos…",
+        Operation::TurnOff => tr_str!("Deteniendo todos…", "Stopping all…"),
+        _ => tr_str!("Reiniciando todos…", "Restarting all…"),
     };
     tracked(app, ALL_SERVICES, label, || ops::services_bulk(op)).map(drop)
 }
 
 pub fn install_component(app: &AppHandle, id: &str, on_line: &mut dyn FnMut(&str)) -> Result<(), String> {
-    tracked(app, id, "Instalando…", || ops::install_component(id, on_line))
+    tracked(app, id, tr_str!("Instalando…", "Installing…"), || ops::install_component(id, on_line))
 }
 
 pub fn set_global_php(app: &AppHandle, key: &str) -> Result<(), String> {
-    tracked(app, PHP, "Cambiando la versión de PHP…", || ops::set_global_php(key)).map(drop)
+    tracked(app, PHP, php_busy(), || ops::set_global_php(key)).map(drop)
 }
 
 pub fn set_project_php(app: &AppHandle, dir: &Path, key: &str) -> Result<(), String> {
-    tracked(app, PHP, "Cambiando la versión de PHP…", || ops::set_project_php(dir, key))
+    tracked(app, PHP, php_busy(), || ops::set_project_php(dir, key))
+}
+
+fn php_busy() -> &'static str {
+    tr_str!("Cambiando la versión de PHP…", "Changing PHP version…")
 }
 
 /// Cambia `old` por `new` en la versión por defecto y en los proyectos que la
@@ -92,12 +100,19 @@ pub fn replace_php(
         .into_iter()
         .map(|project| project.root)
         .collect();
-    tracked(app, PHP, "Actualizando PHP…", || ops::replace_php(old, new, &roots))
+    tracked(app, PHP, tr_str!("Actualizando PHP…", "Updating PHP…"), || ops::replace_php(old, new, &roots))
 }
 
 /// Texto de `busy` mientras se arranca lo que necesita un proyecto (lo
 /// muestra también el submenú del sitio en el tray).
-pub const NEEDS_BUSY: &str = "Arrancando lo que necesita…";
+pub fn needs_busy() -> &'static str {
+    tr_str!("Arrancando lo que necesita…", "Starting what it needs…")
+}
+
+/// Error de una acción sobre un proyecto que ya no está en el estado.
+pub fn project_gone() -> String {
+    tr!("Ese proyecto ya no existe.", "That project no longer exists.")
+}
 
 /// «Arrancar lo que necesita» un proyecto (04 §4.10), desde el tray o desde
 /// la ventana. El objetivo de `busy` y del problema es el id del proyecto, o
@@ -110,7 +125,7 @@ pub fn start_project_services(app: &AppHandle, dir: &Path) -> Result<Vec<String>
         .into_iter()
         .find(|project| project.root == dir)
         .map_or_else(|| dir.display().to_string(), |project| project.id);
-    tracked(app, &target, NEEDS_BUSY, || needs::start_project_services(dir))
+    tracked(app, &target, needs_busy(), || needs::start_project_services(dir))
 }
 
 /// La interfaz no conoce `extra`: se conservan las claves guardadas que no
@@ -139,6 +154,14 @@ pub fn set_settings(app: &AppHandle, s: Settings) -> Result<Settings, String> {
     if relabel {
         app_menu::rebuild(app);
         tray::rebuild(app);
+        // Las descripciones de los componentes y los motivos de los proyectos
+        // salen de core en el idioma de cuando se leyeron: se vuelven a leer.
+        let handle = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            if let Err(error) = state::refresh(&handle) {
+                eprintln!("No se pudo refrescar el estado: {error}");
+            }
+        });
     }
     Ok(merged)
 }
@@ -180,13 +203,14 @@ pub fn site(app: &AppHandle, project_id: &str, action: SiteAction) -> Result<(),
         .projects
         .into_iter()
         .find(|project| project.id == project_id)
-        .ok_or_else(|| "Ese proyecto ya no existe.".to_string())?;
+        .ok_or_else(project_gone)?;
     let url = || {
+        let name = &project.name;
         project
             .hosts
             .first()
             .map(|host| format!("http://{host}"))
-            .ok_or_else(|| format!("{} no tiene dirección web.", project.name))
+            .ok_or_else(|| tr!("{name} no tiene dirección web.", "{name} has no web address."))
     };
     match action {
         SiteAction::Browser => open_url(&url()?),
@@ -198,7 +222,8 @@ pub fn site(app: &AppHandle, project_id: &str, action: SiteAction) -> Result<(),
 
 pub fn open_in_editor(app: &AppHandle, file: &Path, line: Option<u32>) -> Result<(), String> {
     if !file.is_absolute() {
-        return Err(format!("La ruta debe ser absoluta: {}", file.display()));
+        let path = file.display();
+        return Err(tr!("La ruta debe ser absoluta: {path}", "The path must be absolute: {path}"));
     }
     let editor = app.state::<AppState>().settings().editor;
     open(&[editor_url(editor, file, line).as_str()])
@@ -208,21 +233,23 @@ pub fn open_in_editor(app: &AppHandle, file: &Path, line: Option<u32>) -> Result
 pub fn open_url(url: &str) -> Result<(), String> {
     let lower = url.to_ascii_lowercase();
     if !(lower.starts_with("http://") || lower.starts_with("https://")) {
-        return Err(format!("Solo se pueden abrir direcciones web: {url}"));
+        return Err(tr!("Solo se pueden abrir direcciones web: {url}", "Only web addresses can be opened: {url}"));
     }
     open(&[url])
 }
 
 pub fn reveal_in_finder(path: &Path) -> Result<(), String> {
     if !path.exists() {
-        return Err(format!("No existe: {}", path.display()));
+        let path = path.display();
+        return Err(tr!("No existe: {path}", "Doesn’t exist: {path}"));
     }
     open(&[OsStr::new("-R"), path.as_os_str()])
 }
 
 pub fn open_terminal(dir: &Path) -> Result<(), String> {
     if !dir.is_dir() {
-        return Err(format!("No existe la carpeta {}", dir.display()));
+        let dir = dir.display();
+        return Err(tr!("No existe la carpeta {dir}", "The folder {dir} doesn’t exist"));
     }
     open(&[OsStr::new("-a"), OsStr::new("Terminal"), dir.as_os_str()])
 }
@@ -231,18 +258,20 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     let mut child = Command::new("/usr/bin/pbcopy")
         .stdin(Stdio::piped())
         .spawn()
-        .map_err(|error| format!("No se pudo copiar: {error}"))?;
+        .map_err(copy_failed)?;
     if let Some(mut stdin) = child.stdin.take() {
-        stdin
-            .write_all(text.as_bytes())
-            .map_err(|error| format!("No se pudo copiar: {error}"))?;
+        stdin.write_all(text.as_bytes()).map_err(copy_failed)?;
     }
-    let status = child.wait().map_err(|error| format!("No se pudo copiar: {error}"))?;
+    let status = child.wait().map_err(copy_failed)?;
     if status.success() {
         Ok(())
     } else {
-        Err("No se pudo copiar al portapapeles.".to_string())
+        Err(tr!("No se pudo copiar al portapapeles.", "Couldn’t copy to the clipboard."))
     }
+}
+
+fn copy_failed(error: std::io::Error) -> String {
+    tr!("No se pudo copiar: {error}", "Couldn’t copy: {error}")
 }
 
 /// El log de un servicio de Homebrew, si existe.
@@ -253,7 +282,7 @@ pub fn service_log_path(name: &str) -> Option<PathBuf> {
 }
 
 pub fn open_service_log(name: &str) -> Result<(), String> {
-    let path = service_log_path(name).ok_or_else(|| format!("{name} no tiene un archivo de log."))?;
+    let path = service_log_path(name).ok_or_else(|| tr!("{name} no tiene un archivo de log.", "{name} has no log file."))?;
     open(&[OsStr::new("-a"), OsStr::new("Console"), path.as_os_str()])
 }
 
@@ -278,14 +307,13 @@ fn open<S: AsRef<OsStr>>(args: &[S]) -> Result<(), String> {
         .args(args)
         .stdin(Stdio::null())
         .output()
-        .map_err(|error| format!("No se pudo abrir: {error}"))?;
+        .map_err(|error| tr!("No se pudo abrir: {error}", "Couldn’t open: {error}"))?;
     if output.status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "No se pudo abrir: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        ))
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let error = stderr.trim();
+        Err(tr!("No se pudo abrir: {error}", "Couldn’t open: {error}"))
     }
 }
 

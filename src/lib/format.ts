@@ -101,23 +101,6 @@ export function formatDuration(ms: number): string {
   return seconds ? `${minutes}${NBSP}min ${seconds}${NBSP}s` : `${minutes}${NBSP}min`;
 }
 
-/**
- * Solo español: `plural(1, "servicio")` → `1 servicio`; `plural(3, "servicio")` →
- * `3 servicios`. Si el plural no es regular (`versión` → `versiones`), se pasa
- * explícito. El código nuevo usa `t()` con un texto `{ one, other }`.
- */
-export function plural(n: number, singular: string, pluralForm?: string): string {
-  const word = n === 1 ? singular : (pluralForm ?? regularPlural(singular));
-  return `${formatNumber(n)} ${word}`;
-}
-
-function regularPlural(word: string): string {
-  if (/[aeiouáéó]$/i.test(word)) return `${word}s`;
-  if (/z$/i.test(word)) return `${word.slice(0, -1)}ces`;
-  if (/[sx]$/i.test(word)) return word;
-  return `${word}es`;
-}
-
 /** `["a", "b", "c"]` → `a, b y c` o `a, b, and c`. */
 export function formatList(items: readonly string[]): string {
   return new Intl.ListFormat(intlTag(), { style: "long", type: "conjunction" }).format(items);

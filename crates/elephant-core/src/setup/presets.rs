@@ -9,7 +9,7 @@ use super::{
     ScenarioId, ServiceWant,
 };
 use crate::brew::Service;
-use crate::components;
+use crate::{components, tr, tr_str};
 
 /// Origen de las versiones de PHP que instala Elephant (`elephant_php`).
 pub(crate) const OWN_SOURCE: &str = "Elephant Stack";
@@ -273,8 +273,9 @@ pub(crate) fn resolve(input: &ProfileInput, d: &Detection, c: &Catalog) -> Resul
 fn validate_custom(profile: &Profile, d: &Detection, c: &Catalog) -> Result<Profile, String> {
     for id in profile.services.keys() {
         if !components::is_installable_service(id) {
-            return Err(format!(
-                "{id} no es un servicio que Elephant sepa instalar."
+            return Err(tr!(
+                "{id} no es un servicio que Elephant sepa instalar.",
+                "{id} isn’t a service Elephant can install."
             ));
         }
     }
@@ -285,7 +286,7 @@ fn validate_custom(profile: &Profile, d: &Detection, c: &Catalog) -> Result<Prof
             let known = is_branch(branch)
                 && (available.contains(branch) || own.iter().any(|v| branch_of(v) == *branch));
             if !known {
-                return Err(format!("PHP {branch} no está en el catálogo de Elephant."));
+                return Err(tr!("PHP {branch} no está en el catálogo de Elephant.", "PHP {branch} isn’t in Elephant’s catalog."));
             }
         }
     }
@@ -296,8 +297,9 @@ fn validate_custom(profile: &Profile, d: &Detection, c: &Catalog) -> Result<Prof
             .any(|v| v.key == *version || v.id == *version);
         let downloadable = c.php.iter().any(|release| release.version == *version);
         if !detected && !downloadable {
-            return Err(format!(
-                "PHP {version} no está instalado ni en el catálogo."
+            return Err(tr!(
+                "PHP {version} no está instalado ni en el catálogo.",
+                "PHP {version} isn’t installed or in the catalog."
             ));
         }
     }
@@ -349,18 +351,24 @@ pub(crate) fn profile_from_system(d: &Detection) -> Profile {
 /// Lo que se enseña en la tarjeta: nombre, frase y lista corta.
 fn card_text(id: ScenarioId) -> (&'static str, &'static str) {
     match id {
-        ScenarioId::Laravel => ("Laravel", "Proyectos con SQLite. Nada en marcha."),
+        ScenarioId::Laravel => (
+            "Laravel",
+            tr_str!("Proyectos con SQLite. Nada en marcha.", "Projects with SQLite. Nothing running."),
+        ),
         ScenarioId::LaravelServices => (
-            "Laravel con servicios",
-            "MySQL o PostgreSQL, Redis y correo de pruebas.",
+            tr_str!("Laravel con servicios", "Laravel with services"),
+            tr_str!("MySQL o PostgreSQL, Redis y correo de pruebas.", "MySQL or PostgreSQL, Redis and test mail."),
         ),
         ScenarioId::Terminal => (
-            "Solo terminal",
-            "PHP y Composer en la terminal. Herd sigue sirviendo tus sitios.",
+            tr_str!("Solo terminal", "Terminal only"),
+            tr_str!(
+                "PHP y Composer en la terminal. Herd sigue sirviendo tus sitios.",
+                "PHP and Composer in the terminal. Herd keeps serving your sites."
+            ),
         ),
         ScenarioId::Custom => (
-            "Personalizado",
-            "Elige cada pieza. Parte de lo que ya tienes.",
+            tr_str!("Personalizado", "Custom"),
+            tr_str!("Elige cada pieza. Parte de lo que ya tienes.", "Pick each piece. Starts from what you already have."),
         ),
     }
 }
@@ -376,13 +384,19 @@ fn components_of(profile: &Profile) -> Vec<String> {
         list.push("Composer".into());
     }
     if profile.shim {
-        list.push("Selector php".into());
+        list.push(tr!("Selector php", "php selector"));
     }
     for (id, want) in &profile.services {
         match want {
             ServiceWant::Keep => {}
-            ServiceWant::Installed => list.push(format!("{} (apagado)", label(id))),
-            ServiceWant::Autostart => list.push(format!("{} (al iniciar sesión)", label(id))),
+            ServiceWant::Installed => {
+                let label = label(id);
+                list.push(tr!("{label} (apagado)", "{label} (off)"))
+            }
+            ServiceWant::Autostart => {
+                let label = label(id);
+                list.push(tr!("{label} (al iniciar sesión)", "{label} (at login)"))
+            }
         }
     }
     list

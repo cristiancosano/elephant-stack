@@ -7,9 +7,14 @@ use std::path::Path;
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path
         .parent()
-        .ok_or_else(|| format!("Ruta sin directorio: {}", path.display()))?;
-    fs::create_dir_all(dir)
-        .map_err(|error| format!("No se pudo crear {}: {error}", dir.display()))?;
+        .ok_or_else(|| {
+            let path = path.display();
+            crate::tr!("Ruta sin directorio: {path}", "Path without a folder: {path}")
+        })?;
+    fs::create_dir_all(dir).map_err(|error| {
+        let dir = dir.display();
+        crate::tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+    })?;
 
     let name = path
         .file_name()
@@ -24,7 +29,8 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         .and_then(|()| fs::rename(&tmp, path));
     if let Err(error) = result {
         let _ = fs::remove_file(&tmp);
-        return Err(format!("No se pudo guardar {}: {error}", path.display()));
+        let path = path.display();
+        return Err(crate::tr!("No se pudo guardar {path}: {error}", "Couldn’t save {path}: {error}"));
     }
     Ok(())
 }

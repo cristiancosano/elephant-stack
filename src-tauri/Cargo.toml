@@ -30,5 +30,5 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 
 [dev-dependencies]
 ts-rs.workspace = true
-elephant-core = { workspace = true, features = ["ts"] }
+elephant-core = { workspace = true, features = ["ts", "test-locale"] }
 elephant-logs = { workspace = true, features = ["ts"] }

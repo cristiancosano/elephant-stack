@@ -7,6 +7,7 @@
 pub mod audit;
 pub mod brew;
 pub mod components;
+pub mod i18n;
 pub mod jobs;
 pub mod launchd;
 pub mod lock;

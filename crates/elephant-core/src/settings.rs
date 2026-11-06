@@ -20,6 +20,19 @@ pub enum AppearanceMode {
     Dark,
 }
 
+/// Idioma de la interfaz, del menú de la barra y de la orden `elephant`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub enum Language {
+    /// El idioma preferido de macOS (español si empieza por «es»; si no, inglés).
+    #[default]
+    System,
+    Es,
+    En,
+}
+
 /// Editor con el que se abren los archivos de los logs y de los proyectos.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -65,6 +78,9 @@ pub struct Settings {
     /// desaparece del Dock.
     pub keep_in_menu_bar: bool,
     pub appearance: AppearanceMode,
+    /// Idioma elegido. «Sistema» sigue a macOS; el ya resuelto viaja en
+    /// `Snapshot.locale` (y lo da `i18n::resolve`).
+    pub language: Language,
     /// Muestra la versión de PHP por defecto junto al icono de la barra.
     pub show_php_in_menu_bar: bool,
     /// Vigila los servicios de Homebrew cada 20 s.
@@ -87,6 +103,7 @@ impl Default for Settings {
         Self {
             keep_in_menu_bar: true,
             appearance: AppearanceMode::System,
+            language: Language::System,
             show_php_in_menu_bar: false,
             watch_services: true,
             editor: Editor::Vscode,
@@ -137,6 +154,7 @@ mod tests {
         assert!(!parsed.show_php_in_menu_bar);
         assert_eq!(parsed.mcp.mode, McpMode::Confirm);
         assert_eq!(parsed.editor, Editor::Vscode);
+        assert_eq!(parsed.language, Language::System);
     }
 
     #[test]
@@ -149,8 +167,9 @@ mod tests {
     #[test]
     fn uses_snake_case_values() {
         let parsed: Settings =
-            serde_json::from_str(r#"{"appearance":"dark","editor":"phpstorm","mcp":{"mode":"read_only"}}"#)
+            serde_json::from_str(r#"{"appearance":"dark","editor":"phpstorm","language":"en","mcp":{"mode":"read_only"}}"#)
                 .unwrap();
+        assert_eq!(parsed.language, Language::En);
         assert_eq!(parsed.appearance, AppearanceMode::Dark);
         assert_eq!(parsed.editor, Editor::Phpstorm);
         assert_eq!(parsed.mcp.mode, McpMode::ReadOnly);

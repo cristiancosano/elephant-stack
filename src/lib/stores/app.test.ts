@@ -97,12 +97,14 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
     settings: {
       keep_in_menu_bar: true,
       appearance: "system",
+      language: "system",
       show_php_in_menu_bar: false,
       watch_services: true,
       editor: "vscode",
       php_source: null,
       mcp: { mode: "confirm" },
     },
+    locale: "es",
     ...over,
   };
 }

@@ -2,6 +2,8 @@
   // Ajustes ▸ Logs (00 §6, P07): carpetas en las que se buscan proyectos y, por
   // proyecto, la zona horaria de sus logs de Laravel y rutas de logs extra
   // (`~/.elephant-stack/projects.json`, 02 §4.4). Los cambios se guardan al momento.
+  // Textos del área diferida «logs» (docs/i18n.md): viajan con esta vista.
+  import "../../lib/i18n/locales/logs";
   import { onMount } from "svelte";
 
   import type { ProjectSummary } from "../../lib/bindings/ProjectSummary";

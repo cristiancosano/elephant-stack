@@ -1,6 +1,7 @@
 //! La ventana única. Se destruye al cerrarla para liberar WebKit, así que se
 //! crea cada vez que hace falta (`"create": false` en `tauri.conf.json`, C24).
 
+use elephant_core::i18n::{self, Locale};
 use elephant_core::settings::AppearanceMode;
 use tauri::{AppHandle, Emitter, Manager, Theme, WebviewWindowBuilder, Window, WindowEvent};
 
@@ -40,6 +41,7 @@ pub fn open_main_window(app: &AppHandle, route: Option<&str>) {
     let built = WebviewWindowBuilder::from_config(app, config).and_then(|builder| {
         builder
             .initialization_script(appearance::init_script(&appearance::current(), mode))
+            .initialization_script(locale_script(i18n::locale()))
             .theme(theme_for(mode))
             .build()
     });
@@ -126,6 +128,12 @@ pub fn apply_theme(app: &AppHandle, mode: AppearanceMode) {
     let _ = window.eval(theme_script(mode));
 }
 
+/// El idioma antes del primer snapshot, para que la interfaz no empiece en
+/// otro (src/lib/i18n). Después manda `Snapshot.locale`.
+fn locale_script(locale: Locale) -> String {
+    format!("window.__ELEPHANT_LOCALE__ = \"{}\";", locale.code())
+}
+
 fn theme_for(mode: AppearanceMode) -> Option<Theme> {
     match mode {
         AppearanceMode::System => None,
@@ -152,5 +160,10 @@ mod tests {
         assert_eq!(theme_for(AppearanceMode::Dark), Some(Theme::Dark));
         assert!(theme_script(AppearanceMode::System).starts_with("delete"));
         assert!(theme_script(AppearanceMode::Light).ends_with("'light'"));
+    }
+
+    #[test]
+    fn the_locale_script_only_carries_the_code() {
+        assert_eq!(locale_script(Locale::En), "window.__ELEPHANT_LOCALE__ = \"en\";");
     }
 }

@@ -7,6 +7,7 @@ import { CARDS, detection } from "../lib/wizard/fixtures.test-helpers";
 import type { Catalog } from "../lib/bindings/Catalog";
 import type { Component } from "../lib/bindings/Component";
 import type { EntryDetail } from "../lib/bindings/EntryDetail";
+import type { Locale } from "../lib/bindings/Locale";
 import type { LogEntry } from "../lib/bindings/LogEntry";
 import type { McpSnippets } from "../lib/bindings/McpSnippets";
 import type { McpStatus } from "../lib/bindings/McpStatus";
@@ -17,6 +18,9 @@ import type { Snapshot } from "../lib/bindings/Snapshot";
 import type { Usage } from "../lib/bindings/Usage";
 
 const NOW = Date.now();
+
+/** Idioma de las capturas: `?idioma=en` (scripts/capturas.sh); por defecto, español. */
+export const locale: Locale = new URLSearchParams(location.search).get("idioma") === "en" ? "en" : "es";
 const MIN = 60_000;
 
 function service(name: string, running: boolean, pid: number | null, registered = true): Service {
@@ -119,12 +123,14 @@ export const snapshot: Snapshot = {
   settings: {
     keep_in_menu_bar: true,
     appearance: "system",
+    language: locale === "en" ? "en" : "system",
     show_php_in_menu_bar: false,
     watch_services: true,
     editor: "vscode",
     php_source: null,
     mcp: { mode: "confirm" },
   },
+  locale,
 };
 
 export function usage(pids: number[]): Usage[] {

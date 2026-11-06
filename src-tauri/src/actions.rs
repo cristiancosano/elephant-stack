@@ -11,13 +11,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use elephant_core::brew::Operation;
-use elephant_core::{needs, ops};
+use elephant_core::{i18n, needs, ops};
 use elephant_core::settings::{self, Editor, Settings};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
 use crate::state::{self, AppState, ProblemKind};
-use crate::window;
+use crate::{app_menu, tray, window};
 
 /// Objetivo de `busy` y de los problemas de las acciones sobre todos los servicios.
 const ALL_SERVICES: &str = "services";
@@ -117,14 +117,29 @@ pub fn start_project_services(app: &AppHandle, dir: &Path) -> Result<Vec<String>
 /// envía. Aplica el tema a la ventana y emite el estado nuevo.
 pub fn set_settings(app: &AppHandle, s: Settings) -> Result<Settings, String> {
     let s = normalize_php_source(s)?;
+    let previous = app.state::<AppState>().settings().language;
     let merged = merge_extra(s, settings::load());
     settings::save(&merged)?;
     window::apply_theme(app, merged.appearance);
+    // El idioma se aplica al momento: lo siguiente que se escriba ya sale en
+    // el nuevo, y los menús nativos se vuelven a construir.
+    let relabel = merged.language != previous && {
+        let locale = i18n::resolve(merged.language);
+        let changed = locale != i18n::locale();
+        i18n::set_override(locale);
+        changed
+    };
     let mode = merged.mcp.mode;
+    let locale = i18n::locale();
     state::update(app, |snapshot| {
         snapshot.settings = merged.clone();
         snapshot.mcp.mode = mode;
+        snapshot.locale = locale;
     });
+    if relabel {
+        app_menu::rebuild(app);
+        tray::rebuild(app);
+    }
     Ok(merged)
 }
 

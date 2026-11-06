@@ -17,6 +17,8 @@ Las decisiones de diseño están en [`docs/decisions/`](docs/decisions/): el pla
 - **Asistente de configuración** en la primera ejecución: elige un escenario (Laravel, Laravel con servicios, terminal…), revisa el plan antes de aplicar nada y deja Elephant listo. «No cambiar nada» no ejecuta ningún comando.
 - **Canal de agentes.** La orden `elephant` da a Claude Code (u otro agente) el estado del entorno, los logs y los errores 500, y le deja arrancar servicios o cambiar de PHP pidiendo confirmación con un diálogo de Elephant.
 
+**Idiomas.** Español e inglés: la ventana, el menú de la barra, el de la aplicación y la orden `elephant` siguen el idioma de macOS o el que elijas en Ajustes ▸ General ▸ Idioma, que se aplica al momento. Cómo añadir textos y el glosario: [`docs/i18n.md`](docs/i18n.md).
+
 Arrancar o detener un servicio no cambia el arranque al iniciar sesión. Cambiar ese ajuste sí reinicia el servicio si está en marcha, o lo arranca un momento si está parado, porque Homebrew no permite hacerlo de otra forma. El consumo se mide cada 5 s y solo con la ventana visible; la RAM es la suma de RSS del servicio y sus hijos.
 
 ## Versiones de PHP
@@ -109,7 +111,7 @@ Más medidas, a mano:
 
 - `scripts/budget.sh ram`, con la app abierta: RAM de la app y de los procesos WebContent (solo lee `ps`).
 - `cargo test --release -p elephant-logs --test perf -- --ignored --nocapture --test-threads=1`: presupuestos del motor de logs (02 §10) sobre logs generados.
-- `scripts/capturas.sh`: capturas de referencia de cada vista, en claro y en oscuro, en [`docs/capturas/`](docs/capturas/). Usa Chrome sin interfaz con el IPC simulado (`src/dev/capturas.ts`), así que los controles nativos de WebKit (interruptores, menús) se ven como los de Chrome.
+- `scripts/capturas.sh [es|en|todos]`: capturas de referencia de cada vista, en claro y en oscuro, en [`docs/capturas/`](docs/capturas/); las de inglés llevan el sufijo `-en`. Usa Chrome sin interfaz con el IPC simulado (`src/dev/capturas.ts`), así que los controles nativos de WebKit (interruptores, menús) se ven como los de Chrome.
 
 ## Datos
 

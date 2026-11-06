@@ -2,6 +2,7 @@
 import type { Busy } from "./Busy";
 import type { Component } from "./Component";
 import type { JobInfo } from "./JobInfo";
+import type { Locale } from "./Locale";
 import type { LogsBrief } from "./LogsBrief";
 import type { MailpitInfo } from "./MailpitInfo";
 import type { McpBrief } from "./McpBrief";
@@ -26,4 +27,9 @@ jobs: Array<JobInfo>, logs: LogsBrief, mcp: McpBrief, mailpit: MailpitInfo,
 /**
  * No existe `setup.json`: hay que mostrar el asistente (C8).
  */
-setup_needed: boolean, settings: Settings, };
+setup_needed: boolean, settings: Settings, 
+/**
+ * El idioma ya resuelto (`settings.language`, con «Sistema» convertido):
+ * la interfaz y el backend escriben en el mismo.
+ */
+locale: Locale, };

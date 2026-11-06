@@ -52,5 +52,7 @@ export default defineConfig(() => ({
   test: {
     include: ["src/**/*.test.ts"],
     environment: "node",
+    // Español por defecto en todos los tests (docs/i18n.md).
+    setupFiles: ["src/lib/i18n/test-setup.ts"],
   },
 }));

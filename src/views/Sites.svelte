@@ -2,6 +2,8 @@
   // Sitios (C17): lo que descubre elephant-logs, incluidos los sitios de Herd, en
   // solo lectura. Elephant no escribe en Herd: no hay «Dejar de servir» hasta que
   // exista una decisión de sitios.
+  // Textos del área diferida «sites» (docs/i18n.md): viajan con esta vista.
+  import "../lib/i18n/locales/sites";
   import Group from "../ui/Group.svelte";
   import Row from "../ui/Row.svelte";
   import IconButton from "../ui/IconButton.svelte";

@@ -8,6 +8,8 @@ authors.workspace = true
 [features]
 ts = ["dep:ts-rs"]
 schema = ["dep:schemars"]
+# Solo para tests de otros crates: el idioma por defecto es el español (i18n::locale).
+test-locale = []
 
 [dependencies]
 elephant-php.workspace = true

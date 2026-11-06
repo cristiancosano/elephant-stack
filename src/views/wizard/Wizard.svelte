@@ -1,6 +1,8 @@
 <script lang="ts">
   // Asistente a ventana completa (01 §7.8, C9): banda con el degradado de marca,
   // indicador de puntos, la pantalla actual y la barra de botones abajo.
+  // Textos del área diferida «wizard» (docs/i18n.md): viajan con esta vista.
+  import "../../lib/i18n/locales/wizard";
   import { untrack } from "svelte";
   import { cubicOut } from "svelte/easing";
   import { fade, fly } from "svelte/transition";

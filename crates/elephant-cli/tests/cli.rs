@@ -545,6 +545,24 @@ fn doctor_and_plugin() {
     assert!(stdout(&out).starts_with("# Elephant Stack"));
 }
 
+/// El texto sale en español en los tests y en inglés con `ELEPHANT_STACK_LANG`
+/// (solo en debug); `--json` es igual en los dos idiomas.
+#[test]
+fn doctor_speaks_the_locale() {
+    let s = Sandbox::new();
+    let es = s.run(&["doctor"], &[]);
+    assert_eq!(code(&es), 0, "{}", stderr(&es));
+    assert!(stdout(&es).contains("· modo confirmar · 17 operaciones"), "{}", stdout(&es));
+
+    let en = s.run(&["doctor"], &[("ELEPHANT_STACK_LANG", "en")]);
+    assert!(stdout(&en).contains("· confirm mode · 17 operations"), "{}", stdout(&en));
+    assert!(stdout(&en).contains("is missing (turn it on in Elephant Stack > Settings > Agents)"), "{}", stdout(&en));
+
+    let json_es = s.run(&["doctor", "--json"], &[]);
+    let json_en = s.run(&["doctor", "--json"], &[("ELEPHANT_STACK_LANG", "en")]);
+    assert_eq!(json_es.stdout, json_en.stdout);
+}
+
 /// Un cliente MCP mínimo por stdio.
 struct Mcp {
     child: Child,

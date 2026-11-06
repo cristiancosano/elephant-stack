@@ -12,6 +12,9 @@ root.dataset.theme = dark ? "dark" : "light";
 root.classList.add("no-vibrancy");
 root.style.background = "var(--window)";
 
+// Lo mismo que hace Rust al crear la ventana (src-tauri/src/window.rs).
+(window as { __ELEPHANT_LOCALE__?: string }).__ELEPHANT_LOCALE__ = datos.locale;
+
 const NOT_AVAILABLE = "Todavía no disponible.";
 
 type Args = Record<string, unknown> | undefined;

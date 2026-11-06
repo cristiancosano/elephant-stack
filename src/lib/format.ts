@@ -1,20 +1,45 @@
-// Formato de cifras y fechas para la interfaz, en español de España.
-// Entre la cifra y la unidad va un espacio duro (U+00A0) para que no se separen.
+// Formato de cifras y fechas para la interfaz, en el idioma actual
+// (src/lib/i18n): «1,2 GB» y «hace 5 min» en español; «1.2 GB» y «5 min ago» en
+// inglés. Entre la cifra y la unidad va un espacio duro (U+00A0) para que no se
+// separen. Las palabras salen de `common.time`; los meses, de aquí.
+//
+// Desde las vistas se usa como `fmt.bytes(…)` (lo exporta también i18n).
 
-const NBSP = " ";
+import { getLocale, intlTag, type Locale } from "./i18n/locale.svelte";
+import { t } from "./i18n/translate";
 
-const integer = new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 });
-const oneDecimal = new Intl.NumberFormat("es-ES", {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
+const NBSP = "\u00a0";
+
+interface Formatters {
+  integer: Intl.NumberFormat;
+  oneDecimal: Intl.NumberFormat;
+}
+
+const formatters = new Map<Locale, Formatters>();
+
+function nf(): Formatters {
+  const locale = getLocale();
+  let f = formatters.get(locale);
+  if (!f) {
+    const tag = intlTag(locale);
+    f = {
+      integer: new Intl.NumberFormat(tag, { maximumFractionDigits: 0 }),
+      oneDecimal: new Intl.NumberFormat(tag, { minimumFractionDigits: 1, maximumFractionDigits: 1 }),
+    };
+    formatters.set(locale, f);
+  }
+  return f;
+}
 
 /** CPU a partir de la cual se muestra el consumo de un servicio (como hasta ahora). */
 export const CPU_NOTICE_PERCENT = 5;
 
-/** `1234` → `1234`, `12345` → `12.345` (la RAE no agrupa números de cuatro cifras). */
+/**
+ * `1234` → `1234` y `12345` → `12.345` en español (la RAE no agrupa números de
+ * cuatro cifras); `1,234` y `12,345` en inglés.
+ */
 export function formatNumber(n: number): string {
-  return integer.format(n);
+  return nf().integer.format(n);
 }
 
 /**
@@ -22,6 +47,7 @@ export function formatNumber(n: number): string {
  * `420000` → `410 MB`; `1258291` → `1,2 GB`.
  */
 export function formatMemory(kb: number): string {
+  const { integer, oneDecimal } = nf();
   const mb = Math.max(0, kb) / 1024;
   if (mb >= 1024) return `${oneDecimal.format(mb / 1024)}${NBSP}GB`;
   if (mb > 0 && mb < 1) return `<1${NBSP}MB`;
@@ -35,6 +61,7 @@ const BYTE_UNITS = ["KB", "MB", "GB", "TB"] as const;
  * Una cifra decimal por debajo de 10 (`8,5 MB`) y ninguna a partir de ahí (`412 MB`).
  */
 export function formatBytes(bytes: number): string {
+  const { integer, oneDecimal } = nf();
   const b = Math.max(0, bytes);
   if (b < 1000) return `${integer.format(b)}${NBSP}B`;
   let value = b / 1000;
@@ -47,10 +74,14 @@ export function formatBytes(bytes: number): string {
   return `${text}${NBSP}${BYTE_UNITS[unit]}`;
 }
 
-/** `12.4` → `12 %`. Por debajo del 1 %, `<1 %` en lugar de un cero engañoso. */
+/**
+ * `12.4` → `12 %` (en inglés, `12%`, sin espacio). Por debajo del 1 %, `<1 %`
+ * en lugar de un cero engañoso.
+ */
 export function formatCpu(percent: number): string {
-  if (percent > 0 && percent < 1) return `<1${NBSP}%`;
-  return `${integer.format(Math.max(0, percent))}${NBSP}%`;
+  const sign = getLocale() === "es" ? `${NBSP}%` : "%";
+  if (percent > 0 && percent < 1) return `<1${sign}`;
+  return `${nf().integer.format(Math.max(0, percent))}${sign}`;
 }
 
 export function shouldShowCpu(percent: number): boolean {
@@ -59,6 +90,7 @@ export function shouldShowCpu(percent: number): boolean {
 
 /** Duración corta, por ejemplo de una petición HTTP: `84 ms`, `1,2 s`, `2 min 5 s`. */
 export function formatDuration(ms: number): string {
+  const { integer, oneDecimal } = nf();
   const v = Math.max(0, ms);
   if (v < 1000) return `${integer.format(v)}${NBSP}ms`;
   if (v < 10_000) return `${oneDecimal.format(v / 1000)}${NBSP}s`;
@@ -70,8 +102,9 @@ export function formatDuration(ms: number): string {
 }
 
 /**
- * `plural(1, "servicio")` → `1 servicio`; `plural(3, "servicio")` → `3 servicios`.
- * Si el plural no es regular (`versión` → `versiones`), se pasa explícito.
+ * Solo español: `plural(1, "servicio")` → `1 servicio`; `plural(3, "servicio")` →
+ * `3 servicios`. Si el plural no es regular (`versión` → `versiones`), se pasa
+ * explícito. El código nuevo usa `t()` con un texto `{ one, other }`.
  */
 export function plural(n: number, singular: string, pluralForm?: string): string {
   const word = n === 1 ? singular : (pluralForm ?? regularPlural(singular));
@@ -85,6 +118,11 @@ function regularPlural(word: string): string {
   return `${word}es`;
 }
 
+/** `["a", "b", "c"]` → `a, b y c` o `a, b, and c`. */
+export function formatList(items: readonly string[]): string {
+  return new Intl.ListFormat(intlTag(), { style: "long", type: "conjunction" }).format(items);
+}
+
 function pad(n: number, width = 2): string {
   return String(n).padStart(width, "0");
 }
@@ -95,14 +133,27 @@ export function formatClock(time: number | Date): string {
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
-const MONTHS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"];
+// Fijos y no de Intl: así el texto es el mismo en WebKit y en los tests (Node).
+const MONTHS: Record<Locale, readonly string[]> = {
+  es: ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sept", "oct", "nov", "dic"],
+  en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+};
 
-/** Fecha corta: `6 nov`, o `6 nov 2025` si no es de este año. */
+/** Fecha corta: `6 nov` o `6 nov 2025` si no es de este año; en inglés, `Nov 6` y `Nov 6, 2025`. */
 export function formatShortDate(time: number | Date, now: number | Date = Date.now()): string {
   const d = typeof time === "number" ? new Date(time) : time;
   const ref = typeof now === "number" ? new Date(now) : now;
-  const base = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
-  return d.getFullYear() === ref.getFullYear() ? base : `${base} ${d.getFullYear()}`;
+  const sameYear = d.getFullYear() === ref.getFullYear();
+  const locale = getLocale();
+  const month = MONTHS[locale][d.getMonth()];
+  if (locale === "en") return sameYear ? `${month} ${d.getDate()}` : `${month} ${d.getDate()}, ${d.getFullYear()}`;
+  const base = `${d.getDate()} ${month}`;
+  return sameYear ? base : `${base} ${d.getFullYear()}`;
+}
+
+/** Fecha y hora completas con Intl, para los detalles: `6 nov 2026, 9:05`. */
+export function formatDateTime(time: number | Date): string {
+  return new Intl.DateTimeFormat(intlTag(), { dateStyle: "medium", timeStyle: "short" }).format(time);
 }
 
 function startOfDay(d: Date): number {
@@ -114,26 +165,40 @@ function startOfDay(d: Date): number {
  * y, a partir de una semana, la fecha corta. El futuro cercano: `dentro de 5 min`.
  */
 export function formatRelative(time: number | Date, now: number | Date = Date.now()): string {
-  const t = typeof time === "number" ? time : time.getTime();
+  const tm = typeof time === "number" ? time : time.getTime();
   const n = typeof now === "number" ? now : now.getTime();
-  const diff = n - t;
+  const diff = n - tm;
   const abs = Math.abs(diff);
   const minute = 60_000;
   const hour = 60 * minute;
 
-  if (abs < 45_000) return "ahora mismo";
+  if (abs < 45_000) return t("common.time.justNow");
   if (abs < hour) {
     const m = Math.max(1, Math.round(abs / minute));
-    return diff >= 0 ? `hace ${m}${NBSP}min` : `dentro de ${m}${NBSP}min`;
+    return diff >= 0 ? t("common.time.minutesAgo", { n: m }) : t("common.time.inMinutes", { n: m });
   }
   if (diff < 0) {
     const h = Math.round(abs / hour);
-    return h < 24 ? `dentro de ${h}${NBSP}h` : formatShortDate(t, n);
+    return h < 24 ? t("common.time.inHours", { n: h }) : formatShortDate(tm, n);
   }
 
-  const days = Math.round((startOfDay(new Date(n)) - startOfDay(new Date(t))) / (24 * hour));
-  if (abs < 24 * hour && days === 0) return `hace ${Math.round(abs / hour)}${NBSP}h`;
-  if (days <= 1) return "ayer";
-  if (days < 7) return `hace ${days} días`;
-  return formatShortDate(t, n);
+  const days = Math.round((startOfDay(new Date(n)) - startOfDay(new Date(tm))) / (24 * hour));
+  if (abs < 24 * hour && days === 0) return t("common.time.hoursAgo", { n: Math.round(abs / hour) });
+  if (days <= 1) return t("common.time.yesterday");
+  if (days < 7) return t("common.time.daysAgo", { count: days });
+  return formatShortDate(tm, n);
 }
+
+/** Los formatos con nombres cortos: `fmt.bytes(…)`, `fmt.relative(…)`… */
+export const fmt = {
+  number: formatNumber,
+  memory: formatMemory,
+  bytes: formatBytes,
+  cpu: formatCpu,
+  duration: formatDuration,
+  list: formatList,
+  clock: formatClock,
+  shortDate: formatShortDate,
+  dateTime: formatDateTime,
+  relative: formatRelative,
+} as const;

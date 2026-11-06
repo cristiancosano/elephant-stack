@@ -4,6 +4,11 @@ import { mount } from "svelte";
 import "./ui/tokens.css";
 import "./ui/base.css";
 import App from "./App.svelte";
+import { startLocale } from "./lib/i18n/index.svelte";
 
+// Primero los textos del idioma inicial (el inglés va en su propio chunk), para
+// no pintar la ventana en otro idioma.
 const target = document.getElementById("app");
-if (target) mount(App, { target });
+void startLocale().finally(() => {
+  if (target) mount(App, { target });
+});

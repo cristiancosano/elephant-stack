@@ -4,11 +4,25 @@
 # servidor de Vite propio y la fotografía con Chrome sin interfaz, con un perfil
 # temporal: no abre la app ni toca nada del sistema.
 #
-# Uso: scripts/capturas.sh    (necesita Google Chrome en /Applications)
+# Uso: scripts/capturas.sh [es|en|todos]    (necesita Google Chrome en /Applications)
+#
+# El idioma también se puede dar con LANG_CAPTURAS=es|en|todos. Por defecto,
+# los dos: las de español se llaman <vista>-<tema>.png, como siempre, y las de
+# inglés llevan el sufijo -en (<vista>-<tema>-en.png). CAPTURAS_DIR cambia la
+# carpeta de salida.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-out="$root/docs/capturas"
+out="${CAPTURAS_DIR:-$root/docs/capturas}"
+case "${1:-${LANG_CAPTURAS:-todos}}" in
+  es) langs=(es) ;;
+  en) langs=(en) ;;
+  todos) langs=(es en) ;;
+  *)
+    echo "Uso: $0 [es|en|todos]" >&2
+    exit 2
+    ;;
+esac
 chrome="${CHROME:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
 port=14217
 # Tamaño inicial de la ventana (tauri.conf.json).
@@ -45,14 +59,19 @@ views=(
   "asistente #/asistente"
 )
 
-for theme in claro oscuro; do
-  for view in "${views[@]}"; do
-    name="${view%% *}"
-    route="${view#* }"
-    "$chrome" --headless=new --disable-gpu --hide-scrollbars --no-first-run \
-      --user-data-dir="$profile/chrome" --window-size="$size" --force-device-scale-factor=1 \
-      --virtual-time-budget=5000 --screenshot="$out/$name-$theme.png" \
-      "http://localhost:$port/src/dev/capturas.html?tema=$theme$route" >/dev/null 2>&1
-    echo "docs/capturas/$name-$theme.png"
+for lang in "${langs[@]}"; do
+  suffix=""
+  [ "$lang" = es ] || suffix="-$lang"
+  for theme in claro oscuro; do
+    for view in "${views[@]}"; do
+      name="${view%% *}"
+      route="${view#* }"
+      file="$out/$name-$theme$suffix.png"
+      "$chrome" --headless=new --disable-gpu --hide-scrollbars --no-first-run \
+        --user-data-dir="$profile/chrome" --window-size="$size" --force-device-scale-factor=1 \
+        --virtual-time-budget=5000 --screenshot="$file" \
+        "http://localhost:$port/src/dev/capturas.html?tema=$theme&idioma=$lang$route" >/dev/null 2>&1
+      echo "${file#"$root"/}"
+    done
   done
 done

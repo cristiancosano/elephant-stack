@@ -12,19 +12,28 @@
   import { toast } from "../../ui/toasts.svelte";
   import { errorMessage, phpSourceCheck, setSettings } from "../../lib/ipc";
   import { go } from "../../lib/router.svelte";
+  import { t } from "../../lib/i18n/index.svelte";
   import type { AppearanceMode } from "../../lib/bindings/AppearanceMode";
   import type { Editor } from "../../lib/bindings/Editor";
+  import type { Language } from "../../lib/bindings/Language";
   import type { Settings } from "../../lib/bindings/Settings";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
   import type { SourceCheck } from "../../lib/bindings/SourceCheck";
 
   let { snapshot }: { snapshot: Snapshot | null } = $props();
 
-  const APPEARANCE: { value: AppearanceMode; label: string }[] = [
-    { value: "system", label: "Sistema" },
-    { value: "light", label: "Claro" },
-    { value: "dark", label: "Oscuro" },
-  ];
+  const APPEARANCE: { value: AppearanceMode; label: string }[] = $derived([
+    { value: "system", label: t("settings.general.appearance.system") },
+    { value: "light", label: t("settings.general.appearance.light") },
+    { value: "dark", label: t("settings.general.appearance.dark") },
+  ]);
+
+  // Cada idioma con su propio nombre, como en macOS: no se traducen.
+  const LANGUAGES: { value: Language; label: string }[] = $derived([
+    { value: "system", label: t("settings.general.language.system") },
+    { value: "es", label: "Español" },
+    { value: "en", label: "English" },
+  ]);
 
   const EDITORS: { value: Editor; label: string }[] = [
     { value: "vscode", label: "Visual Studio Code" },
@@ -44,7 +53,7 @@
     try {
       await setSettings(next);
     } catch (e) {
-      toast(`No se pudo guardar el ajuste: ${errorMessage(e)}`, { tone: "error" });
+      toast(t("settings.general.saveFailed", { error: errorMessage(e) }), { tone: "error" });
     } finally {
       if (pending === next) pending = null;
     }
@@ -54,10 +63,10 @@
   // Una fuente propia solo se guarda después de probarla: así nunca queda
   // guardada una que no da versiones.
   const DEFAULT_SOURCE = "cristiancosano/php-builds";
-  const SOURCE_MODES: { value: "default" | "custom"; label: string }[] = [
+  const SOURCE_MODES: { value: "default" | "custom"; label: string }[] = $derived([
     { value: "default", label: "php-builds" },
-    { value: "custom", label: "Personalizada" },
-  ];
+    { value: "custom", label: t("settings.general.phpSource.custom") },
+  ]);
   let customOpen = $state(false);
   let draft = $state("");
   let draftLoaded = false;
@@ -107,45 +116,44 @@
   async function useSource() {
     await change("php_source", draft.trim());
     resetCheck();
-    toast("Las versiones de PHP se descargarán de la nueva fuente.", { tone: "success" });
+    toast(t("settings.general.phpSource.saved"), { tone: "success" });
   }
 
   function versionsText(versions: string[]): string {
     const shown = versions.slice(0, 4).join(", ");
-    const more = versions.length > 4 ? ` y ${versions.length - 4} más` : "";
-    return `${versions.length === 1 ? "1 versión" : `${versions.length} versiones`}: ${shown}${more}`;
+    const list =
+      versions.length > 4 ? t("settings.general.phpSource.andMore", { list: shown, count: versions.length - 4 }) : shown;
+    return t("settings.general.phpSource.versions", { count: versions.length, list });
   }
 </script>
 
 {#if !settings}
   <Skeleton lines={5} />
 {:else}
-  <Group
-    footer="Al cerrar o minimizar la ventana, Elephant Stack desaparece del Dock y sigue en la barra de menús. Para salir del todo, usa «Salir» en su menú o ⌘Q."
-  >
-    <Row title="Seguir en la barra de menús al cerrar">
+  <Group footer={t("settings.general.menuBar.footer")}>
+    <Row title={t("settings.general.menuBar.keep")}>
       {#snippet trailing()}
         <Switch
           checked={settings.keep_in_menu_bar}
-          label="Seguir en la barra de menús al cerrar"
+          label={t("settings.general.menuBar.keep")}
           onchange={(v) => void change("keep_in_menu_bar", v)}
         />
       {/snippet}
     </Row>
-    <Row title="Mostrar la versión de PHP junto al icono">
+    <Row title={t("settings.general.menuBar.showPhp")}>
       {#snippet trailing()}
         <Switch
           checked={settings.show_php_in_menu_bar}
-          label="Mostrar la versión de PHP junto al icono de la barra de menús"
+          label={t("settings.general.menuBar.showPhpLabel")}
           onchange={(v) => void change("show_php_in_menu_bar", v)}
         />
       {/snippet}
     </Row>
-    <Row title="Vigilar servicios en segundo plano" subtitle="Avisa en la barra de menús si un servicio se detiene">
+    <Row title={t("settings.general.menuBar.watch")} subtitle={t("settings.general.menuBar.watchSubtitle")}>
       {#snippet trailing()}
         <Switch
           checked={settings.watch_services}
-          label="Vigilar servicios en segundo plano"
+          label={t("settings.general.menuBar.watch")}
           onchange={(v) => void change("watch_services", v)}
         />
       {/snippet}
@@ -153,77 +161,84 @@
   </Group>
 
   <Group>
-    <Row title="Apariencia">
+    <Row title={t("settings.general.appearance.label")}>
       {#snippet trailing()}
         <SegmentedControl
           options={APPEARANCE}
           value={settings.appearance}
-          label="Apariencia"
+          label={t("settings.general.appearance.label")}
           onchange={(v) => void change("appearance", v)}
         />
       {/snippet}
     </Row>
-    <Row title="Editor para abrir archivos" subtitle="Los archivos de los logs y las carpetas de los proyectos">
+    <Row title={t("settings.general.language.label")} subtitle={t("settings.general.language.subtitle")}>
+      {#snippet trailing()}
+        <Select
+          options={LANGUAGES}
+          value={settings.language}
+          label={t("settings.general.language.label")}
+          onchange={(v) => void change("language", v)}
+        />
+      {/snippet}
+    </Row>
+    <Row title={t("settings.general.editor.label")} subtitle={t("settings.general.editor.subtitle")}>
       {#snippet trailing()}
         <Select
           options={EDITORS}
           value={settings.editor}
-          label="Editor para abrir archivos"
+          label={t("settings.general.editor.label")}
           onchange={(v) => void change("editor", v)}
         />
       {/snippet}
     </Row>
   </Group>
 
-  <Group
-    title="Versiones de PHP"
-    footer="Una fuente propia debe publicar igual que php-builds: un index.json en la release «catalog», o releases php-X.Y.Z con el paquete php-X.Y.Z-macos-arm64.tar.gz y su .sha256. Esos binarios se ejecutan como tu php, y el SHA-256 viene de la misma fuente: usa solo fuentes de confianza."
-  >
+  <Group title={t("settings.general.phpSource.title")} footer={t("settings.general.phpSource.footer")}>
     <Row
-      title="Origen de las descargas"
-      subtitle={settings.php_source ?? `${DEFAULT_SOURCE} (recomendado)`}
+      title={t("settings.general.phpSource.origin")}
+      subtitle={settings.php_source ?? t("settings.general.phpSource.recommended", { source: DEFAULT_SOURCE })}
     >
       {#snippet trailing()}
         <SegmentedControl
           options={SOURCE_MODES}
           value={sourceMode}
-          label="Origen de las versiones de PHP"
+          label={t("settings.general.phpSource.modeLabel")}
           onchange={chooseMode}
         />
       {/snippet}
     </Row>
     {#if sourceMode === "custom"}
-      <Row title="Repositorio o índice">
+      <Row title={t("settings.general.phpSource.field")}>
         {#snippet trailing()}
           <input
             class="field"
             type="text"
             spellcheck="false"
             autocomplete="off"
-            placeholder="usuario/repo o https://…/index.json"
-            aria-label="Repositorio de GitHub o URL del índice de versiones de PHP"
+            placeholder={t("settings.general.phpSource.placeholder")}
+            aria-label={t("settings.general.phpSource.fieldLabel")}
             bind:value={draft}
             oninput={resetCheck}
             onkeydown={(event) => {
               if (event.key === "Enter") void probe();
             }}
           />
-          <Button onclick={() => void probe()} disabled={checking || draft.trim() === ""}>Probar</Button>
+          <Button onclick={() => void probe()} disabled={checking || draft.trim() === ""}>{t("settings.general.phpSource.test")}</Button>
         {/snippet}
       </Row>
       {#if checking}
-        <Row title="Comprobando la fuente…">
-          {#snippet trailing()}<ProgressRing label="Comprobando la fuente" />{/snippet}
+        <Row title={t("settings.general.phpSource.checking")}>
+          {#snippet trailing()}<ProgressRing label={t("settings.general.phpSource.checkingLabel")} />{/snippet}
         </Row>
       {:else if checkError}
-        <Row title="No sirve como fuente" subtitle={checkError} />
+        <Row title={t("settings.general.phpSource.invalid")} subtitle={checkError} />
       {:else if check}
         <Row title={versionsText(check.versions)} subtitle={check.url}>
           {#snippet trailing()}
             {#if draftIsSaved}
-              <span class="saved">En uso</span>
+              <span class="saved">{t("settings.general.phpSource.inUse")}</span>
             {:else}
-              <Button variant="primary" onclick={() => void useSource()}>Usar esta fuente</Button>
+              <Button variant="primary" onclick={() => void useSource()}>{t("settings.general.phpSource.use")}</Button>
             {/if}
           {/snippet}
         </Row>
@@ -231,10 +246,10 @@
     {/if}
   </Group>
 
-  <Group footer="Revisa qué servicios y versiones de PHP quieres, sin perder lo que ya tienes.">
-    <Row title="Asistente de configuración">
+  <Group footer={t("settings.general.assistant.footer")}>
+    <Row title={t("settings.general.assistant.title")}>
       {#snippet trailing()}
-        <Button onclick={() => go("#/asistente")}>Volver a ejecutar el asistente…</Button>
+        <Button onclick={() => go("#/asistente")}>{t("settings.general.assistant.rerun")}</Button>
       {/snippet}
     </Row>
   </Group>

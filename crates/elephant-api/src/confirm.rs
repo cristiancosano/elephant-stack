@@ -1,19 +1,28 @@
 //! Diálogo nativo de confirmación (03 §7.2, 05 §5.4): `osascript` con el
-//! mensaje como argumento (nunca interpolado en el script), «Denegar» como
-//! botón por defecto y 60 s antes de denegar solo.
+//! mensaje y los botones como argumentos (nunca interpolados en el script),
+//! «Denegar» como botón por defecto y 60 s antes de denegar solo. Los botones
+//! van en el idioma de `i18n::locale()`; el mensaje lo escribe quien llama.
 
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use elephant_core::tr_str;
+
 use crate::{Caller, Confirmation, Confirmer};
 
+/// argv: botón de denegar, botón de permitir y el mensaje (siempre el último).
 const SCRIPT: [&str; 3] = [
     "on run argv",
-    "display dialog (item 1 of argv) with title \"Elephant Stack\" buttons {\"Denegar\", \"Permitir\"} default button \"Denegar\" cancel button \"Denegar\" with icon caution giving up after 60",
+    "display dialog (item 3 of argv) with title \"Elephant Stack\" buttons {item 1 of argv, item 2 of argv} default button (item 1 of argv) cancel button (item 1 of argv) with icon caution giving up after 60",
     "end run",
 ];
+
+/// Los botones del diálogo: (denegar, permitir).
+fn buttons() -> (&'static str, &'static str) {
+    (tr_str!("Denegar", "Deny"), tr_str!("Permitir", "Allow"))
+}
 
 /// Margen sobre los 60 s del propio diálogo antes de matar `osascript`.
 const HARD_TIMEOUT: Duration = Duration::from_secs(70);
@@ -50,9 +59,10 @@ impl Confirmer for DialogConfirmer {
         for line in SCRIPT {
             command.arg("-e").arg(line);
         }
-        command.arg("--").arg(text);
+        let (deny, allow) = buttons();
+        command.arg("--").arg(deny).arg(allow).arg(text);
         match run_with_timeout(&mut command, HARD_TIMEOUT) {
-            Some((true, stdout)) => interpret(&stdout),
+            Some((true, stdout)) => interpret(&stdout, allow),
             // Cancelar sale con error («User canceled», -128).
             Some((false, _)) => Confirmation::Denied { reason: DENIED_BY_PERSON.to_string() },
             None => Confirmation::Denied { reason: CANNOT_ASK.to_string() },
@@ -60,9 +70,9 @@ impl Confirmer for DialogConfirmer {
     }
 }
 
-/// Solo «Permitir» sin agotar el tiempo permite la acción.
-fn interpret(stdout: &str) -> Confirmation {
-    let allowed = stdout.contains("button returned:Permitir") && !stdout.contains("gave up:true");
+/// Solo el botón de permitir, sin agotar el tiempo, permite la acción.
+fn interpret(stdout: &str, allow: &str) -> Confirmation {
+    let allowed = stdout.contains(&format!("button returned:{allow}")) && !stdout.contains("gave up:true");
     if allowed {
         Confirmation::Allowed { by: "dialog".to_string() }
     } else {
@@ -136,9 +146,30 @@ mod tests {
 
     #[test]
     fn only_permitir_allows() {
-        assert_eq!(interpret("button returned:Permitir, gave up:false\n"), Confirmation::Allowed { by: "dialog".into() });
-        assert!(matches!(interpret("button returned:, gave up:true"), Confirmation::Denied { .. }));
-        assert!(matches!(interpret("button returned:Denegar"), Confirmation::Denied { .. }));
+        let allowed = Confirmation::Allowed { by: "dialog".into() };
+        assert_eq!(interpret("button returned:Permitir, gave up:false\n", "Permitir"), allowed);
+        assert!(matches!(interpret("button returned:, gave up:true", "Permitir"), Confirmation::Denied { .. }));
+        assert!(matches!(interpret("button returned:Denegar", "Permitir"), Confirmation::Denied { .. }));
+        assert_eq!(interpret("button returned:Allow, gave up:false", "Allow"), allowed);
+        assert!(matches!(interpret("button returned:Permitir", "Allow"), Confirmation::Denied { .. }));
+    }
+
+    #[test]
+    fn buttons_follow_the_locale() {
+        use elephant_core::i18n::{Locale, with_locale};
+        assert_eq!(buttons(), ("Denegar", "Permitir"));
+        assert_eq!(with_locale(Locale::En, buttons), ("Deny", "Allow"));
+    }
+
+    /// `-e` y las tres líneas del script, `--`, los dos botones y el mensaje.
+    #[test]
+    fn buttons_go_as_arguments_before_the_message() {
+        let (dir, path) = fake(
+            "[ \"$8\" = Denegar ] && [ \"$9\" = Permitir ] && [ \"${10}\" = hola ] && echo 'button returned:Permitir, gave up:false'",
+        );
+        let result = DialogConfirmer::with_program(path).confirm(&caller(), "hola");
+        assert_eq!(result, Confirmation::Allowed { by: "dialog".into() });
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

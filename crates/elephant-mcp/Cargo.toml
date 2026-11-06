@@ -16,3 +16,7 @@ serde_json.workspace = true
 schemars.workspace = true
 rmcp = { version = "=3.8.0", default-features = false, features = ["server", "macros", "transport-io", "elicitation"] }
 tokio = { version = "1", features = ["rt", "macros", "io-std", "time"] }
+
+# Los tests escriben en español (docs/i18n.md).
+[dev-dependencies]
+elephant-core = { workspace = true, features = ["test-locale"] }

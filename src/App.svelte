@@ -10,6 +10,7 @@
   import { serialize } from "./lib/route";
   import { takePendingRoute } from "./lib/ipc";
   import { onAppearanceChanged, onNavGo, type UnlistenFn } from "./lib/events";
+  import { changeLocale } from "./lib/i18n/index.svelte";
 
   const LAST_ROUTE_KEY = "elephant-stack.last-route";
 
@@ -91,6 +92,13 @@
     if (!started || !snapshot || setupChecked) return;
     setupChecked = true;
     if (snapshot.setup_needed && !pendingRoute) go("#/asistente");
+  });
+
+  // El idioma lo decide Rust (`Snapshot.locale`): al cambiarlo en Ajustes, la
+  // ventana cambia sin recargar.
+  const locale = $derived(app.snapshot?.locale);
+  $effect(() => {
+    if (locale) void changeLocale(locale);
   });
 
   // Recuerda la última vista para la próxima vez que se abra la ventana. El

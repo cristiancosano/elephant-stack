@@ -10,7 +10,7 @@ use std::process::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 use elephant_api::{ApiError, DialogConfirmer, ErrorCode, OpMeta, SystemRuntime, catalog, plugin, schema, watch};
 use elephant_api::elephant_core::audit::{self, AuditEntry};
-use elephant_api::elephant_core::{self, paths, settings};
+use elephant_api::elephant_core::{self, paths, settings, tr, tr_str};
 
 /// `elephant --version` → `elephant 0.1.0 (api 1)`.
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (api 1)");
@@ -234,29 +234,56 @@ fn doctor(json: bool) -> Result<(), ApiError> {
     if json {
         return print_text(&report.to_string());
     }
+    print_text(&doctor_text(mode, link.as_deref(), linked, target.as_deref(), plugin_version.as_deref()))
+}
+
+/// La salida de texto de `elephant doctor`, en el idioma de la persona (la
+/// de `--json` no cambia).
+fn doctor_text(
+    mode: settings::McpMode,
+    link: Option<&Path>,
+    linked: bool,
+    target: Option<&Path>,
+    plugin_version: Option<&str>,
+) -> String {
     let mode = match mode {
-        settings::McpMode::ReadOnly => "solo lectura",
-        settings::McpMode::Confirm => "confirmar",
-        settings::McpMode::Trusted => "de confianza",
+        settings::McpMode::ReadOnly => tr_str!("solo lectura", "read-only"),
+        settings::McpMode::Confirm => tr_str!("confirmar", "confirm"),
+        settings::McpMode::Trusted => tr_str!("de confianza", "trusted"),
     };
+    let version = plugin::version_line();
+    let count = catalog().len();
     let mut lines = vec![
-        format!("{} · modo {mode} · {} operaciones", plugin::version_line(), catalog().len()),
-        match (&link, linked) {
-            (Some(link), true) => format!(
-                "Enlace: {}{}",
-                link.display(),
-                target.map(|t| format!(" → {}", t.display())).unwrap_or_default()
-            ),
-            (Some(link), false) => format!("Enlace: falta {} (actívalo en Elephant Stack > Ajustes > Agentes)", link.display()),
-            (None, _) => "Enlace: HOME no está definido".to_string(),
+        tr!("{version} · modo {mode} · {count} operaciones", "{version} · {mode} mode · {count} operations"),
+        match (link, linked) {
+            (Some(link), true) => {
+                let link = link.display();
+                let target = target.map(|t| format!(" → {}", t.display())).unwrap_or_default();
+                tr!("Enlace: {link}{target}", "Link: {link}{target}")
+            }
+            (Some(link), false) => {
+                let link = link.display();
+                tr!(
+                    "Enlace: falta {link} (actívalo en Elephant Stack > Ajustes > Agentes)",
+                    "Link: {link} is missing (turn it on in Elephant Stack > Settings > Agents)"
+                )
+            }
+            (None, _) => tr!("Enlace: HOME no está definido", "Link: HOME is not set"),
         },
         match plugin_version {
-            Some(version) => format!("Plugin de Claude Code escrito ({version})"),
-            None => "Plugin de Claude Code: sin escribir (Ajustes > Agentes > Conectar)".to_string(),
+            Some(version) => tr!("Plugin de Claude Code escrito ({version})", "Claude Code plugin written ({version})"),
+            None => tr!(
+                "Plugin de Claude Code: sin escribir (Ajustes > Agentes > Conectar)",
+                "Claude Code plugin: not written (Settings > Agents > Connect)"
+            ),
         },
     ];
-    lines.push(if cfg!(feature = "mcp") { "elephant mcp: disponible" } else { "elephant mcp: no incluido" }.into());
-    print_text(&lines.join("\n"))
+    lines.push(if cfg!(feature = "mcp") {
+        tr!("elephant mcp: disponible", "elephant mcp: available")
+    } else {
+        tr!("elephant mcp: no incluido", "elephant mcp: not included")
+    });
+    lines.join("\n")
 }
 
 fn schema_command(sub: &ArgMatches) -> Result<(), ApiError> {
@@ -337,6 +364,22 @@ mod tests {
     #[test]
     fn version_names_the_api() {
         assert_eq!(format!("elephant {VERSION}"), plugin::version_line());
+    }
+
+    #[test]
+    fn doctor_text_is_translated() {
+        use elephant_core::i18n::{Locale, with_locale};
+        let link = Path::new("/h/.elephant-stack/bin/elephant");
+        let text = |locale| {
+            with_locale(locale, || doctor_text(settings::McpMode::Confirm, Some(link), false, None, None))
+        };
+        let es = text(Locale::Es);
+        assert!(es.contains("· modo confirmar ·"), "{es}");
+        assert!(es.contains("Enlace: falta /h/.elephant-stack/bin/elephant"), "{es}");
+        let en = text(Locale::En);
+        assert!(en.contains("· confirm mode ·"), "{en}");
+        assert!(en.contains("Link: /h/.elephant-stack/bin/elephant is missing"), "{en}");
+        assert!(en.contains("Claude Code plugin: not written"), "{en}");
     }
 
     #[test]

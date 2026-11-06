@@ -2,6 +2,8 @@
   // Vista Logs (`#/logs`, 01 §7.5 con C1, C2, C19 y C20): barra de filtros, lista virtual
   // de 20 px con un anillo de 10 000 entradas en directo, y el inspector. Los filtros
   // viven en el hash, así que el tray, el Panel o Sitios abren una vista ya filtrada.
+  // Textos del área diferida «logs» (docs/i18n.md): viajan con esta vista.
+  import "../../lib/i18n/locales/logs";
   import { onDestroy, onMount, untrack } from "svelte";
 
   import type { LogEntry } from "../../lib/bindings/LogEntry";

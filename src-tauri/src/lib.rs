@@ -11,7 +11,7 @@ mod tray;
 mod watch;
 mod window;
 
-use elephant_core::settings;
+use elephant_core::{i18n, settings};
 use tauri::{AppHandle, Manager, RunEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -31,11 +31,14 @@ fn keep_in_menu_bar(app: &AppHandle) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let hidden = std::env::args().any(|arg| arg == HIDDEN);
+    let settings = settings::load();
+    // Antes de construir nada: el menú y el primer snapshot ya salen en su idioma.
+    i18n::set_override(i18n::resolve(settings.language));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec![HIDDEN])))
-        .manage(AppState::new(settings::load()))
+        .manage(AppState::new(settings))
         .manage(LogsState::default())
         .manage(SetupState::default())
         .manage(McpState)

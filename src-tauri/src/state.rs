@@ -11,7 +11,8 @@ use elephant_core::mailpit::{self, MailpitInfo};
 use elephant_core::monitor::Usage;
 use elephant_core::php::{self, PhpStatus};
 use elephant_core::settings::{McpMode, Settings};
-use elephant_core::{paths, setup};
+use elephant_core::i18n::{self, Locale};
+use elephant_core::{paths, setup, tr};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -39,6 +40,9 @@ pub struct Snapshot {
     /// No existe `setup.json`: hay que mostrar el asistente (C8).
     pub setup_needed: bool,
     pub settings: Settings,
+    /// El idioma ya resuelto (`settings.language`, con «Sistema» convertido):
+    /// la interfaz y el backend escriben en el mismo.
+    pub locale: Locale,
 }
 
 /// Un objetivo con una operación en curso: «Reiniciando…».
@@ -163,6 +167,7 @@ impl AppState {
             mailpit: MailpitInfo::default(),
             setup_needed: setup::state::load().is_none(),
             settings,
+            locale: i18n::locale(),
         };
         Self(Mutex::new(Inner {
             snapshot,
@@ -363,8 +368,12 @@ fn service_problems(components: &[Component]) -> Vec<Problem> {
             id: format!("{}:{}", ProblemKind::ServiceError.slug(), service.name),
             target: service.name.clone(),
             message: match service.exit_code {
-                Some(code) => format!("{} se ha detenido (código {code})", service.name),
-                None => format!("{} se ha detenido", service.name),
+                Some(code) => tr!(
+                    "{name} se ha detenido (código {code})",
+                    "{name} stopped (code {code})",
+                    name = service.name
+                ),
+                None => tr!("{name} se ha detenido", "{name} stopped", name = service.name),
             },
             kind: ProblemKind::ServiceError,
         })
@@ -407,6 +416,15 @@ mod tests {
         assert_eq!(problems[0].message, "mysql se ha detenido (código 1)");
         assert_eq!(problems[0].id, "service_error:mysql");
         assert_eq!(problems[1].message, "nginx se ha detenido");
+        let english = i18n::with_locale(Locale::En, || service_problems(&[component("mysql", "error", Some(1))]));
+        assert_eq!(english[0].message, "mysql stopped (code 1)");
+    }
+
+    #[test]
+    fn the_snapshot_carries_the_resolved_locale() {
+        let state = AppState::new(Settings::default());
+        assert_eq!(state.snapshot().locale, Locale::Es);
+        assert_eq!(serde_json::to_value(state.snapshot()).unwrap()["locale"], "es");
     }
 
     #[test]

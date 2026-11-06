@@ -12,3 +12,7 @@ serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true
 clap.workspace = true
+
+# Los tests escriben en español (docs/i18n.md).
+[dev-dependencies]
+elephant-core = { workspace = true, features = ["test-locale"] }

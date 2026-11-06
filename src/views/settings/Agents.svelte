@@ -3,6 +3,8 @@
   // plugin de Claude Code, la guía para otros agentes, los fragmentos MCP y la
   // actividad. La app nunca escribe la configuración de otros programas: solo
   // ejecuta, tras confirmarlo, los dos comandos de `claude plugin`.
+  // Textos del área diferida «agents» (docs/i18n.md): viajan con esta vista.
+  import "../../lib/i18n/locales/agents";
   import { onMount } from "svelte";
 
   import * as ipc from "../../lib/ipc";

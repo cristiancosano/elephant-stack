@@ -837,6 +837,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "elephant-api",
+ "elephant-core",
  "elephant-mcp",
  "serde_json",
 ]
@@ -872,6 +873,7 @@ name = "elephant-mcp"
 version = "0.1.0"
 dependencies = [
  "elephant-api",
+ "elephant-core",
  "rmcp",
  "schemars 1.2.3",
  "serde",

@@ -856,6 +856,23 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Descarta el menú nativo y lo construye de nuevo con el snapshot actual
+/// (al cambiar el idioma). Las dos cosas van en orden al hilo principal.
+pub fn rebuild(app: &AppHandle) {
+    let handle = app.clone();
+    let reset = app.run_on_main_thread(move || {
+        if let Some(menu) = handle.try_state::<TrayMenu>() {
+            *menu.lock() = None;
+        }
+    });
+    if let Err(error) = reset {
+        eprintln!("No se pudo reconstruir el menú de la barra: {error}");
+        return;
+    }
+    let state = app.state::<AppState>();
+    schedule_sync(app, &state.snapshot(), state.usage_kb());
+}
+
 /// Lo llama solo `state::update`.
 pub fn refresh(app: &AppHandle, snapshot: &Snapshot, usage_kb: Option<u64>) {
     schedule_sync(app, snapshot, usage_kb);
@@ -970,6 +987,7 @@ mod tests {
             },
             setup_needed: false,
             settings: Settings::default(),
+            locale: elephant_core::i18n::Locale::Es,
         }
     }
 

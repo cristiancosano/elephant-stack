@@ -81,6 +81,7 @@ elephant-stack/
 ├── .github/workflows/ci.yml      P99
 ├── docs/decisions/00-plan.md     (este documento)
 ├── docs/agent-api.json           P09  (contrato versionado del catálogo; `elephant schema --check`)
+├── docs/i18n.md                  i18n base (idiomas: `tr!`, `t()`, áreas, glosario)
 ├── docs/capturas/                P99
 ├── scripts/
 │   ├── install-shim.sh           P01 → P09
@@ -118,6 +119,8 @@ elephant-stack/
     │   ├── ipc.ts  events.ts     P01 → P99
     │   ├── route.ts  route.test.ts  router.svelte.ts       P02
     │   ├── format.ts  format.test.ts  virtual.ts  virtual.test.ts   P02
+    │   ├── i18n/                 i18n base (index.svelte.ts, translate.ts, types.ts, registro)
+    │   │   └── locales/{es,en}/<área>.ts   un dueño por área (docs/i18n.md)
     │   ├── stores/app.svelte.ts  stores/usage.svelte.ts    P06
     │   ├── stores/logs.svelte.ts  logs/*.ts (+tests)       P07
     │   └── stores/wizard.svelte.ts  wizard/*.ts (+tests)   P08
@@ -150,7 +153,7 @@ elephant-stack/
    - Los tests que leen el sistema real llevan `#[ignore]` y nunca escriben.
    - No se usa `std::env::set_var` en tests unitarios: en Rust 2024 es `unsafe` y provoca condiciones de carrera.
 8. **Atributos `ts` condicionados.** En `elephant-core` y `elephant-logs` se escribe `#[cfg_attr(feature = "ts", derive(TS), ts(export))]` y en los campos `#[cfg_attr(feature = "ts", ts(type = "number"))]`. En `src-tauri` se usa `cfg_attr(test, …)`. Un `#[ts(...)]` sin condición no compila sin ts-rs.
-9. **Mensajes en español** en todo lo que ve el usuario o el agente. Los nombres de código van en inglés, como hoy.
+9. **Mensajes en español e inglés** en todo lo que ve el usuario o el agente ([i18n](../i18n.md)): `tr!("…", "…")` en Rust y `t("<área>.<clave>")` en la interfaz, con el español como referencia y como idioma de los tests. Los nombres de código van en inglés, como hoy.
 10. **Comprobación base** de cualquier paquete Rust:
     ```sh
     export PATH="/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin:$PATH"
@@ -210,6 +213,16 @@ Scripts de `package.json`:
 pub mod audit; pub mod brew; pub mod components; pub mod jobs; pub mod launchd; pub mod lock; pub mod mailpit;
 pub mod monitor; pub mod needs; pub mod ops; pub mod paths; pub mod php; pub mod project;
 pub mod redact; pub mod settings; pub mod setup; pub mod stamp; pub mod tools; pub mod validate;
+pub mod i18n;
+
+// i18n.rs (docs/i18n.md)
+pub enum Locale { Es, En }                                  // snake_case; + TS
+pub fn resolve(language: Language) -> Locale;               // System → system_locale()
+pub fn system_locale() -> Locale;                           // AppleLanguages, después LC_ALL/LC_MESSAGES/LANG; «es…» → Es, si no En
+pub fn locale() -> Locale;                                  // cacheado; Es en tests (cfg(test) o feature test-locale)
+pub fn set_override(locale: Locale);                        // la app, al arrancar y al cambiar el ajuste
+pub fn with_locale<T>(locale: Locale, f: impl FnOnce() -> T) -> T;   // solo en este hilo (tests)
+// macros: tr!("es", "en", args…) -> String · tr_str!("es", "en") -> &'static str
 
 // paths.rs
 pub fn home() -> Result<PathBuf, String>;
@@ -267,6 +280,7 @@ pub fn install_component(id: &str, on_line: &mut dyn FnMut(&str)) -> Result<(), 
 pub struct Settings {
     pub keep_in_menu_bar: bool,          // true
     pub appearance: AppearanceMode,      // System | Light | Dark  ("system")
+    pub language: Language,              // System | Es | En  ("system")
     pub show_php_in_menu_bar: bool,      // false
     pub watch_services: bool,            // true
     pub editor: Editor,                  // Vscode | Phpstorm | Cursor  ("vscode")
@@ -462,6 +476,7 @@ pub struct Snapshot {
     pub mailpit: MailpitInfo,
     pub setup_needed: bool,                          // C8
     pub settings: Settings,
+    pub locale: Locale,                              // settings.language ya resuelto (docs/i18n.md)
 }
 pub struct Busy { pub target: String, pub label: String }
 pub struct Problem { pub id: String, pub target: String, pub message: String, pub kind: ProblemKind }
@@ -499,7 +514,7 @@ pub fn services_bulk(app: &AppHandle, op: Operation) -> Result<(), String>;
 pub fn install_component(app: &AppHandle, id: &str, on_line: &mut dyn FnMut(&str)) -> Result<(), String>;
 pub fn set_global_php(app: &AppHandle, key: &str) -> Result<(), String>;
 pub fn set_project_php(app: &AppHandle, dir: &Path, key: &str) -> Result<(), String>;
-pub fn set_settings(app: &AppHandle, s: Settings) -> Result<Settings, String>;   // conserva `extra`, aplica el tema y emite
+pub fn set_settings(app: &AppHandle, s: Settings) -> Result<Settings, String>;   // conserva `extra`, aplica el tema y el idioma y emite
 pub enum SiteAction { Browser, Editor, Terminal, CopyUrl }
 pub fn site(app: &AppHandle, project_id: &str, action: SiteAction) -> Result<(), String>;
 pub fn open_in_editor(app: &AppHandle, file: &Path, line: Option<u32>) -> Result<(), String>;
@@ -536,10 +551,12 @@ pub fn build(app: &AppHandle) -> tauri::Result<()>;              // icono + on_t
 pub fn refresh(app: &AppHandle, snapshot: &Snapshot, usage_kb: Option<u64>);
 pub fn set_usage(app: &AppHandle, usage_kb: Option<u64>);        // solo set_text de la cabecera
 pub fn handle(app: &AppHandle, id: &str) -> bool;                 // true si el id era suyo
+pub fn rebuild(app: &AppHandle);                                  // al cambiar el idioma: menú nuevo con el snapshot actual
 
 // app_menu.rs (P01 stub → P05)
 pub fn build(app: &AppHandle) -> tauri::Result<tauri::menu::Menu<tauri::Wry>>;
 pub fn handle(app: &AppHandle, id: &str) -> bool;                 // ids "app:*"
+pub fn rebuild(app: &AppHandle);                                  // al cambiar el idioma (set_menu en el hilo principal)
 
 // watch.rs (P01 stub → P05)
 pub fn start(app: &AppHandle);      // hilo launchctl cada 20 s si settings.watch_services + notify sobre state.stamp y jobs/
@@ -675,6 +692,20 @@ export const router: { route: Route };                 // $state
 export function go(target: string | Route): void;
 export function setParams(p: Record<string, string | null>, opts?: { replace?: boolean }): void;
 ```
+
+**Idiomas (`src/lib/i18n/`, docs/i18n.md).** Ningún texto visible se escribe suelto en un componente o un store:
+
+```ts
+// index.svelte.ts
+export function t<K extends MessageKey>(key: K, ...params: ArgsFor<At<Messages, K>>): string;  // "settings.title"; plurales { one, other } con `count`
+export const fmt: { number, memory, bytes, cpu, duration, list, clock, shortDate, dateTime, relative };  // las de format.ts, según el idioma
+export const i18n: { readonly locale: Locale };          // reactivo
+export function changeLocale(locale: Locale): Promise<void>;   // App.svelte, con Snapshot.locale
+// locales/es/<área>.ts (referencia, `as const`) y locales/en/<área>.ts (`satisfies Dictionary<typeof es>`);
+// áreas: common, shell, ui, panel, services, php, sites, logs, wizard, settings, agents.
+```
+
+El cambio de idioma va por `set_settings` (`settings.language`): no hay comandos nuevos.
 
 **Props de las vistas.** Las vistas no importan ningún store global: `Shell.svelte` les pasa los datos.
 

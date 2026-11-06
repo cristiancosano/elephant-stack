@@ -56,7 +56,7 @@ impl Catalog {
     pub(crate) fn with_projects(home: &Path, projects: Arc<Vec<Project>>, config: &Config) -> Self {
         let sources: Vec<SourceStatus> = source_list(home, &projects, config)
             .into_iter()
-            .map(status)
+            .map(|(source, base)| status(source, &base))
             .collect();
         let files = sources
             .iter()
@@ -145,18 +145,23 @@ pub(crate) fn is_herd(source: &LogSource) -> bool {
     source.id.ends_with(":herd")
 }
 
-fn source_list(home: &Path, projects: &[Project], config: &Config) -> Vec<LogSource> {
+/// Cada fuente con la carpeta de la que no pueden salir sus archivos: la raíz
+/// del proyecto para `storage/logs` y la propia carpeta en las demás.
+fn source_list(home: &Path, projects: &[Project], config: &Config) -> Vec<(LogSource, PathBuf)> {
     let mut list = Vec::new();
     for project in projects {
         let logs = project.root.join("storage/logs");
         if project.kind == crate::ProjectKind::Laravel || logs.is_dir() {
-            list.push(LogSource {
-                id: format!("laravel_app:{}", project.id),
-                kind: SourceKind::LaravelApp,
-                project: Some(project.id.clone()),
-                dir: logs,
-                pattern: "*.log".into(),
-            });
+            list.push((
+                LogSource {
+                    id: format!("laravel_app:{}", project.id),
+                    kind: SourceKind::LaravelApp,
+                    project: Some(project.id.clone()),
+                    dir: logs,
+                    pattern: "*.log".into(),
+                },
+                project.root.clone(),
+            ));
         }
         let globs = config
             .overrides
@@ -171,13 +176,16 @@ fn source_list(home: &Path, projects: &[Project], config: &Config) -> Vec<LogSou
             let (Some(dir), Some(pattern)) = (path.parent(), path.file_name()) else {
                 continue;
             };
-            list.push(LogSource {
-                id: format!("laravel_app:{}:{}", project.id, index + 1),
-                kind: SourceKind::LaravelApp,
-                project: Some(project.id.clone()),
-                dir: dir.to_path_buf(),
-                pattern: pattern.to_string_lossy().into_owned(),
-            });
+            list.push((
+                LogSource {
+                    id: format!("laravel_app:{}:{}", project.id, index + 1),
+                    kind: SourceKind::LaravelApp,
+                    project: Some(project.id.clone()),
+                    dir: dir.to_path_buf(),
+                    pattern: pattern.to_string_lossy().into_owned(),
+                },
+                dir.to_path_buf(),
+            ));
         }
     }
     if home.join(HERD_DIR).is_dir() {
@@ -213,14 +221,15 @@ fn source_list(home: &Path, projects: &[Project], config: &Config) -> Vec<LogSou
     list
 }
 
-fn global(id: &str, kind: SourceKind, dir: &Path, pattern: &str) -> LogSource {
-    LogSource {
+fn global(id: &str, kind: SourceKind, dir: &Path, pattern: &str) -> (LogSource, PathBuf) {
+    let source = LogSource {
         id: id.into(),
         kind,
         project: None,
         dir: dir.to_path_buf(),
         pattern: pattern.into(),
-    }
+    };
+    (source, dir.to_path_buf())
 }
 
 fn unreadable(path: &Path) -> SourceState {
@@ -233,8 +242,19 @@ fn unreadable(path: &Path) -> SourceState {
     }
 }
 
-/// Lista los archivos de una fuente y comprueba que se pueden leer.
-fn status(source: LogSource) -> SourceStatus {
+/// Si `path`, tras resolver los enlaces, queda dentro de `base`. Un proyecto
+/// clonado puede traer `storage/logs/laravel.log -> ~/.ssh/id_ed25519`: leerlo
+/// se lo daría a un agente y vaciarlo borraría el archivo del usuario.
+fn stays_inside(path: &Path, base: &Path) -> bool {
+    match (fs::canonicalize(path), fs::canonicalize(base)) {
+        (Ok(target), Ok(base)) => target.starts_with(base),
+        _ => false,
+    }
+}
+
+/// Lista los archivos de una fuente y comprueba que se pueden leer. Los
+/// archivos (y la carpeta, si es un enlace) tienen que quedar dentro de `base`.
+fn status(source: LogSource, base: &Path) -> SourceStatus {
     let entries = match fs::read_dir(&source.dir) {
         Ok(entries) => entries,
         Err(error) => {
@@ -259,7 +279,10 @@ fn status(source: LogSource) -> SourceStatus {
         })
         .filter_map(|entry| entry.file_name().to_str().map(str::to_string))
         .filter(|name| !name.starts_with('.') && glob_match(&source.pattern, name))
-        .filter(|name| source.dir.join(name).is_file())
+        .filter(|name| {
+            let path = source.dir.join(name);
+            path.is_file() && stays_inside(&path, base)
+        })
         .collect();
     files.sort();
     let mut state = if files.is_empty() {

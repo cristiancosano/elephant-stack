@@ -377,6 +377,8 @@ fn mcp_handshake(binary: &Path) -> Result<u32, String> {
                 }
             }
         });
+        // Con este nombre, `elephant mcp` no lo anota como uso de un agente
+        // (elephant_mcp::PROBE_CLIENT).
         let messages = [
             json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
                 "protocolVersion": "2025-11-25", "capabilities": {},

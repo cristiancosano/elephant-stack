@@ -46,18 +46,20 @@
   --blue: #007aff;
   --purple: #af52de;
 
-  /* Niveles de log */
+  /* Niveles de log. Se usan como texto de 11 px (también sobre su tinte del 14 %),
+     así que en claro van más oscuros que los colores del sistema: todos pasan de
+     4,5:1 (WCAG AA). En oscuro, los del sistema ya cumplen. */
   --lvl-debug: var(--label-3);
-  --lvl-info: var(--blue);
-  --lvl-notice: #5ac8fa;
-  --lvl-warning: var(--orange);
-  --lvl-error: var(--red);
-  --lvl-critical: var(--purple);
+  --lvl-info: #0063cf;
+  --lvl-notice: #006e9f;
+  --lvl-warning: #bf3100;
+  --lvl-error: #c80014;
+  --lvl-critical: #8944ab;
   /* HTTP */
-  --http-2xx: var(--green);
+  --http-2xx: #1f7734;
   --http-3xx: var(--label-2);
-  --http-4xx: var(--orange);
-  --http-5xx: var(--red);
+  --http-4xx: #bf3100;
+  --http-5xx: #c80014;
 
   /* Marca: solo en el héroe del Panel y en el asistente */
   --hero: linear-gradient(135deg, #5e5ce6 0%, #8e5cf0 55%, #bf5af2 100%);
@@ -137,6 +139,14 @@
     --red: #ff453a;
     --blue: #0a84ff;
     --purple: #bf5af2;
+    --lvl-info: var(--blue);
+    --lvl-notice: #5ac8fa;
+    --lvl-warning: var(--orange);
+    --lvl-error: var(--red);
+    --lvl-critical: var(--purple);
+    --http-2xx: var(--green);
+    --http-4xx: var(--orange);
+    --http-5xx: var(--red);
     --hero: linear-gradient(135deg, #4b49c9 0%, #7444d6 55%, #9b3fd1 100%);
   }
 }
@@ -162,6 +172,14 @@
   --red: #ff453a;
   --blue: #0a84ff;
   --purple: #bf5af2;
+  --lvl-info: var(--blue);
+  --lvl-notice: #5ac8fa;
+  --lvl-warning: var(--orange);
+  --lvl-error: var(--red);
+  --lvl-critical: var(--purple);
+  --http-2xx: var(--green);
+  --http-4xx: var(--orange);
+  --http-5xx: var(--red);
   --hero: linear-gradient(135deg, #4b49c9 0%, #7444d6 55%, #9b3fd1 100%);
 }
 

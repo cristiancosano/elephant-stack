@@ -5,17 +5,23 @@ use serde_json::Value;
 
 use crate::{MAX_REPLY_BYTES, Output, Reply, UNTRUSTED_BEGIN, UNTRUSTED_END};
 
-/// Enmascara, recorta y marca el contenido no fiable.
-pub(crate) fn finish(out: Output) -> Reply {
-    finish_with_cap(out, MAX_REPLY_BYTES)
+/// Enmascara, recorta y marca el contenido no fiable. Con `oldest_first`
+/// (`logs tail`), lo que sobra se quita del principio: las entradas más
+/// recientes son las que importan.
+pub(crate) fn finish(out: Output, oldest_first: bool) -> Reply {
+    finish_with_cap(out, MAX_REPLY_BYTES, oldest_first)
 }
 
-pub(crate) fn finish_with_cap(out: Output, cap: usize) -> Reply {
+pub(crate) fn finish_with_cap(out: Output, cap: usize, oldest_first: bool) -> Reply {
     let mut structured = out.structured;
     elephant_core::redact::mask_json(&mut structured);
     let text = elephant_core::redact::mask(&out.text);
-    let (structured, omitted, cursor) = fit_json(structured, cap);
-    let text = fit_text(&text, cap, omitted, cursor.as_deref());
+    let (structured, omitted, cursor) = fit_json(structured, cap, oldest_first);
+    let text = if oldest_first {
+        fit_text_keeping_end(&text, cap)
+    } else {
+        fit_text(&text, cap, omitted, cursor.as_deref())
+    };
     Reply {
         untrusted: structured.get("untrusted").and_then(Value::as_bool).unwrap_or(false),
         next_cursor: structured.get("next_cursor").and_then(Value::as_str).map(str::to_string),
@@ -31,7 +37,8 @@ fn size(value: &Value) -> usize {
 /// Quita elementos del final del array más grande hasta que quepa. Si se
 /// recortan `entries` y hay `next_cursor`, el cursor pasa a ser la última
 /// entrada que queda, para que la página siguiente empiece justo después.
-fn fit_json(mut value: Value, cap: usize) -> (Value, usize, Option<String>) {
+/// Con `oldest_first`, `entries` se recorta por el principio y sin cursor.
+fn fit_json(mut value: Value, cap: usize, oldest_first: bool) -> (Value, usize, Option<String>) {
     // Margen para `omitted` y el cursor.
     let budget = cap.saturating_sub(128);
     let mut omitted = 0;
@@ -45,14 +52,17 @@ fn fit_json(mut value: Value, cap: usize) -> (Value, usize, Option<String>) {
             shorten_longest_string(&mut value, total - budget);
             break;
         };
-        if path.len() == 1 && path[0] == "entries" {
-            entries_cut = true;
-        }
+        let is_entries = path.len() == 1 && path[0] == "entries";
+        entries_cut |= is_entries;
         if let Some(Value::Array(items)) = pointer_mut(&mut value, &path) {
             // Lo que sobra, según el tamaño medio de cada elemento; al menos uno.
             let per_item = (size(&Value::Array(items.clone())) / items.len()).max(1);
             let remove = (total - budget).div_ceil(per_item).clamp(1, items.len());
-            items.truncate(items.len() - remove);
+            if is_entries && oldest_first {
+                items.drain(..remove);
+            } else {
+                items.truncate(items.len() - remove);
+            }
             omitted += remove;
         }
     }
@@ -61,7 +71,7 @@ fn fit_json(mut value: Value, cap: usize) -> (Value, usize, Option<String>) {
         && let Value::Object(map) = &mut value
     {
         map.insert("omitted".into(), Value::from(omitted));
-        if entries_cut && map.contains_key("next_cursor") {
+        if entries_cut && !oldest_first && map.contains_key("next_cursor") {
             let last = map
                 .get("entries")
                 .and_then(Value::as_array)
@@ -150,6 +160,51 @@ fn fit_text(text: &str, cap: usize, omitted: usize, cursor: Option<&str>) -> Str
     out
 }
 
+/// Como [`fit_text`], pero quita líneas del principio del bloque no fiable y
+/// conserva el título y el final, que es lo más reciente.
+fn fit_text_keeping_end(text: &str, cap: usize) -> String {
+    let budget = cap.saturating_sub(256);
+    if text.len() <= budget {
+        return text.to_string();
+    }
+    const NOTE: &str =
+        "Salida recortada a 24 KB: faltan las entradas más antiguas. Acota con --lines, --level o --contains.";
+    // Lo que va hasta la marca de inicio (incluida) se queda.
+    let head_end = text
+        .find(UNTRUSTED_BEGIN)
+        .map(|at| text[at..].find('\n').map_or(text.len(), |n| at + n + 1))
+        .unwrap_or(0);
+    let (head, body) = text.split_at(head_end);
+    let head_before_marker = head.strip_suffix('\n').unwrap_or(head);
+    let (title, marker) = match head_before_marker.rfind('\n') {
+        Some(at) => (&head_before_marker[..at], &head_before_marker[at + 1..]),
+        None => ("", head_before_marker),
+    };
+    let fixed = title.len() + NOTE.len() + marker.len() + 3;
+    let room = budget.saturating_sub(fixed);
+    let mut start = body.len().saturating_sub(room);
+    while !body.is_char_boundary(start) {
+        start += 1;
+    }
+    // Desde el principio de una línea.
+    if start > 0 {
+        start = body[start..].find('\n').map_or(body.len(), |n| start + n + 1);
+    }
+    let mut out = String::new();
+    if !title.is_empty() {
+        out.push_str(title);
+        out.push('\n');
+    }
+    out.push_str(NOTE);
+    out.push('\n');
+    if !marker.is_empty() {
+        out.push_str(marker);
+        out.push('\n');
+    }
+    out.push_str(&body[start..]);
+    out
+}
+
 /// Como mucho `max` bytes, sin partir un carácter. Añade «…» si recorta.
 pub(crate) fn truncate_bytes(text: &str, max: usize) -> String {
     if text.len() <= max {
@@ -177,10 +232,13 @@ mod tests {
 
     #[test]
     fn small_replies_pass_untouched_but_masked() {
-        let reply = finish(Output {
-            structured: json!({"line": "DB_PASSWORD=secreto", "untrusted": true, "next_cursor": null}),
-            text: "DB_PASSWORD=secreto".into(),
-        });
+        let reply = finish(
+            Output {
+                structured: json!({"line": "DB_PASSWORD=secreto", "untrusted": true, "next_cursor": null}),
+                text: "DB_PASSWORD=secreto".into(),
+            },
+            false,
+        );
         assert_eq!(reply.structured["line"], "DB_PASSWORD=••••");
         assert_eq!(reply.text, "DB_PASSWORD=••••");
         assert!(reply.untrusted);
@@ -195,10 +253,10 @@ mod tests {
             text.push_str(&format!("e{i} {}\n", "x".repeat(40)));
         }
         text.push_str(UNTRUSTED_END);
-        let reply = finish(Output {
-            structured: json!({"entries": entries, "next_cursor": "e1999", "untrusted": true}),
-            text,
-        });
+        let reply = finish(
+            Output { structured: json!({"entries": entries, "next_cursor": "e1999", "untrusted": true}), text },
+            false,
+        );
         let json = serde_json::to_string(&reply.structured).unwrap();
         assert!(json.len() <= MAX_REPLY_BYTES, "{}", json.len());
         let kept = reply.structured["entries"].as_array().unwrap();
@@ -211,8 +269,40 @@ mod tests {
     }
 
     #[test]
+    fn tail_keeps_the_newest_entries_and_offers_no_cursor() {
+        // 100 entradas de ~1,2 KB en orden cronológico, como `logs tail`.
+        let entries: Vec<Value> = (0..100)
+            .map(|i| json!({"id": format!("e{i}"), "message": "m".repeat(500), "exception": "x".repeat(500)}))
+            .collect();
+        let mut text = format!("100 entradas, de la más antigua a la más reciente\n{UNTRUSTED_BEGIN}\n");
+        for i in 0..100 {
+            text.push_str(&format!("e{i} {} {}\n", "m".repeat(500), "x".repeat(500)));
+        }
+        text.push_str(UNTRUSTED_END);
+        let reply = finish(
+            Output { structured: json!({"entries": entries, "untrusted": true, "next_cursor": null}), text },
+            true,
+        );
+        let kept = reply.structured["entries"].as_array().unwrap();
+        assert!(kept.len() < 100 && !kept.is_empty());
+        assert_eq!(kept.last().unwrap()["id"], "e99", "se conservan las más recientes");
+        assert_eq!(reply.structured["next_cursor"], Value::Null);
+        assert_eq!(reply.next_cursor, None);
+        assert_eq!(reply.structured["omitted"], 100 - kept.len());
+        assert!(serde_json::to_string(&reply.structured).unwrap().len() <= MAX_REPLY_BYTES);
+
+        assert!(reply.text.len() <= MAX_REPLY_BYTES);
+        assert!(!reply.text.contains("--cursor"));
+        assert!(reply.text.starts_with("100 entradas, de la más antigua a la más reciente\nSalida recortada"));
+        assert!(reply.text.contains(&format!("\n{UNTRUSTED_BEGIN}\ne")), "{}", &reply.text[..300]);
+        assert!(reply.text.ends_with(UNTRUSTED_END));
+        assert!(reply.text.contains("e99 "));
+        assert!(!reply.text.contains("\ne0 "));
+    }
+
+    #[test]
     fn a_single_huge_string_is_shortened() {
-        let reply = finish(Output { structured: json!({"body": "y".repeat(100_000)}), text: "ok".into() });
+        let reply = finish(Output { structured: json!({"body": "y".repeat(100_000)}), text: "ok".into() }, false);
         assert!(serde_json::to_string(&reply.structured).unwrap().len() <= MAX_REPLY_BYTES);
         assert!(reply.structured["body"].as_str().unwrap().ends_with('…'));
     }

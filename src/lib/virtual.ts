@@ -63,6 +63,15 @@ export function isNearStart(scrollTop: number, rowHeight: number, rows = OVERSCA
 }
 
 /**
+ * ¿Se puede salir de la zona «cerca del principio» con el scroll? Si no (pocas
+ * filas, o ninguna barra de desplazamiento), nunca llega la transición que pide
+ * más historial y hay que pedirlo sin esperar al scroll.
+ */
+export function canLeaveStart(count: number, rowHeight: number, viewportHeight: number, rows = OVERSCAN): boolean {
+  return !isNearStart(maxScrollTop(count, rowHeight, viewportHeight), rowHeight, rows);
+}
+
+/**
  * `scrollTop` mínimo que deja visible la fila `index` sin moverse si ya lo está.
  * Si queda por encima, la alinea arriba; si queda por debajo, abajo.
  */

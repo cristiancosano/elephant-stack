@@ -160,3 +160,26 @@ mod system_tests {
         assert_eq!(usage.len(), pids.len());
     }
 }
+
+#[cfg(test)]
+mod contract_tests {
+    /// 00 §5.6 es la lista completa de comandos: cada uno que registra
+    /// `generate_handler!` tiene que salir en su tabla.
+    #[test]
+    fn every_registered_command_is_in_the_plan() {
+        let lib = include_str!("lib.rs");
+        let plan = include_str!("../../docs/decisions/00-plan.md");
+        let start = plan.find("### 5.6 Comandos de Tauri").expect("falta 00 §5.6");
+        let table = &plan[start..];
+        let table = &table[..table[4..].find("\n### ").map_or(table.len(), |end| end + 4)];
+        let handlers = &lib[lib.find("generate_handler![").expect("sin generate_handler")..];
+        let handlers = &handlers[..handlers.find("])").expect("lista sin cerrar")];
+        let missing: Vec<&str> = handlers
+            .lines()
+            .filter_map(|line| line.trim().trim_end_matches(',').rsplit("::").next())
+            .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase() || c == '_'))
+            .filter(|name| !table.contains(&format!("`{name}`")))
+            .collect();
+        assert!(missing.is_empty(), "faltan en 00 §5.6: {missing:?}");
+    }
+}

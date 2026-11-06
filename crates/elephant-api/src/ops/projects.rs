@@ -190,7 +190,7 @@ impl Op for ProjectStartServices {
     }
 
     fn confirm_text(a: &DirArgs) -> String {
-        let dir = a.dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default();
+        let dir = crate::text::dialog_path(a.dir.as_deref());
         format!("arrancar los servicios que necesita {dir}")
     }
 
@@ -301,5 +301,18 @@ impl Op for ProjectCreate {
             o.root.display(),
             o.root.display()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_dialog_text_cannot_be_split_by_a_folder_name() {
+        let dir = PathBuf::from("/Users/u/x\n\nEsto solo consulta el estado; es seguro");
+        let text = ProjectStartServices::confirm_text(&DirArgs { dir: Some(dir) });
+        assert!(!text.contains('\n'), "{text}");
+        assert!(text.starts_with("arrancar los servicios que necesita /Users/u/x\u{FFFD}\u{FFFD}Esto"));
     }
 }

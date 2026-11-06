@@ -16,11 +16,14 @@
   });
 </script>
 
-<div class="toaster">
+<!-- La región viva es el contenedor, que existe siempre: WebKit con VoiceOver no
+     suele anunciar una región que aparece ya con su texto. Los errores van con
+     role="alert", que sí se anuncia al insertarse. -->
+<div class="toaster" role="status" aria-live="polite">
   {#each toasts as t (t.id)}
     <div
       class="toast {t.tone}"
-      role={t.tone === "error" ? "alert" : "status"}
+      role={t.tone === "error" ? "alert" : undefined}
       transition:fly={motion}
       onpointerenter={() => hold(t.id)}
       onpointerleave={() => release(t.id)}

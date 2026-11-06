@@ -815,3 +815,92 @@ fn summaries_carry_the_saved_override_and_the_hub_sees_it_after_invalidate() {
     hub.invalidate();
     assert_eq!(current(&hub), Some(o));
 }
+
+// Un proyecto clonado no puede hacer que se lea o se vacíe un archivo de fuera.
+#[test]
+fn symlinked_logs_must_stay_inside_the_project() {
+    let home = Home::herd("symlinks", false);
+    let logs = home.path().join("Herd/tienda/storage/logs");
+    let secret = home.path().join(".ssh/id_ed25519");
+    write(&secret, "-----BEGIN OPENSSH PRIVATE KEY-----\nsecreto\n");
+    std::os::unix::fs::symlink(&secret, logs.join("fuera.log")).unwrap();
+    std::os::unix::fs::symlink("../../../../.ssh/id_ed25519", logs.join("relativo.log")).unwrap();
+    let inside = home.path().join("Herd/tienda/otros/worker.log");
+    write(&inside, "[2026-11-06 10:00:00] local.INFO: Dentro del proyecto\n");
+    std::os::unix::fs::symlink(&inside, logs.join("dentro.log")).unwrap();
+
+    let tienda = home.project_id("tienda");
+    let status = sources(home.path(), Some(&tienda));
+    let files = &status
+        .iter()
+        .find(|s| s.source.id == format!("laravel_app:{tienda}"))
+        .unwrap()
+        .files;
+    assert_eq!(files, &["dentro.log", "laravel.log"]);
+
+    let all = query(home.path(), &only(&tienda, &[SourceKind::LaravelApp])).unwrap();
+    assert!(all.entries.iter().all(|e| !e.message.contains("secreto")));
+    let linked = all
+        .entries
+        .iter()
+        .find(|e| e.message == "Dentro del proyecto")
+        .unwrap();
+    // El enlace de dentro se puede vaciar: se vacía su destino, no el enlace.
+    elephant_logs::clear(home.path(), &linked.id[..16]).unwrap();
+    assert_eq!(fs::metadata(&inside).unwrap().len(), 0);
+    assert!(fs::symlink_metadata(logs.join("dentro.log")).unwrap().is_symlink());
+    assert!(fs::metadata(&secret).unwrap().len() > 0);
+}
+
+// Un archivo enorme sin cabeceras (la salida de `queue:work` en un glob propio)
+// no tapa los demás archivos ni deja un cursor que no sirve.
+#[test]
+fn a_big_file_without_headers_does_not_hide_the_others() {
+    let home = Home::herd("headerless", false);
+    let tienda = home.project_id("tienda");
+    let worker = home.path().join("Herd/tienda/storage/logs/worker.log");
+    {
+        let mut out = std::io::BufWriter::new(fs::File::create(&worker).unwrap());
+        let line = format!("Processing: App\\Jobs\\Enviar {}\n", "x".repeat(200));
+        let mut size = 0usize;
+        while size <= 65 * 1024 * 1024 {
+            out.write_all(line.as_bytes()).unwrap();
+            size += line.len();
+        }
+    }
+    let q = only(&tienda, &[SourceKind::LaravelApp]);
+    let page = query(
+        home.path(),
+        &LogQuery {
+            limit: 3,
+            ..q.clone()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        messages(&page.entries),
+        ["Pasarela de pago caída", "Undefined variable $cliente", "Petición externa"]
+    );
+    let next = query(
+        home.path(),
+        &LogQuery {
+            before: page.next_before.clone(),
+            ..q
+        },
+    )
+    .unwrap();
+    assert_eq!(next.entries.len(), 3);
+    assert_eq!(next.next_before, None);
+
+    // Más pequeño que el tope: una sola entrada, recortada a 1 MB.
+    let text = "Processing: App\\Jobs\\Enviar\n".repeat(200_000);
+    fs::write(&worker, &text).unwrap();
+    let page = query(home.path(), &only(&tienda, &[SourceKind::LaravelApp])).unwrap();
+    let loose = page
+        .entries
+        .iter()
+        .find(|e| e.message.starts_with("Processing"))
+        .unwrap();
+    assert!(loose.len <= 1024 * 1024, "{}", loose.len);
+    assert_eq!(page.entries.len(), 7);
+}

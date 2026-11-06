@@ -101,7 +101,8 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    color: var(--label-3);
+    /* --label-3 se queda en unos 2:1 sobre blanco: corto para texto de 11,5 px. */
+    color: var(--label-2);
   }
 
   .method {

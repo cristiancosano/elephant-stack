@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 
@@ -19,6 +19,22 @@ use crate::paths;
 const SYSTEM_CURL: &str = "/usr/bin/curl";
 const SYSTEM_TAR: &str = "/usr/bin/tar";
 const POLL: Duration = Duration::from_millis(250);
+/// Una descarga que no avanza en este tiempo se cancela (además de los
+/// límites del propio curl): sin esto, una red que se cae sin cerrar la
+/// conexión dejaría el asistente esperando para siempre.
+const STALL: Duration = Duration::from_secs(90);
+/// Opciones de curl para que nunca espere sin límite: conectar en 20 s,
+/// abortar si va a menos de 1 KB/s durante 60 s y nunca más de 30 min.
+const CURL_LIMITS: [&str; 8] = [
+    "--connect-timeout",
+    "20",
+    "--speed-limit",
+    "1024",
+    "--speed-time",
+    "60",
+    "--max-time",
+    "1800",
+];
 
 /// Lo único que puede traer un paquete de php-builds.
 const PHP_ENTRIES: [&str; 4] = ["php", "php-fpm", "xdebug.so", "SHA256SUMS"];
@@ -97,6 +113,17 @@ fn download_file(
     total: u64,
     on_bytes: &mut dyn FnMut(u64, u64),
 ) -> Result<(), String> {
+    download_file_with(curl, url, dest, total, on_bytes, STALL)
+}
+
+fn download_file_with(
+    curl: &Path,
+    url: &str,
+    dest: &Path,
+    total: u64,
+    on_bytes: &mut dyn FnMut(u64, u64),
+    stall: Duration,
+) -> Result<(), String> {
     let mut child = Command::new(curl)
         .args([
             "-fL",
@@ -106,8 +133,9 @@ fn download_file(
             "--tlsv1.2",
             "--retry",
             "2",
-            "-o",
         ])
+        .args(CURL_LIMITS)
+        .arg("-o")
         .arg(dest)
         .arg(url)
         .stdin(Stdio::null())
@@ -123,12 +151,24 @@ fn download_file(
             text
         })
     });
+    let mut last = (0u64, Instant::now());
     let status = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status,
             Ok(None) => {
                 let done = fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
                 on_bytes(done, total.max(done));
+                if done != last.0 {
+                    last = (done, Instant::now());
+                } else if last.1.elapsed() >= stall {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    let _ = fs::remove_file(dest);
+                    return Err(format!(
+                        "La descarga de {url} lleva {} s sin avanzar; se ha cancelado. Comprueba la conexión y vuelve a intentarlo.",
+                        stall.as_secs()
+                    ));
+                }
                 thread::sleep(POLL);
             }
             Err(error) => return Err(format!("No se pudo esperar a curl: {error}")),
@@ -466,7 +506,7 @@ url=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift ;;
-    --proto|--max-time|--retry) shift ;;
+    --proto|--max-time|--retry|--connect-timeout|--speed-limit|--speed-time) shift ;;
     -*) ;;
     *) url="$1" ;;
   esac
@@ -537,6 +577,45 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi"#,
             home: TempDir::new("dl-home"),
             bin: TempDir::new("dl-bin"),
             fixtures: TempDir::new("dl-fix"),
+        }
+    }
+
+    #[test]
+    fn downloads_have_time_limits_and_a_stalled_one_is_cancelled() {
+        let bin = TempDir::new("dl-stall");
+        let args = bin.path().join("args");
+        let curl = bin.path().join("curl");
+        // Anota sus opciones y se queda colgado sin escribir nada.
+        write_script(
+            &curl,
+            &format!("echo \"$@\" > \"{}\"\nexec sleep 30", args.display()),
+        );
+        let dest = bin.path().join("php.tar.gz");
+        let started = Instant::now();
+        let error = download_file_with(
+            &curl,
+            "https://example.test/php.tar.gz",
+            &dest,
+            100,
+            &mut |_, _| {},
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(error.contains("sin avanzar"), "{error}");
+        assert!(!dest.exists());
+        let used = fs::read_to_string(&args).unwrap();
+        for option in [
+            "--connect-timeout 20",
+            "--speed-limit 1024",
+            "--speed-time 60",
+            "--max-time 1800",
+        ] {
+            assert!(used.contains(option), "{used}");
         }
     }
 

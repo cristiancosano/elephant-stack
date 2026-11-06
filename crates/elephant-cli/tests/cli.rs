@@ -554,7 +554,12 @@ struct Mcp {
 
 impl Mcp {
     fn start(s: &Sandbox, elicitation: bool) -> Self {
+        Self::start_with(s, elicitation, &[], "pruebas")
+    }
+
+    fn start_with(s: &Sandbox, elicitation: bool, env: &[(&str, &str)], client: &str) -> Self {
         let mut command = s.command(&["mcp"]);
+        command.envs(env.iter().copied());
         command.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null());
         command.env("CLAUDE_PROJECT_DIR", s.home().join("Herd/tienda"));
         let mut child = command.spawn().unwrap();
@@ -571,7 +576,7 @@ impl Mcp {
         let capabilities = if elicitation { json!({"elicitation": {}}) } else { json!({}) };
         let init = mcp.request(
             "initialize",
-            json!({"protocolVersion": "2025-11-25", "capabilities": capabilities, "clientInfo": {"name": "pruebas", "version": "1.0"}}),
+            json!({"protocolVersion": "2025-11-25", "capabilities": capabilities, "clientInfo": {"name": client, "version": "1.0"}}),
         );
         assert_eq!(init["result"]["protocolVersion"], "2025-11-25", "{init}");
         mcp.send(json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
@@ -696,4 +701,56 @@ fn mcp_uses_elicitation_when_the_client_declares_it() {
     assert!(s.read_calls("osascript").is_empty());
     let entry = s.audit().into_iter().rev().find(|e| e["tool"] == "php_set_global").unwrap();
     assert_eq!(entry["confirmed_by"], "elicitation");
+}
+
+#[test]
+fn mcp_reaps_its_jobs_and_marks_the_ones_that_die_as_failed() {
+    let s = Sandbox::new();
+    s.set_mode("trusted");
+    let mut mcp = Mcp::start_with(&s, false, &[("FAKE_INSTALL_SECS", "30")], "pruebas");
+    let reply = mcp.call("component_install", json!({"id": "redis", "detach": true}));
+    let id = reply["result"]["structuredContent"]["job_id"].as_str().unwrap_or_else(|| panic!("{reply}")).to_string();
+    wait_job_state(&s, "running");
+    let pids = Command::new("pgrep").args(["-f", &format!("__job {id}")]).output().unwrap();
+    let pid = String::from_utf8_lossy(&pids.stdout).lines().next().unwrap().trim().to_string();
+    assert!(Command::new("kill").args(["-9", &pid]).status().unwrap().success());
+
+    let job = wait_job_state(&s, "failed");
+    assert!(job["message"].as_str().unwrap().contains("interrumpió"), "{job}");
+    // El servidor recogió al hijo: ni zombi ni proceso.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let ps = Command::new("ps").args(["-o", "stat=", "-p", &pid]).output().unwrap();
+        if String::from_utf8_lossy(&ps.stdout).trim().is_empty() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "el proceso {pid} sigue como {}", String::from_utf8_lossy(&ps.stdout));
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let status = mcp.call("job_status", json!({"job_id": id}));
+    assert_eq!(status["result"]["structuredContent"]["job"]["state"], "failed", "{status}");
+}
+
+#[test]
+fn a_malformed_job_id_is_a_usage_error() {
+    let s = Sandbox::new();
+    let out = s.run(&["job", "show", "nope"], AGENT);
+    assert_eq!(code(&out), 2, "{}", stderr(&out));
+    assert!(stderr(&out).contains("Identificador de tarea no válido: nope"), "{}", stderr(&out));
+    // Uno bien formado que no existe sí es un fallo (1).
+    let out = s.run(&["job", "show", "abcdef12-1-0"], AGENT);
+    assert_eq!(code(&out), 1, "{}", stderr(&out));
+}
+
+#[test]
+fn the_settings_probe_is_not_agent_usage() {
+    let s = Sandbox::new();
+    let mut mcp = Mcp::start_with(&s, false, &[], "elephant-stack");
+    let listed = mcp.request("tools/list", json!({}));
+    assert!(listed["result"]["tools"].is_array());
+    // Una llamada después: para entonces el `initialize` ya se habría anotado.
+    let reply = mcp.call("php_versions", json!({}));
+    assert_eq!(reply["result"]["isError"], false, "{reply}");
+    drop(mcp);
+    assert!(s.audit().iter().all(|e| e["tool"] != "initialize"), "{:?}", s.audit());
 }

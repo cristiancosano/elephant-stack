@@ -1,6 +1,12 @@
 //! Quién llama (05 §5.2). Es agente si `CLAUDECODE` o `AI_AGENT` están
 //! definidas (con cualquier valor) o si stdin no es un TTY. La detección solo
 //! endurece: ninguna variable convierte a un agente en persona.
+//!
+//! Límite declarado (05 §5.5): un agente que ejecuta sus órdenes en un
+//! pseudo-terminal (node-pty, el terminal integrado de un editor, `script`,
+//! tmux) sin definir esas variables pasa por persona, y en modo `confirm` sus
+//! mutaciones no piden diálogo. Ajustes ▸ Agentes lo explica y recomienda MCP,
+//! donde todo llamante es agente.
 
 use crate::Caller;
 
@@ -79,6 +85,13 @@ mod tests {
         assert!(detect_caller(&env_of(&[("CLAUDECODE", "0")]), true).is_agent());
         assert!(detect_caller(&env_of(&[("AI_AGENT", "")]), true).is_agent());
         assert!(detect_caller(&env_of(&[("AI_AGENT", "")]), false).is_agent());
+    }
+
+    #[test]
+    fn a_pty_without_agent_variables_counts_as_a_person() {
+        // El límite declarado: quien finge un TTY sin anunciarse no se detecta.
+        let caller = detect_caller(&env_of(&[("TERM", "xterm-256color")]), true);
+        assert_eq!(caller, Caller::Person { session: caller.session().to_string() });
     }
 
     #[test]

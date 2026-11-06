@@ -180,7 +180,7 @@ impl Op for PhpSetProject {
     }
 
     fn confirm_text(a: &IsolateArgs) -> String {
-        let dir = a.dir.as_ref().map(|d| d.display().to_string()).unwrap_or_default();
+        let dir = crate::text::dialog_path(a.dir.as_deref());
         format!("usar PHP {} en el proyecto {dir}", a.version)
     }
 

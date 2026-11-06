@@ -546,7 +546,7 @@ pub fn start(app: &AppHandle);      // hilo launchctl cada 20 s si settings.watc
 pub fn tick_now(app: &AppHandle);
 
 // commands/logs.rs (P01 stub → P03)
-#[derive(Default)] pub struct LogsState { /* hub: Mutex<Option<LogHub>>, seen_at_ms, last_brief_ms, … */ }
+#[derive(Default)] pub struct LogsState { /* hub: Mutex<Option<Arc<LogHub>>>, seen_at_ms, last_brief_ms, … */ }
 pub fn release(app: &AppHandle);
 pub fn refresh_brief(app: &AppHandle);    // limitado a 1 cada 30 s; state::update(|s| s.logs = …)
 
@@ -593,12 +593,15 @@ Todos son `async`, devuelven `Result<_, String>` y hacen el trabajo en `spawn_bl
 | | `open_url` / `reveal_in_finder` / `open_terminal` | `url` / `path` / `dir` | `()` |
 | | `site_action` | `project_id: String, action: SiteAction` | `()` |
 | | `open_service_log` | `name: String` | `()` |
+| | `project_start_services` | `dir: String` | `Vec<String>` (los servicios que ha arrancado; lo añadió P10 para la vista Sitios) |
+| | `clear_problems` | `target: String` | `()` (quita los problemas `ActionFailed` de ese objetivo al abrir su vista, 01 §9.4) |
 | `logs.rs` · P03 | `logs_projects` | — | `Vec<ProjectSummary>` |
 | | `logs_query` | `q: LogQuery` | `LogPage` |
 | | `logs_entry` | `id: String` | `EntryDetail` |
 | | `logs_groups` | `q: LogQuery` | `Vec<LogGroup>` |
 | | `logs_subscribe` | `q: LogQuery, on_batch: Channel<LogBatch>` | `u32` |
 | | `logs_unsubscribe` | `id: u32` | `()` |
+| | `logs_roots` | — | `Vec<String>` (carpetas raíz que ha añadido el usuario, para Ajustes ▸ Logs) |
 | | `logs_add_root` / `logs_remove_root` | `path: String` | `Vec<ProjectSummary>` (y `stamp::touch("projects")`) |
 | | `logs_set_override` | `project: String, o: ProjectOverride` | `Vec<ProjectSummary>` |
 | | `logs_clear` | `file_key: String` | `()` |

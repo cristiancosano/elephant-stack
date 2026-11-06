@@ -7,7 +7,7 @@ import * as ipc from "../ipc";
 import { DEFAULT_FILTERS, type Filters } from "../logs/filters";
 import { entry } from "../logs/fixtures";
 import { NOT_AVAILABLE } from "../logs/model";
-import { LogsStore } from "./logs.svelte";
+import { LogsStore, MAX_EMPTY_PAGES } from "./logs.svelte";
 
 vi.mock("../ipc", () => ({
   errorMessage: (e: unknown) => (typeof e === "string" ? e : e instanceof Error ? e.message : String(e)),
@@ -209,6 +209,53 @@ describe("historial y limpiar", () => {
     expect(s.historyDone).toBe(true);
     await s.loadOlder();
     expect(query).toHaveBeenCalledTimes(2);
+  });
+
+  it("una primera página vacía con cursor sigue buscando en vez de darse por vacía", async () => {
+    query.mockResolvedValueOnce({ entries: [], next_before: "x", scanned_bytes: 32 });
+    query.mockResolvedValueOnce({ entries: [], next_before: "y", scanned_bytes: 32 });
+    query.mockResolvedValueOnce(page([1], null));
+    const s = new LogsStore();
+    await s.load({ ...DEFAULT_FILTERS, text: "texto raro" });
+    await flush();
+    await flush();
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[1][0].before).toBe("x");
+    expect(query.mock.calls[2][0].before).toBe("y");
+    expect(ids(s)).toEqual(["f-1"]);
+    expect(s.hasOlder).toBe(false);
+    expect(s.scannedBytes).toBe(32 + 32 + 1000);
+  });
+
+  it("tras varias páginas vacías se para y deja seguir a mano", async () => {
+    query.mockResolvedValue({ entries: [], next_before: "x", scanned_bytes: 1 });
+    const s = new LogsStore();
+    await s.load({ ...DEFAULT_FILTERS, text: "nada" });
+    await flush();
+    await flush();
+    expect(query).toHaveBeenCalledTimes(MAX_EMPTY_PAGES);
+    expect(s.count).toBe(0);
+    expect(s.hasOlder).toBe(true);
+    expect(s.olderPaused).toBe(true);
+    expect(s.loadingOlder).toBe(false);
+    await s.loadOlder();
+    expect(query).toHaveBeenCalledTimes(2 * MAX_EMPTY_PAGES);
+    query.mockReset();
+  });
+
+  it("una carga nueva no se queda bloqueada por el historial de la anterior", async () => {
+    query.mockResolvedValueOnce(page([5, 6], "f-5"));
+    const s = new LogsStore();
+    await s.load(DEFAULT_FILTERS);
+    query.mockImplementationOnce(() => new Promise(() => {}));
+    void s.loadOlder();
+    expect(s.loadingOlder).toBe(true);
+    query.mockResolvedValueOnce(page([7, 8], "f-7"));
+    await s.load({ ...DEFAULT_FILTERS, level: "error" });
+    expect(s.loadingOlder).toBe(false);
+    query.mockResolvedValueOnce(page([1]));
+    await s.loadOlder();
+    expect(ids(s)).toEqual(["f-1", "f-7", "f-8"]);
   });
 
   it("limpiar vacía la lista sin cortar el directo ni volver a pedir historial", async () => {

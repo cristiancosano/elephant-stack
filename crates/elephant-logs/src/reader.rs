@@ -80,10 +80,9 @@ impl BackReader {
                     return Ok(Step::End);
                 }
                 // Líneas sueltas al principio, sin cabecera: no se pierden.
-                return Ok(Step::Record(Record {
-                    offset: 0,
-                    bytes: std::mem::take(&mut self.buf),
-                }));
+                let mut bytes = std::mem::take(&mut self.buf);
+                bytes.truncate(MAX_RECORD);
+                return Ok(Step::Record(Record { offset: 0, bytes }));
             }
             if self.scanned >= self.budget {
                 return Ok(Step::Budget);
@@ -119,7 +118,7 @@ impl BackReader {
             if self.format.is_header(&self.buf[line_start..line_end]) {
                 self.ready.push_back(Record {
                     offset: self.pos + line_start as u64,
-                    bytes: self.buf[line_start..end].to_vec(),
+                    bytes: self.buf[line_start..end.min(line_start + MAX_RECORD)].to_vec(),
                 });
                 end = line_start;
             }
@@ -130,6 +129,11 @@ impl BackReader {
             }
         }
         self.buf.truncate(end);
+        // Lo que sigue sin cabecera es el final de una entrada que empieza más
+        // atrás (o líneas sueltas): de ella solo se entrega el primer MB, así
+        // que el resto se suelta para que la memoria no crezca con el archivo.
+        // Se guarda un bloque más para no partir la línea que hay que mirar.
+        self.buf.truncate(MAX_RECORD + BLOCK as usize);
         Ok(())
     }
 }
@@ -404,6 +408,24 @@ mod tests {
         assert_eq!(records.len(), 20);
         let rebuilt: Vec<u8> = records.iter().rev().flat_map(|r| r.bytes.clone()).collect();
         assert_eq!(rebuilt, text.as_bytes());
+    }
+
+    #[test]
+    fn huge_records_are_capped_and_memory_stays_bounded() {
+        let dir = TempDir::new("huge");
+        let trace = "#0 /app/F.php(1): f()\n".repeat(200_000);
+        let text = format!("{}{trace}{}", line(0), line(1));
+        let file = open(&dir, "a.log", &text);
+        let mut reader = BackReader::new(file, Format::Laravel, text.len() as u64, u64::MAX);
+        let mut records = Vec::new();
+        while let Step::Record(record) = reader.next_record().unwrap() {
+            assert!(reader.buf.len() <= MAX_RECORD + 2 * BLOCK as usize);
+            records.push(record);
+        }
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[1].offset, 0);
+        assert_eq!(records[1].bytes.len(), MAX_RECORD);
+        assert!(records[1].bytes.starts_with(line(0).as_bytes()));
     }
 
     #[test]

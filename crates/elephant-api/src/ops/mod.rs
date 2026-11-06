@@ -45,6 +45,7 @@ const fn meta<O: Op>() -> OpMeta {
         kind: O::KIND,
         idempotent: O::IDEMPOTENT,
         long: O::LONG,
+        oldest_first: O::OLDEST_FIRST,
         about: O::about,
         input_schema: schema_of::<O::Args>,
         output_schema: schema_of::<O::Out>,

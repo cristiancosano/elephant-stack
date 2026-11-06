@@ -37,7 +37,7 @@
   const MODE_HELP: Record<McpMode, string> = {
     read_only: "Los agentes pueden leer el estado y los logs, pero no cambiar nada.",
     confirm:
-      "Cada cambio que pide un agente (reiniciar un servicio, cambiar el PHP, crear un proyecto) muestra un diálogo de Elephant Stack. Los scripts y git hooks cuentan como agentes.",
+      "Cada cambio que pide un agente (reiniciar un servicio, cambiar el PHP, crear un proyecto) muestra un diálogo de Elephant Stack. Los scripts y git hooks cuentan como agentes. Lo que se escribe en una terminal cuenta como tuyo y no pregunta: un agente que ejecuta órdenes en su propia terminal sin anunciarse (sin CLAUDECODE ni AI_AGENT) también pasaría por ti. Para esos agentes, conéctalos por MCP, que siempre pregunta, o usa Solo lectura.",
     trusted: "Los agentes cambian el entorno sin preguntar. Úsalo solo si confías en lo que ejecutan.",
   };
 

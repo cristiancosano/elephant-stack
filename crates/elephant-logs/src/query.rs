@@ -247,6 +247,11 @@ impl FileCursor {
                     self.reader.raise_budget(HARD_BUDGET);
                     continue;
                 }
+                // Ni una cabecera en todo el tope (por ejemplo, la salida de
+                // `queue:work` en un glob propio): no hay ningún punto del
+                // archivo al que pueda apuntar un cursor, así que se da por
+                // leído. Si se parase aquí, taparía las entradas de los demás.
+                Step::Budget if !self.examined_any => return Ok(Pull::End),
                 Step::Budget => return Ok(Pull::Budget),
             };
             self.examined_any = true;
@@ -449,11 +454,11 @@ fn pull_into(
         }
         Pull::End => {}
         Pull::Budget => {
-            // Sin nada examinado no hay frontera: lo que queda empieza en el final.
-            let frontier = cursor
-                .frontier
-                .unwrap_or((i64::MAX, cursor.ctx.key, u64::MAX));
-            *floor = Some(floor.map_or(frontier, |f| f.max(frontier)));
+            // `pull` solo para por presupuesto tras examinar algo, así que
+            // siempre hay frontera.
+            if let Some(frontier) = cursor.frontier {
+                *floor = Some(floor.map_or(frontier, |f| f.max(frontier)));
+            }
         }
     }
     Ok(())

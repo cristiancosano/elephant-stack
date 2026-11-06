@@ -98,6 +98,14 @@ impl Server {
     }
 }
 
+/// El `clientInfo.name` con el que «Probar conexión» de Ajustes hace el
+/// handshake (src-tauri/src/commands/mcp.rs).
+pub const PROBE_CLIENT: &str = "elephant-stack";
+
+fn is_probe(peer: &Peer<RoleServer>) -> bool {
+    peer.peer_info().is_some_and(|info| info.client_info.name == PROBE_CLIENT)
+}
+
 /// El proyecto por defecto: `CLAUDE_PROJECT_DIR` o el `cwd`. Nunca `roots`.
 fn project_dir() -> Option<std::path::PathBuf> {
     std::env::var_os("CLAUDE_PROJECT_DIR")
@@ -120,6 +128,41 @@ fn schema_object(value: Value) -> Arc<Map<String, Value>> {
     Arc::new(map)
 }
 
+/// Lo que devuelve una operación larga que sigue en marcha (ver [`to_result`]).
+fn running_schema() -> Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "job_id": {"type": "string", "description": "Consulta cómo va con job_status."},
+            "state": {"const": "running"}
+        },
+        "required": ["job_id", "state"]
+    })
+}
+
+/// El esquema de salida de una operación larga: su resultado o «sigue en
+/// marcha». Los clientes validan `structuredContent` de los resultados que no
+/// son error contra `outputSchema`, así que tiene que admitir las dos formas.
+/// Las definiciones (`$defs`) suben a la raíz para que las referencias sigan
+/// resolviendo.
+fn or_running(value: Value) -> Value {
+    let mut inner = match value {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    let mut root = Map::new();
+    root.insert("type".into(), Value::from("object"));
+    for key in ["$defs", "definitions"] {
+        if let Some(defs) = inner.remove(key) {
+            root.insert(key.into(), defs);
+        }
+    }
+    inner.remove("$schema");
+    inner.remove("title");
+    root.insert("anyOf".into(), Value::Array(vec![Value::Object(inner), running_schema()]));
+    Value::Object(root)
+}
+
 /// Las herramientas para un modo, en el orden del catálogo.
 pub fn tools(mode: settings::McpMode) -> Vec<Tool> {
     elephant_api::catalog_for(mode)
@@ -129,7 +172,8 @@ pub fn tools(mode: settings::McpMode) -> Vec<Tool> {
             tool.name = Cow::Borrowed(op.id);
             tool.description = Some(Cow::Borrowed((op.about)()));
             tool.input_schema = schema_object((op.input_schema)());
-            tool.output_schema = Some(schema_object((op.output_schema)()));
+            let output = (op.output_schema)();
+            tool.output_schema = Some(schema_object(if op.long { or_running(output) } else { output }));
             let mut annotations = ToolAnnotations::new();
             annotations.read_only_hint = Some(op.kind == Kind::Read);
             annotations.destructive_hint = Some(false);
@@ -228,7 +272,11 @@ impl ServerHandler for Server {
     }
 
     async fn on_initialized(&self, context: NotificationContext<RoleServer>) {
-        // «Usado hace X» en Ajustes > Agentes sale de la última línea de la auditoría.
+        // «Usado hace X» en Ajustes > Agentes sale de la última línea de la
+        // auditoría. «Probar conexión» de la app no es uso de un agente.
+        if is_probe(&context.peer) {
+            return;
+        }
         let caller = self.caller(&context.peer);
         let entry = AuditEntry {
             at: elephant_api::elephant_core::now_rfc3339(),
@@ -385,6 +433,54 @@ mod tests {
         let running = to_result(Err(ApiError { code: ErrorCode::Running, message: "sigue".into(), job_id: Some("j-12345678".into()) }));
         assert_eq!(running.is_error, Some(false));
         assert_eq!(running.structured_content.as_ref().and_then(|v| v["job_id"].as_str()), Some("j-12345678"));
+    }
+
+    /// Lo justo de JSON Schema para comprobar `structuredContent`: `type`,
+    /// `required`, `const`, `anyOf` y `$ref` a `$defs`.
+    fn conforms(value: &Value, schema: &Value, root: &Value) -> bool {
+        if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+            let name = reference.trim_start_matches("#/$defs/");
+            return conforms(value, &root["$defs"][name], root);
+        }
+        if let Some(any) = schema.get("anyOf").and_then(Value::as_array)
+            && !any.iter().any(|branch| conforms(value, branch, root))
+        {
+            return false;
+        }
+        if let Some(wanted) = schema.get("const")
+            && wanted != value
+        {
+            return false;
+        }
+        if schema.get("type").and_then(Value::as_str) == Some("object") && !value.is_object() {
+            return false;
+        }
+        let required = schema.get("required").and_then(Value::as_array).cloned().unwrap_or_default();
+        required.iter().filter_map(Value::as_str).all(|key| value.get(key).is_some())
+    }
+
+    #[test]
+    fn long_tools_accept_the_running_result_in_their_output_schema() {
+        let all = tools(settings::McpMode::Trusted);
+        let running = to_result(Err(ApiError {
+            code: ErrorCode::Running,
+            message: "sigue".into(),
+            job_id: Some("j-12345678".into()),
+        }));
+        let running = running.structured_content.unwrap_or_default();
+        for name in ["component_install", "project_create"] {
+            let tool = all.iter().find(|t| t.name == name).unwrap_or_else(|| panic!("{name}"));
+            let schema = Value::Object((*tool.output_schema.clone().unwrap_or_default()).clone());
+            assert_eq!(schema["type"], "object", "{name}");
+            assert!(conforms(&running, &schema, &schema), "{name}: {schema}");
+            assert!(!conforms(&serde_json::json!({}), &schema, &schema), "{name}: {schema}");
+        }
+        let install = all.iter().find(|t| t.name == "component_install").unwrap_or_else(|| panic!());
+        let schema = Value::Object((*install.output_schema.clone().unwrap_or_default()).clone());
+        assert!(conforms(&serde_json::json!({"id": "redis", "installed": true}), &schema, &schema));
+        // Las que no son largas siguen con su esquema tal cual.
+        let status = all.iter().find(|t| t.name == "elephant_status").unwrap_or_else(|| panic!());
+        assert!(!status.output_schema.as_ref().is_some_and(|s| s.contains_key("anyOf")));
     }
 
     #[test]

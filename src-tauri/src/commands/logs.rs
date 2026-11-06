@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use elephant_core::paths;
 use elephant_logs::{
@@ -24,10 +24,13 @@ const BRIEF_PROJECTS: usize = 5;
 
 /// El `LogHub` vive mientras la ventana existe: se crea con el primer comando
 /// y se suelta en el `Destroyed` de `main` (C3). Su hilo de sondeo solo existe
-/// mientras hay suscripciones.
+/// mientras hay suscripciones. El cerrojo solo protege el `Option`: las
+/// consultas trabajan con su propio `Arc` y el hub se sincroniza por dentro,
+/// así que una agrupación larga no bloquea a las demás ni al `Destroyed`, que
+/// llega por el hilo principal.
 #[derive(Default)]
 pub struct LogsState {
-    hub: Mutex<Option<LogHub>>,
+    hub: Mutex<Option<Arc<LogHub>>>,
     /// Última visita a la vista Logs (C16).
     seen_at_ms: AtomicI64,
     /// Último recálculo del contador del tray.
@@ -35,7 +38,7 @@ pub struct LogsState {
 }
 
 impl LogsState {
-    fn lock(&self) -> MutexGuard<'_, Option<LogHub>> {
+    fn lock(&self) -> MutexGuard<'_, Option<Arc<LogHub>>> {
         self.hub
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -44,21 +47,35 @@ impl LogsState {
     /// Tras cambiar `projects.json`, para que el hub no sirva el catálogo
     /// anterior durante sus 3 s de caché.
     fn invalidate(&self) {
-        if let Some(hub) = self.lock().as_ref() {
+        if let Some(hub) = self.current() {
             hub.invalidate();
         }
     }
 
+    /// El hub, si existe, sin crearlo.
+    fn current(&self) -> Option<Arc<LogHub>> {
+        self.lock().clone()
+    }
+
     fn with_hub<T>(&self, f: impl FnOnce(&LogHub) -> T) -> Result<T, String> {
         let home = paths::home()?;
-        let mut guard = self.lock();
-        Ok(f(guard.get_or_insert_with(|| LogHub::new(home))))
+        let hub = Arc::clone(
+            self.lock()
+                .get_or_insert_with(|| Arc::new(LogHub::new(home))),
+        );
+        Ok(f(&hub))
+    }
+
+    /// Lo quita sin esperar a las consultas en marcha: se suelta del todo
+    /// cuando termina la última.
+    fn take(&self) -> Option<Arc<LogHub>> {
+        self.lock().take()
     }
 }
 
 /// Suelta el hub: termina el sondeo y cierra los archivos.
 pub fn release(app: &AppHandle) {
-    let hub = app.state::<LogsState>().lock().take();
+    let hub = app.state::<LogsState>().take();
     drop(hub);
 }
 
@@ -186,7 +203,7 @@ pub async fn logs_subscribe(
 #[tauri::command]
 pub async fn logs_unsubscribe(app: AppHandle, id: u32) -> Result<(), String> {
     blocking(move || {
-        if let Some(hub) = app.state::<LogsState>().lock().as_ref() {
+        if let Some(hub) = app.state::<LogsState>().current() {
             hub.unsubscribe(id);
         }
         Ok(())
@@ -274,6 +291,41 @@ mod tests {
             php_version: None,
             log_tz: "UTC".into(),
         }
+    }
+
+    #[test]
+    fn a_long_query_does_not_hold_the_lock() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+        let state = Arc::new(LogsState::default());
+        let (started, wait_started) = mpsc::channel();
+        let (finish, wait_finish) = mpsc::channel::<()>();
+        let worker = {
+            let state = Arc::clone(&state);
+            std::thread::spawn(move || {
+                state
+                    .with_hub(|_| {
+                        started.send(()).unwrap();
+                        wait_finish.recv_timeout(Duration::from_secs(5)).unwrap();
+                    })
+                    .unwrap();
+            })
+        };
+        wait_started.recv_timeout(Duration::from_secs(5)).unwrap();
+        // Con la consulta en marcha: otra consulta y el `Destroyed` no esperan.
+        let (done, wait_done) = mpsc::channel();
+        {
+            let state = Arc::clone(&state);
+            std::thread::spawn(move || {
+                state.with_hub(|_| ()).unwrap();
+                let hub = state.take();
+                done.send(hub.is_some()).unwrap();
+            });
+        }
+        assert!(wait_done.recv_timeout(Duration::from_secs(2)).unwrap());
+        assert!(state.current().is_none());
+        finish.send(()).unwrap();
+        worker.join().unwrap();
     }
 
     #[test]

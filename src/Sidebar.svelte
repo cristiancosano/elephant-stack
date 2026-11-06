@@ -35,12 +35,14 @@
   );
   const memoryKb = $derived(totalMemoryKb(running, usage.byPid));
 
-  const summary = $derived.by(() => {
-    if (!snapshot) return "";
-    if (runningCount === 0) return "Nada en marcha";
-    const base = `${formatNumber(runningCount)} en marcha`;
-    return memoryKb > 0 ? `${base} · ${formatMemory(memoryKb)}` : base;
-  });
+  // Lo que se anuncia: solo cuántos servicios hay en marcha. La memoria cambia
+  // en cada sondeo de 5 s y, como región viva, VoiceOver la leería sin parar.
+  const runningAnnouncement = $derived(
+    !snapshot ? "" : runningCount === 0 ? "Nada en marcha" : `${formatNumber(runningCount)} en marcha`,
+  );
+  const summary = $derived(
+    runningCount > 0 && memoryKb > 0 ? `${runningAnnouncement} · ${formatMemory(memoryKb)}` : runningAnnouncement,
+  );
 
   const main: Item[] = $derived.by(() => {
     const s = snapshot;
@@ -129,7 +131,8 @@
 
   <header class="header" data-tauri-drag-region>
     <p class="title" data-tauri-drag-region>Elephant Stack</p>
-    <p class="summary num" data-tauri-drag-region aria-live="polite">{summary}</p>
+    <p class="summary num" data-tauri-drag-region>{summary}</p>
+    <p class="visually-hidden" aria-live="polite">{runningAnnouncement}</p>
   </header>
 
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->

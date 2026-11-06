@@ -117,7 +117,7 @@ pub fn invoke_with(
     } else {
         (op.execute)(cx, prepared.args.clone(), on_progress)
     };
-    let result = output.map(fit::finish);
+    let result = output.map(|out| fit::finish(out, op.oldest_first));
     record(&prepared.args, confirmed_by, &result);
     result
 }
@@ -129,7 +129,8 @@ fn decide(mode: McpMode, caller: &Caller, confirmer: &dyn Confirmer, action: &st
         McpMode::Trusted => Ok("trusted".to_string()),
         McpMode::Confirm if !caller.is_agent() => Ok("tty".to_string()),
         McpMode::Confirm => {
-            let text = format!("{} quiere {action}. ¿Permitir?", caller.display_name());
+            // Última defensa: ninguna parte del texto puede partirlo en líneas.
+            let text = crate::text::for_dialog(&format!("{} quiere {action}. ¿Permitir?", caller.display_name()), 400);
             match confirmer.confirm(caller, &text) {
                 Confirmation::Allowed { by } => Ok(by),
                 Confirmation::Denied { reason } => Err(ApiError::new(ErrorCode::Denied, reason)),
@@ -219,11 +220,23 @@ impl Runtime for SystemRuntime {
             .stdout(log)
             .stderr(log_err)
             .spawn();
-        if let Err(error) = spawned {
-            let message = format!("No se pudo lanzar la tarea: {error}");
-            finish_job(job, Err(message.clone()));
-            return Err(message);
-        }
+        let mut child = match spawned {
+            Ok(child) => child,
+            Err(error) => {
+                let message = format!("No se pudo lanzar la tarea: {error}");
+                finish_job(job, Err(message.clone()));
+                return Err(message);
+            }
+        };
+        // `elephant mcp` vive mucho: hay que recoger a cada hijo para que no
+        // quede zombi. Al terminar, si murió sin cerrar la tarea, `read` la
+        // marca como fallida. En la CLI el hilo muere con el proceso y el hijo
+        // pasa a launchd, que lo recoge.
+        let id = job.id.clone();
+        std::thread::spawn(move || {
+            let _ = child.wait();
+            let _ = jobs::read(&id);
+        });
         Ok(job.id)
     }
 
@@ -334,6 +347,9 @@ fn finish_job(mut job: JobInfo, result: Result<String, String>) {
 /// toma la función de core, C15) ni vuelve a pedir confirmación, pero sí
 /// vuelve a validar los argumentos.
 pub fn run_job(id: &str) -> Result<(), String> {
+    // El cerrojo dice a los demás que la tarea sigue viva; se suelta solo al
+    // salir, después de guardar cómo terminó (ver `jobs::hold`).
+    let _alive = jobs::hold(id)?;
     let mut job = jobs::read(id)?;
     if job.state != JobState::Queued {
         return Err(format!("La tarea {id} ya se ha ejecutado."));
@@ -494,6 +510,16 @@ mod tests {
         let audit = rt.audit.borrow();
         assert!(!audit[0].ok && audit[0].confirmed_by.is_none());
         assert_eq!(audit[0].client.as_deref(), Some("claude-code 2.1.318"));
+    }
+
+    #[test]
+    fn the_mcp_client_name_cannot_add_lines_to_the_dialog() {
+        let caller = Caller::Agent { client: "mcp:Elephant\u{7}\u{202E}Stack 1.0".into(), session: "s1".into() };
+        let rt = Fake::new(McpMode::Confirm, caller);
+        let confirmer = Answer::new(false);
+        let _ = invoke_with(&rt, "service_control", restart_mysql(), &confirmer, &mut |_| {});
+        let asked = confirmer.asked.borrow();
+        assert_eq!(asked[0], "Elephant\u{FFFD}\u{FFFD}Stack quiere reiniciar mysql. ¿Permitir?");
     }
 
     #[test]

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canLeaveStart,
   isAtBottom,
   isNearStart,
   maxScrollTop,
@@ -101,5 +102,20 @@ describe("scrollTopForIndex", () => {
   it("alinea abajo si la fila queda por debajo", () => {
     // Fila 30: de 600 a 620; con 400 de alto, el scroll queda en 220.
     expect(scrollTopForIndex(30, 20, 400, 0)).toBe(220);
+  });
+});
+
+describe("canLeaveStart", () => {
+  it("con menos filas que el alto no hay scroll que pida historial", () => {
+    // 5 entradas (100 px) en 400 px.
+    expect(canLeaveStart(5, 20, 400)).toBe(false);
+    expect(canLeaveStart(0, 20, 400)).toBe(false);
+  });
+
+  it("si el scroll no puede pasar de las 20 filas del principio, tampoco", () => {
+    // 40 filas: el scroll llega como mucho a 400 px, dentro de la zona.
+    expect(canLeaveStart(40, 20, 400)).toBe(false);
+    expect(canLeaveStart(41, 20, 400)).toBe(true);
+    expect(canLeaveStart(200, 20, 400)).toBe(true);
   });
 });

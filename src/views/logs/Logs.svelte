@@ -202,6 +202,13 @@
 
   const rowCount = $derived(grouped ? store.groups.length : store.count);
 
+  /** La fila seleccionada, para `aria-activedescendant`. Lee `version` para seguirla cuando el anillo cambia. */
+  const activeRow = $derived.by(() => {
+    if (grouped) return store.groups.findIndex((g) => g.fingerprint === selectedGroup);
+    void store.version;
+    return selected ? store.ring.indexOf(selected.id) : -1;
+  });
+
   function hasTextSelection(): boolean {
     const s = window.getSelection();
     return !!s && !s.isCollapsed && s.toString().trim() !== "";
@@ -493,15 +500,31 @@
         <EmptyState icon="warning" title="No se han podido leer los logs" message={store.error ?? undefined} action={{ label: "Reintentar", onclick: reload }} />
       {:else if store.state === "loading" && rowCount === 0}
         <div class="skeleton"><Skeleton lines={10} /></div>
+      {:else if rowCount === 0 && !grouped && (store.loadingOlder || store.hasOlder)}
+        <!-- Rust para al agotar el presupuesto de lectura: no es «sin resultados» si queda historial. -->
+        {#if store.olderError}
+          <EmptyState icon="warning" title="No se ha podido seguir buscando" message={store.olderError} action={{ label: "Reintentar", onclick: () => void store.loadOlder() }} />
+        {:else if store.loadingOlder}
+          <EmptyState icon="logs" title="Buscando en el historial…" message={`${formatBytes(store.scannedBytes)} leídos hasta ahora.`} />
+        {:else}
+          <EmptyState
+            icon="logs"
+            title="Nada por ahora"
+            message={`No hay coincidencias en los ${formatBytes(store.scannedBytes)} más recientes, pero queda historial más antiguo.`}
+            action={{ label: "Seguir buscando", onclick: () => void store.loadOlder() }}
+          />
+        {/if}
       {:else if rowCount === 0}
         <EmptyState icon="logs" title={empty.title} message={empty.message} action={empty.action} />
       {:else}
-        {#if store.loadingOlder || store.olderError}
+        {#if store.loadingOlder || store.olderError || (!grouped && store.olderPaused)}
           <div class="older" role="status">
             {#if store.olderError}
               No se ha podido cargar más historial. <Button variant="plain" onclick={() => void store.loadOlder()}>Reintentar</Button>
-            {:else}
+            {:else if store.loadingOlder}
               Cargando historial…
+            {:else}
+              Nada más con estos filtros en lo último leído. <Button variant="plain" onclick={() => void store.loadOlder()}>Seguir buscando</Button>
             {/if}
           </div>
         {/if}
@@ -509,7 +532,13 @@
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div class="list" onkeydown={onListKey}>
           {#if grouped}
-            <VirtualList bind:this={list} count={store.groups.length} rowHeight={ROW_HEIGHT} label="Grupos de entradas">
+            <VirtualList
+              bind:this={list}
+              count={store.groups.length}
+              rowHeight={ROW_HEIGHT}
+              label="Grupos de entradas"
+              activeIndex={activeRow}
+            >
               {#snippet row(i)}
                 {@const g = store.groups[i]}
                 {#if g}
@@ -529,6 +558,7 @@
               onfollowchange={(v) => store.scrolled(v)}
               onnearstart={() => void store.loadOlder()}
               label="Entradas de log"
+              activeIndex={activeRow}
             >
               {#snippet row(i)}
                 {@const e = store.entryAt(i)}
@@ -555,9 +585,11 @@
         {/if}
       {/if}
 
-      <footer class="status num" aria-live="polite">
+      <!-- Solo el estado del directo es región viva: el recuento cambia con cada lote
+           (cada ≤100 ms) y VoiceOver lo leería sin parar. -->
+      <footer class="status num">
         <span class="status-text">{status}</span>
-        <span class="live-state">{liveStatus}</span>
+        <span class="live-state" role="status">{liveStatus}</span>
       </footer>
     </div>
 

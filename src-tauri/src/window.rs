@@ -14,16 +14,18 @@ fn keep_in_menu_bar(app: &AppHandle) -> bool {
     app.state::<AppState>().settings().keep_in_menu_bar
 }
 
-/// Si la ventana existe, la trae delante y emite `nav:go`. Si no, guarda la
-/// ruta (la ventana la pide con `take_pending_route` al montar) y la crea.
+/// Si la ventana existe, la trae delante y emite `nav:go` (o, si su interfaz
+/// aún está cargando, le deja la ruta pendiente). Si no, guarda la ruta (la
+/// ventana la pide con `take_pending_route` al montar) y la crea.
 pub fn open_main_window(app: &AppHandle, route: Option<&str>) {
     show_in_dock(app, true);
     if let Some(window) = app.get_webview_window(MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
-        if let Some(route) = route {
-            let _ = app.emit_to(MAIN, "nav:go", NavGo { route: route.to_string() });
+        let state = app.state::<AppState>();
+        if let Some(route) = state.route_for_open_window(route.map(str::to_string)) {
+            let _ = app.emit_to(MAIN, "nav:go", NavGo { route });
         }
         return;
     }
@@ -94,6 +96,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
             }
         }
         WindowEvent::Destroyed => {
+            app.state::<AppState>().window_destroyed();
             commands::logs::release(app);
             if keep_in_menu_bar(app) {
                 show_in_dock(app, false);

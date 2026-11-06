@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::fs::OpenOptions;
+use std::os::unix::fs::OpenOptionsExt;
 
 use crate::query::{self, FILTERED_BUDGET, Filter, PAGE_BUDGET, page_limit, scan, scan_file};
 use crate::sources::{self, Catalog};
@@ -304,6 +305,11 @@ pub(crate) fn count_errors(catalog: &Catalog, since_ms: i64) -> Vec<(String, u32
     list
 }
 
+#[cfg(target_os = "macos")]
+const O_NOFOLLOW: i32 = 0x0100;
+#[cfg(not(target_os = "macos"))]
+const O_NOFOLLOW: i32 = 0o400_000;
+
 /// Vacía un archivo de un proyecto o del nginx de Elephant. Los de Herd nunca.
 pub(crate) fn clear(catalog: &Catalog, file_key: &str) -> Result<(), String> {
     let key = (file_key.len() == 16)
@@ -316,11 +322,20 @@ pub(crate) fn clear(catalog: &Catalog, file_key: &str) -> Result<(), String> {
     if sources::is_herd(catalog.source(file)) {
         return Err("Los logs de Herd son de Herd: Elephant Stack no los vacía.".into());
     }
+    // El catálogo solo admite enlaces que quedan dentro del proyecto. Se vacía
+    // la ruta ya resuelta y sin seguir enlaces, para que un cambio de última
+    // hora no lleve el vaciado a otro archivo.
+    let failed = |e: std::io::Error| format!("No se pudo vaciar {}: {e}.", file.path.display());
+    let target = std::fs::canonicalize(&file.path).map_err(failed)?;
+    if crate::util::path_key(&target) != file.key {
+        return Err("El archivo de log ha cambiado: vuelve a cargar la vista.".into());
+    }
     OpenOptions::new()
         .write(true)
-        .open(&file.path)
+        .custom_flags(O_NOFOLLOW)
+        .open(&target)
         .and_then(|f| f.set_len(0))
-        .map_err(|e| format!("No se pudo vaciar {}: {e}.", file.path.display()))
+        .map_err(failed)
 }
 
 /// `30s`, `15m`, `2h`, `1d`, `1w` o una fecha ISO 8601 (con o sin hora y zona;

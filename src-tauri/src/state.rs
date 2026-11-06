@@ -133,6 +133,10 @@ struct Inner {
     snapshot: Snapshot,
     usage: Option<Vec<Usage>>,
     pending_route: Option<String>,
+    /// La interfaz de la ventana ya escucha `nav:go`: lo dice al pedir la ruta
+    /// pendiente (registra los eventos antes) y deja de ser cierto al
+    /// destruirse la ventana.
+    ui_listening: bool,
     refreshing: bool,
     refresh_again: bool,
 }
@@ -164,6 +168,7 @@ impl AppState {
             snapshot,
             usage: None,
             pending_route: None,
+            ui_listening: false,
             refreshing: false,
             refresh_again: false,
         }))
@@ -195,12 +200,37 @@ impl AppState {
         self.lock().usage = Some(usage.to_vec());
     }
 
+    /// Para una ventana nueva: su interfaz aún no escucha.
     pub fn set_pending_route(&self, route: Option<String>) {
-        self.lock().pending_route = route;
+        let mut inner = self.lock();
+        inner.pending_route = route;
+        inner.ui_listening = false;
     }
 
+    /// Con la ventana ya creada: si su interfaz escucha, devuelve la ruta para
+    /// emitirla con `nav:go`; si aún está cargando, la guarda para cuando la
+    /// pida. Las dos cosas bajo el mismo cerrojo que `take_pending_route`,
+    /// así que la ruta no se pierde entre medias.
+    pub fn route_for_open_window(&self, route: Option<String>) -> Option<String> {
+        let mut inner = self.lock();
+        if inner.ui_listening {
+            return route;
+        }
+        if route.is_some() {
+            inner.pending_route = route;
+        }
+        None
+    }
+
+    /// La interfaz la pide al montar, después de registrar `nav:go`.
     pub fn take_pending_route(&self) -> Option<String> {
-        self.lock().pending_route.take()
+        let mut inner = self.lock();
+        inner.ui_listening = true;
+        inner.pending_route.take()
+    }
+
+    pub fn window_destroyed(&self) {
+        self.lock().ui_listening = false;
     }
 }
 
@@ -396,6 +426,21 @@ mod tests {
         state.set_pending_route(Some("#/logs".into()));
         assert_eq!(state.take_pending_route().as_deref(), Some("#/logs"));
         assert_eq!(state.take_pending_route(), None);
+    }
+
+    #[test]
+    fn a_route_for_a_window_that_is_still_loading_waits_for_its_ui() {
+        let state = AppState::new(Settings::default());
+        // Creada sin ruta (abrir la app); la interfaz todavía no escucha.
+        state.set_pending_route(None);
+        assert_eq!(state.route_for_open_window(Some("#/ajustes/general".into())), None);
+        assert_eq!(state.take_pending_route().as_deref(), Some("#/ajustes/general"));
+        // Ya escucha: la ruta va por `nav:go` y no se queda guardada.
+        assert_eq!(state.route_for_open_window(Some("#/logs".into())).as_deref(), Some("#/logs"));
+        assert_eq!(state.route_for_open_window(None), None);
+        state.window_destroyed();
+        assert_eq!(state.route_for_open_window(Some("#/panel".into())), None);
+        assert_eq!(state.take_pending_route().as_deref(), Some("#/panel"));
     }
 
     #[test]

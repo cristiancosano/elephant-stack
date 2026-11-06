@@ -52,11 +52,8 @@ impl Op for JobStatus {
         if a.wait > 90 {
             return Err("--wait admite como mucho 90 segundos.".into());
         }
-        // El formato lo comprueba jobs::read; aquí, que no sea una ruta.
-        if a.job_id.contains('/') || a.job_id.contains("..") {
-            return Err("Identificador de tarea no válido.".into());
-        }
-        Ok(())
+        // Un id mal formado es un error de uso (código 2), no un fallo.
+        jobs::check_id(&a.job_id)
     }
 
     fn confirm_text(_a: &JobArgs) -> String {

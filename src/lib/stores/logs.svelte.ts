@@ -29,6 +29,14 @@ export interface DetailState {
 
 const noop = () => {};
 
+/**
+ * Rust corta la lectura al agotar el presupuesto de bytes y puede devolver una
+ * página sin entradas pero con `next_before` (una búsqueda rara en un log de
+ * 100 MB). Se siguen pidiendo páginas solas hasta encontrar algo, como mucho
+ * estas seguidas; después, la vista ofrece «Seguir buscando».
+ */
+export const MAX_EMPTY_PAGES = 4;
+
 export class LogsStore {
   /** No es reactivo: las filas leen `version` para saber cuándo repintar. */
   readonly ring = new Ring<LogEntry>(RING_CAPACITY, (e) => e.id);
@@ -45,6 +53,9 @@ export class LogsStore {
   historyDone = $state(false);
   loadingOlder = $state(false);
   olderError: string | null = $state(null);
+  /** Queda historial, pero las últimas páginas llegaron vacías: hay que pedirlo. */
+  olderPaused = $state(false);
+
   live = $state(true);
   /** La suscripción está activa. */
   streaming = $state(false);
@@ -62,7 +73,7 @@ export class LogsStore {
 
   private filters: Filters = DEFAULT_FILTERS;
   private gen = 0;
-  private nextBefore: string | null = null;
+  private nextBefore: string | null = $state(null);
   private subId: number | null = null;
   private subToken = 0;
   private subPending = false;
@@ -98,12 +109,16 @@ export class LogsStore {
     this.dropped = 0;
     this.nextBefore = null;
     this.historyDone = false;
+    // Una carga de historial de los filtros anteriores ya no cuenta.
+    this.loadingOlder = false;
     this.olderError = null;
+    this.olderPaused = false;
     this.streamError = null;
     this.scannedBytes = 0;
     this.error = null;
     this.state = "loading";
 
+    let empty = false;
     try {
       if (filters.mode === "grouped") {
         const groups = await logsGroups(toQuery(filters, Date.now()));
@@ -117,6 +132,7 @@ export class LogsStore {
         this.historyDone = page.next_before === null;
         this.scannedBytes = page.scanned_bytes;
         this.bump();
+        empty = page.entries.length === 0;
       }
       this.state = "ready";
     } catch (e) {
@@ -127,10 +143,21 @@ export class LogsStore {
       return;
     }
     void this.subscribe();
+    // Una primera página vacía no es «sin resultados» si queda historial.
+    if (empty) void this.loadOlder(1);
   }
 
-  /** Historial anterior a lo más antiguo que hay, al acercarse arriba. */
-  async loadOlder(): Promise<void> {
+  /** Queda historial más antiguo que pedir. */
+  get hasOlder(): boolean {
+    return this.nextBefore !== null && !this.historyDone;
+  }
+
+  /**
+   * Historial anterior a lo más antiguo que hay, al acercarse arriba (o si la
+   * lista no llena la vista). Si las páginas llegan vacías, sigue sola hasta
+   * `MAX_EMPTY_PAGES`; `emptySoFar` cuenta las que ya llegaron así.
+   */
+  async loadOlder(emptySoFar = 0): Promise<void> {
     if (
       this.filters.mode !== "chrono" ||
       this.state !== "ready" ||
@@ -147,16 +174,26 @@ export class LogsStore {
     const gen = this.gen;
     this.loadingOlder = true;
     this.olderError = null;
+    this.olderPaused = false;
+    let empty = emptySoFar;
     try {
-      const page = await logsQuery(toQuery(this.filters, Date.now(), this.nextBefore));
-      if (this.stale(gen)) return;
-      const added = this.ring.unshift(chronological(page.entries));
-      this.nextBefore = page.next_before;
-      this.historyDone = page.next_before === null || this.ring.full;
-      this.scannedBytes += page.scanned_bytes;
-      if (added > 0) {
-        this.bump();
-        this.onShift?.(added);
+      while (this.nextBefore !== null) {
+        const page = await logsQuery(toQuery(this.filters, Date.now(), this.nextBefore));
+        if (this.stale(gen)) return;
+        const added = this.ring.unshift(chronological(page.entries));
+        this.historyDone = page.next_before === null || this.ring.full;
+        this.nextBefore = page.next_before;
+        this.scannedBytes += page.scanned_bytes;
+        if (added > 0) {
+          this.bump();
+          this.onShift?.(added);
+        }
+        empty = page.entries.length === 0 ? empty + 1 : 0;
+        if (empty === 0 || !this.hasOlder) break;
+        if (empty >= MAX_EMPTY_PAGES) {
+          this.olderPaused = true;
+          break;
+        }
       }
     } catch (e) {
       if (!this.stale(gen)) this.olderError = errorMessage(e);
@@ -281,8 +318,9 @@ export class LogsStore {
     this.follow = jumpedToEnd();
     this.dropped = 0;
     // Como ⌘K en Terminal: lo limpiado no vuelve al subir.
-    this.nextBefore = null;
     this.historyDone = true;
+    this.nextBefore = null;
+    this.olderPaused = false;
   }
 
   scrolled(atBottom: boolean): void {

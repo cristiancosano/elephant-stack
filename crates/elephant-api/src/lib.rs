@@ -89,11 +89,12 @@ impl Caller {
                 if client.starts_with("claude-code") {
                     "Claude Code".to_string()
                 } else if let Some(rest) = client.strip_prefix("mcp:") {
+                    // `clientInfo.name` lo elige el cliente: sin controles y corto.
                     let name = rest.split_whitespace().next().unwrap_or("").trim();
                     if name.is_empty() {
                         "Un cliente MCP".to_string()
                     } else {
-                        name.to_string()
+                        crate::text::for_dialog(name, 40)
                     }
                 } else {
                     "Un agente o script".to_string()
@@ -174,6 +175,9 @@ pub trait Op {
     const IDEMPOTENT: bool;
     /// Tarea larga: se ejecuta como job (`elephant __job`).
     const LONG: bool;
+    /// `entries` va de la más antigua a la más reciente (`logs tail`): si no
+    /// cabe, se quitan las más antiguas, y no hay cursor con el que seguir.
+    const OLDEST_FIRST: bool = false;
     type Args: clap::Args + DeserializeOwned + Serialize + schemars::JsonSchema;
     type Out: Serialize + schemars::JsonSchema;
     /// Descripción en español, de 300 caracteres como máximo.
@@ -209,6 +213,8 @@ pub struct OpMeta {
     pub kind: Kind,
     pub idempotent: bool,
     pub long: bool,
+    /// Ver [`Op::OLDEST_FIRST`].
+    pub oldest_first: bool,
     pub about: fn() -> &'static str,
     /// JSON Schema de los argumentos (`inputSchema` de MCP).
     pub input_schema: fn() -> serde_json::Value,

@@ -55,7 +55,7 @@ fn dir() -> Result<PathBuf, String> {
 }
 
 /// `[a-z0-9-]{8,40}`: así un id nunca sale de la carpeta de tareas.
-fn check_id(id: &str) -> Result<(), String> {
+pub fn check_id(id: &str) -> Result<(), String> {
     let valid = (8..=40).contains(&id.len())
         && id
             .bytes()
@@ -86,13 +86,71 @@ pub fn save(job: &JobInfo) -> Result<(), String> {
     save_in(&dir()?, job)
 }
 
+/// Lee una tarea. Si figura en marcha pero su proceso ya no existe, la marca
+/// como fallida (ver [`hold`]).
 pub fn read(id: &str) -> Result<JobInfo, String> {
-    read_in(&dir()?, id)
+    let dir = dir()?;
+    read_in(&dir, id).map(|job| reap_in(&dir, job, crate::now_ms()))
 }
 
-/// Las que están en cola o en marcha, de la más antigua a la más reciente.
+/// Las que están en cola o en marcha, de la más antigua a la más reciente. Las
+/// que se quedaron sin proceso se marcan como fallidas y no salen.
 pub fn list_active() -> Vec<JobInfo> {
-    dir().map(|dir| list_active_in(&dir)).unwrap_or_default()
+    dir().map(|dir| list_active_in(&dir, crate::now_ms())).unwrap_or_default()
+}
+
+/// La toma `elephant __job` mientras ejecuta la tarea: un cerrojo sobre su log
+/// que el sistema suelta si el proceso muere (kill, pánico, falta de memoria).
+/// Así se sabe si una tarea «en marcha» sigue viva sin guardar pids.
+pub fn hold(id: &str) -> Result<fs::File, String> {
+    hold_in(&dir()?, id)
+}
+
+fn hold_in(dir: &Path, id: &str) -> Result<fs::File, String> {
+    check_id(id)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join(format!("{id}.log")))
+        .map_err(|error| format!("No se pudo abrir el log de la tarea: {error}"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(fs::TryLockError::WouldBlock) => Err(format!("La tarea {id} ya se está ejecutando.")),
+        Err(fs::TryLockError::Error(error)) => Err(format!("No se pudo bloquear la tarea {id}: {error}")),
+    }
+}
+
+/// Una tarea en cola tiene este margen para que su proceso arranque y tome el
+/// cerrojo.
+const QUEUED_GRACE_MS: i64 = 60_000;
+const ORPHANED: &str = "La tarea se interrumpió: su proceso terminó sin acabarla.";
+
+/// Si la tarea sigue activa pero nadie tiene su cerrojo, su proceso murió:
+/// se marca como fallida.
+fn reap_in(dir: &Path, job: JobInfo, now_ms: i64) -> JobInfo {
+    let suspect = match job.state {
+        JobState::Running => true,
+        JobState::Queued => now_ms - job.started_at_ms > QUEUED_GRACE_MS,
+        JobState::Succeeded | JobState::Failed => false,
+    };
+    if !suspect {
+        return job;
+    }
+    let Ok(_lock) = hold_in(dir, &job.id) else {
+        return job;
+    };
+    // Con el cerrojo en la mano se vuelve a leer: puede que terminase justo
+    // antes de soltarlo.
+    let Ok(mut job) = read_in(dir, &job.id) else {
+        return job;
+    };
+    if job.state.is_active() {
+        job.state = JobState::Failed;
+        job.message = Some(ORPHANED.to_string());
+        job.finished_at_ms = Some(now_ms);
+        let _ = save_in(dir, &job);
+    }
+    job
 }
 
 pub fn log_path(id: &str) -> Result<PathBuf, String> {
@@ -154,8 +212,13 @@ fn all_in(dir: &Path) -> Vec<JobInfo> {
         .collect()
 }
 
-fn list_active_in(dir: &Path) -> Vec<JobInfo> {
-    let mut jobs: Vec<_> = all_in(dir).into_iter().filter(|job| job.state.is_active()).collect();
+fn list_active_in(dir: &Path, now_ms: i64) -> Vec<JobInfo> {
+    let mut jobs: Vec<_> = all_in(dir)
+        .into_iter()
+        .filter(|job| job.state.is_active())
+        .map(|job| reap_in(dir, job, now_ms))
+        .filter(|job| job.state.is_active())
+        .collect();
     jobs.sort_by(|a, b| a.started_at_ms.cmp(&b.started_at_ms).then_with(|| a.id.cmp(&b.id)));
     jobs
 }
@@ -220,9 +283,42 @@ mod tests {
         save_in(dir.path(), &done).unwrap();
         fs::write(dir.path().join("basura.json"), "{").unwrap();
 
-        let active = list_active_in(dir.path());
+        let active = list_active_in(dir.path(), crate::now_ms());
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].id, first.id);
+    }
+
+    #[test]
+    fn running_jobs_without_a_live_process_are_marked_failed() {
+        let dir = TempDir::new("jobs-reap");
+        let now = crate::now_ms();
+        let mut alive = create_in(dir.path(), "a", json!({}), None).unwrap();
+        alive.state = JobState::Running;
+        save_in(dir.path(), &alive).unwrap();
+        let mut dead = create_in(dir.path(), "b", json!({}), None).unwrap();
+        dead.state = JobState::Running;
+        save_in(dir.path(), &dead).unwrap();
+        let mut stuck = create_in(dir.path(), "c", json!({}), None).unwrap();
+        stuck.started_at_ms = now - 2 * QUEUED_GRACE_MS;
+        save_in(dir.path(), &stuck).unwrap();
+        let fresh = create_in(dir.path(), "d", json!({}), None).unwrap();
+
+        // El proceso de `alive` tiene su cerrojo; los demás no.
+        let lock = hold_in(dir.path(), &alive.id).unwrap();
+        assert!(hold_in(dir.path(), &alive.id).is_err(), "el cerrojo es exclusivo");
+        let active: Vec<String> = list_active_in(dir.path(), now).into_iter().map(|j| j.id).collect();
+        assert_eq!(active.len(), 2);
+        assert!(active.contains(&alive.id) && active.contains(&fresh.id));
+        let reaped = read_in(dir.path(), &dead.id).unwrap();
+        assert_eq!(reaped.state, JobState::Failed);
+        assert_eq!(reaped.message.as_deref(), Some(ORPHANED));
+        assert!(reaped.finished_at_ms.is_some());
+        assert_eq!(read_in(dir.path(), &stuck.id).unwrap().state, JobState::Failed);
+
+        // Al soltar el cerrojo (el proceso muere), también se marca.
+        drop(lock);
+        let job = read_in(dir.path(), &alive.id).unwrap();
+        assert_eq!(reap_in(dir.path(), job, now).state, JobState::Failed);
     }
 
     #[test]

@@ -1,0 +1,8 @@
+{
+  "name": "elephant",
+  "displayName": "Elephant Stack",
+  "description": "Entorno PHP/Laravel local de Elephant Stack: logs, errores 500, servicios de Homebrew, versiones de PHP y proyectos .test, con la orden elephant.",
+  "author": {
+    "name": "Cristian Cosano"
+  }
+}

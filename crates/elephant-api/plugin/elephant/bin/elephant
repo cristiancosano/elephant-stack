@@ -1,0 +1,9 @@
+#!/bin/sh
+# Envoltorio del plugin de Elephant Stack para Claude Code: ~/.elephant-stack/bin
+# no está en el PATH de la Bash tool, pero la carpeta bin/ del plugin sí.
+target="$HOME/.elephant-stack/bin/elephant"
+if [ ! -x "$target" ]; then
+  echo "Elephant Stack: falta $target. Abre Elephant Stack > Ajustes > Agentes y activa la orden elephant." >&2
+  exit 1
+fi
+exec "$target" "$@"

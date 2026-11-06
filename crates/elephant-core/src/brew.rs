@@ -52,16 +52,23 @@ fn plan(operation: Operation, service: &Service) -> Vec<&'static [&'static str]>
     const STOP_KEEP: &[&str] = &["stop", "--keep"];
     const RESTART: &[&str] = &["restart"];
 
+    // Un servicio registrado y parado suele seguir cargado en launchd (es lo
+    // que deja `stop --keep`). `start` intenta cargarlo otra vez y launchctl
+    // falla con el código 5; `restart` lo descarga si hace falta y lo vuelve a
+    // cargar, y deja el mismo resultado: en marcha y registrado.
     match (operation, service.running, service.registered) {
-        (Operation::TurnOn, _, true) => vec![START],
+        (Operation::TurnOn, false, true) => vec![RESTART],
+        (Operation::TurnOn, true, true) => vec![START],
         (Operation::TurnOn, _, false) => vec![RUN],
         (Operation::TurnOff, _, true) => vec![STOP_KEEP],
         (Operation::TurnOff, _, false) => vec![STOP],
         (Operation::Restart, _, _) => vec![RESTART],
+        (Operation::EnableAutostart, _, true) => vec![],
         (Operation::EnableAutostart, true, _) => vec![STOP, START],
         (Operation::EnableAutostart, false, _) => vec![START, STOP_KEEP],
         (Operation::DisableAutostart, true, _) => vec![STOP, RUN],
         (Operation::DisableAutostart, false, _) => vec![STOP],
+        (Operation::TurnOnWithAutostart, false, true) => vec![RESTART],
         (Operation::TurnOnWithAutostart, _, _) => vec![START],
     }
 }
@@ -253,7 +260,10 @@ mod tests {
     #[test]
     fn turning_on_and_off_keeps_the_autostart_choice() {
         assert_eq!(steps(Operation::TurnOn, false, false), [["run"]]);
-        assert_eq!(steps(Operation::TurnOn, false, true), [["start"]]);
+        // Registrado y parado (cargado en launchd tras `stop --keep`): `start`
+        // fallaría con el código 5 de launchctl.
+        assert_eq!(steps(Operation::TurnOn, false, true), [["restart"]]);
+        assert_eq!(steps(Operation::TurnOn, true, true), [["start"]]);
         assert_eq!(steps(Operation::TurnOff, true, false), [["stop"]]);
         assert_eq!(steps(Operation::TurnOff, true, true), [["stop", "--keep"]]);
     }
@@ -276,10 +286,17 @@ mod tests {
     }
 
     #[test]
-    fn turn_on_with_autostart_is_a_single_start_in_any_state() {
-        for (running, registered) in [(false, false), (true, false), (false, true), (true, true)] {
+    fn turn_on_with_autostart_never_starts_a_loaded_service_again() {
+        for (running, registered) in [(false, false), (true, false), (true, true)] {
             assert_eq!(steps(Operation::TurnOnWithAutostart, running, registered), [["start"]]);
         }
+        assert_eq!(steps(Operation::TurnOnWithAutostart, false, true), [["restart"]]);
+    }
+
+    #[test]
+    fn enabling_autostart_twice_does_nothing() {
+        assert!(steps(Operation::EnableAutostart, false, true).is_empty());
+        assert!(steps(Operation::EnableAutostart, true, true).is_empty());
     }
 
     #[test]

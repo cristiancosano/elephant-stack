@@ -2,7 +2,7 @@
 //! barra, la CLI y las tareas de los agentes. Las que llaman a Homebrew toman
 //! aquí el cerrojo (C15) y todas avisan con [`stamp::touch`] al terminar bien.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use elephant_php::Layout;
 
@@ -55,6 +55,19 @@ pub fn set_global_php(key: &str) -> Result<php::PhpStatus, String> {
 
 pub fn set_project_php(dir: &Path, key: &str) -> Result<(), String> {
     set_project_php_in(&paths::home()?, dir, key)
+}
+
+/// Sustituye una versión propia de PHP por otra más reciente de su rama, ya
+/// instalada: ver [`php::replace_own`].
+pub fn replace_php(
+    old: &str,
+    new: &str,
+    project_roots: &[PathBuf],
+) -> Result<php::PhpReplaceReport, String> {
+    let home = paths::home()?;
+    let report = php::replace_own(&Layout::from_home(&home), old, new, project_roots)?;
+    let _ = stamp::touch_in(&home, "php", std::process::id());
+    Ok(report)
 }
 
 /// `composer` lo instala el asistente (phar propio, 04 §4.5); el resto,

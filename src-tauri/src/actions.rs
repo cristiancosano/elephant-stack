@@ -78,6 +78,23 @@ pub fn set_project_php(app: &AppHandle, dir: &Path, key: &str) -> Result<(), Str
     tracked(app, PHP, "Cambiando la versión de PHP…", || ops::set_project_php(dir, key))
 }
 
+/// Cambia `old` por `new` en la versión por defecto y en los proyectos que la
+/// fijaban, y borra `old`. Los proyectos son los que conoce la app.
+pub fn replace_php(
+    app: &AppHandle,
+    old: &str,
+    new: &str,
+) -> Result<elephant_core::php::PhpReplaceReport, String> {
+    let roots: Vec<PathBuf> = app
+        .state::<AppState>()
+        .snapshot()
+        .projects
+        .into_iter()
+        .map(|project| project.root)
+        .collect();
+    tracked(app, PHP, "Actualizando PHP…", || ops::replace_php(old, new, &roots))
+}
+
 /// Texto de `busy` mientras se arranca lo que necesita un proyecto (lo
 /// muestra también el submenú del sitio en el tray).
 pub const NEEDS_BUSY: &str = "Arrancando lo que necesita…";

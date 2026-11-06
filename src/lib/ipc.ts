@@ -19,6 +19,7 @@ import type { McpSnippets } from "./bindings/McpSnippets";
 import type { McpStatus } from "./bindings/McpStatus";
 import type { McpTestResult } from "./bindings/McpTestResult";
 import type { Operation } from "./bindings/Operation";
+import type { PhpReplaceReport } from "./bindings/PhpReplaceReport";
 import type { Plan } from "./bindings/Plan";
 import type { Profile } from "./bindings/Profile";
 import type { ProfileInput } from "./bindings/ProfileInput";
@@ -74,6 +75,8 @@ export function installComponent(id: string, onLine: (line: string) => void): Pr
 
 export const setGlobalPhp = (key: string) => invoke<void>("set_global_php", { key });
 export const setProjectPhp = (dir: string, key: string) => invoke<void>("set_project_php", { dir, key });
+export const phpReplace = (old: string, next: string) =>
+  invoke<PhpReplaceReport>("php_replace", { old, new: next });
 export const processUsage = (pids: number[]) => invoke<Usage[]>("process_usage", { pids });
 export const getSettings = () => invoke<Settings>("get_settings");
 export const setSettings = (settings: Settings) => invoke<Settings>("set_settings", { settings });

@@ -276,6 +276,25 @@ describe("héroe del Panel", () => {
     expect(h.action?.kind).toBe("problem");
   });
 
+  it("resume un fallo de acción en vez de enseñar la salida cruda de la orden", () => {
+    const h = hero(
+      snapshot({
+        components: [running],
+        problems: [
+          {
+            id: "action_failed:mysql",
+            target: "mysql",
+            message: "brew services start mysql falló: Error: Failure while executing; `/bin/launchctl bootstrap gui/501 …` exited with 5.",
+            kind: "action_failed",
+          },
+        ],
+      }),
+      0,
+    );
+    expect(h).toMatchObject({ tone: "bad", title: "No se pudo completar la acción con mysql" });
+    expect(h.action?.label).toBe("Ver problema");
+  });
+
   it("avisa de lo que está ocupado", () => {
     expect(hero(snapshot({ busy: [{ target: "redis", label: "Arrancando…" }] }), 0)).toMatchObject({
       tone: "warn",

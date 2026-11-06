@@ -15,6 +15,7 @@
     errorMessage,
     phpCatalog,
     phpDownload,
+    phpReplace,
     pickFolder,
     refresh,
     setGlobalPhp,
@@ -30,6 +31,7 @@
   import { formatBytes } from "../lib/format";
   import { mergePhpVersions } from "../lib/php-versions";
   import type { Catalog } from "../lib/bindings/Catalog";
+  import type { PhpRelease } from "../lib/bindings/PhpRelease";
   import type { Project } from "../lib/bindings/Project";
   import type { Snapshot } from "../lib/bindings/Snapshot";
   import type { VersionInfo } from "../lib/bindings/VersionInfo";
@@ -134,6 +136,34 @@
       delete downloading[version];
     }
   }
+
+  /** Descarga la versión nueva de la rama y sustituye con ella a `old`. */
+  async function update(old: VersionInfo, next: PhpRelease) {
+    downloading[next.version] = undefined;
+    try {
+      const report = await phpDownload(next.version, (event) => {
+        if (event.bytes && event.bytes[1] > 0) downloading[next.version] = event.bytes[0] / event.bytes[1];
+      });
+      const failed = report.failed[0];
+      if (failed) {
+        toast(failed[1], { tone: "error" });
+        return;
+      }
+      const replaced = await phpReplace(old.id, next.version);
+      const moved = replaced.projects.length;
+      toast(
+        moved > 0
+          ? `PHP ${old.id} actualizada a ${next.version}, también en ${moved === 1 ? "1 proyecto" : `${moved} proyectos`}.`
+          : `PHP ${old.id} actualizada a ${next.version}.`,
+        { tone: "success" },
+      );
+    } catch (e) {
+      fail(e);
+    } finally {
+      delete downloading[next.version];
+      void refresh().catch(() => {});
+    }
+  }
 </script>
 
 <div class="view">
@@ -171,6 +201,19 @@
                   {/snippet}
                   {#snippet trailing()}
                     {#if active}<Badge tone="accent" label="Por defecto" />{/if}
+                    {#if e.update}
+                      {@const next = e.update}
+                      {#if next.version in downloading}
+                        <ProgressRing
+                          value={downloading[next.version]}
+                          label={`Actualizando PHP ${v.id} a ${next.version}`}
+                        />
+                      {:else}
+                        <Button variant="primary" onclick={() => void update(v, next)}>
+                          Actualizar a {next.version}<span class="visually-hidden"> (PHP {v.id})</span>
+                        </Button>
+                      {/if}
+                    {/if}
                     <Button onclick={() => void useInProject(v)}>
                       Usar en proyecto…<span class="visually-hidden"> (PHP {v.id})</span>
                     </Button>

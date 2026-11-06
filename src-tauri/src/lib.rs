@@ -71,6 +71,7 @@ pub fn run() {
             commands::core::install_component,
             commands::core::set_global_php,
             commands::core::set_project_php,
+            commands::core::php_replace,
             commands::core::process_usage,
             commands::core::get_settings,
             commands::core::set_settings,

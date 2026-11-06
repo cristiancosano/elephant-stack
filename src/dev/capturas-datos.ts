@@ -101,7 +101,6 @@ export const snapshot: Snapshot = {
     versions: [
       { key: "own:8.4.27", id: "8.4.27", source: "Elephant" },
       { key: "own:8.3.36", id: "8.3.36", source: "Elephant" },
-      { key: "herd:8.4", id: "8.4.20", source: "Herd" },
     ],
     active: { key: "own:8.4.27", id: "8.4.27", source: "Elephant" },
   },
@@ -294,10 +293,10 @@ const release = (version: string, size: number) => ({
   checksum_url: `https://github.com/cristiancosano/php-builds/releases/download/php-${version}/php-${version}-macos-arm64.tar.gz.sha256`,
 });
 
-// Catálogo de php-builds: la 8.5.12 aparece como no instalada y la 8.4.27 y la
-// 8.3.36 se funden con las instaladas.
+// Catálogo de php-builds: la 8.5.12 aparece como no instalada, la 8.4.28 como
+// actualización de la 8.4.27 y la 8.3.36 se funde con la instalada.
 export const catalog: Catalog = {
-  php: [release("8.5.12", 67_413_472), release("8.4.27", 66_592_142), release("8.3.36", 64_000_000)],
+  php: [release("8.5.12", 67_413_472), release("8.4.28", 66_600_000), release("8.4.27", 66_592_142), release("8.3.36", 64_000_000)],
   composer: null,
   offline: false,
 };

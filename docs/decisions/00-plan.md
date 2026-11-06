@@ -584,6 +584,7 @@ Todos son `async`, devuelven `Result<_, String>` y hacen el trabajo en `spawn_bl
 | | `install_component` | `id: String, on_line: Channel<String>` | `()` |
 | | `set_global_php` | `key: String` | `()` |
 | | `set_project_php` | `dir: String, key: String` | `()` |
+| | `php_replace` | `old: String, new: String` | `PhpReplaceReport` |
 | | `process_usage` | `pids: Vec<i64>` | `Vec<Usage>` (también lo guarda en `AppState` y llama a `tray::set_usage`) |
 | | `get_settings` / `set_settings` | `settings: Settings` | `Settings` |
 | | `take_pending_route` | — | `Option<String>` |

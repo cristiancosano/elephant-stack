@@ -314,10 +314,15 @@ export function hero(s: Snapshot, memoryKb: number): Hero {
   const problem = s.problems[0];
   if (problem) {
     const more = s.problems.length - 1;
+    // Los fallos de acción traen la salida cruda de la orden (por ejemplo, de
+    // launchctl): el titular dice qué ha fallado y «Ver problema» enseña el
+    // detalle. Los errores de servicio ya son una frase corta.
+    const name = problem.target === PHP_TARGET ? "PHP" : targetName(s, problem.target);
     return {
       tone: "bad",
       // El mensaje empieza a veces por el nombre del servicio: no se capitaliza.
-      title: problem.message,
+      title:
+        problem.kind === "action_failed" ? `No se pudo completar la acción con ${name}` : problem.message,
       detail: more > 0 ? `${detail} · ${plural(more, "problema")} más` : detail,
       action: { kind: "problem", label: "Ver problema" },
     };

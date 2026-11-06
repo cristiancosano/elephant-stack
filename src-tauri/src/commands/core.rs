@@ -65,6 +65,16 @@ pub async fn set_project_php(app: AppHandle, dir: String, key: String) -> Result
     blocking(move || actions::set_project_php(&app, &PathBuf::from(dir), &key)).await
 }
 
+/// Actualiza una versión propia a otra ya descargada de su misma rama.
+#[tauri::command]
+pub async fn php_replace(
+    app: AppHandle,
+    old: String,
+    new: String,
+) -> Result<elephant_core::php::PhpReplaceReport, String> {
+    blocking(move || actions::replace_php(&app, &old, &new)).await
+}
+
 /// También guarda el valor para la cabecera del menú de la barra.
 #[tauri::command]
 pub async fn process_usage(app: AppHandle, pids: Vec<i64>) -> Result<Vec<Usage>, String> {

@@ -6,10 +6,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target="$HOME/.elephant-stack/bin"
 
-cargo build --release --manifest-path "$root/shim/Cargo.toml"
+cargo build --release --manifest-path "$root/Cargo.toml" -p elephant-php
 
 mkdir -p "$target"
-install -m 755 "$root/shim/target/release/php" "$target/php"
+install -m 755 "$root/target/release/php" "$target/php"
 
 echo "Instalado en $target/php"
 echo "Para activarlo, añade esto al final de ~/.zshrc (después de la línea de Herd):"

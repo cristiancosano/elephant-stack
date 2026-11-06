@@ -1,0 +1,14 @@
+[package]
+name = "elephant-api"
+description = "Catálogo único de operaciones del canal de agentes de Elephant Stack"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+elephant-core = { workspace = true, features = ["schema"] }
+elephant-logs = { workspace = true, features = ["schema"] }
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+clap.workspace = true

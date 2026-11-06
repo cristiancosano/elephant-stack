@@ -1,0 +1,19 @@
+[package]
+name = "elephant-core"
+description = "Lógica de Elephant Stack sin Tauri ni tokio: servicios, PHP, ajustes y estado compartido"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[features]
+ts = ["dep:ts-rs"]
+schema = ["dep:schemars"]
+
+[dependencies]
+elephant-php.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+jiff.workspace = true
+ts-rs = { workspace = true, optional = true }
+schemars = { workspace = true, optional = true }

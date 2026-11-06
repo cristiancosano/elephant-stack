@@ -1,9 +1,9 @@
 [package]
 name = "elephant-stack"
-version = "0.1.0"
 description = "Panel nativo para el entorno de desarrollo local en macOS"
-authors = ["Cristian Cosano"]
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
 [lib]
 # El sufijo `_lib` evita un conflicto de nombres con el binario.
@@ -16,13 +16,19 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-dialog = "2"
-elephant-php = { path = "../shim" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+tauri-plugin-autostart = "=2.7.0"
+elephant-core.workspace = true
+elephant-logs.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+notify = "=8.2.1"
 
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-panic = "abort"
-strip = true
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSThread"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSColor", "NSColorSpace", "NSAppearance", "NSApplication", "NSResponder"] }
+
+[dev-dependencies]
+ts-rs.workspace = true
+elephant-core = { workspace = true, features = ["ts"] }
+elephant-logs = { workspace = true, features = ["ts"] }

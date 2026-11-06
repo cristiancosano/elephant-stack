@@ -1,0 +1,18 @@
+[package]
+name = "elephant-mcp"
+description = "Fachada MCP por stdio, generada desde el catálogo de elephant-api"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[lib]
+name = "elephant_mcp"
+path = "src/lib.rs"
+
+[dependencies]
+elephant-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+schemars.workspace = true
+rmcp = { version = "=3.8.0", default-features = false, features = ["server", "macros", "transport-io", "elicitation"] }
+tokio = { version = "1", features = ["rt", "macros", "io-std", "time"] }

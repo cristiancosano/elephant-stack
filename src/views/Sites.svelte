@@ -10,9 +10,11 @@
   import EmptyState from "../ui/EmptyState.svelte";
   import Icon from "../ui/Icon.svelte";
   import { toast } from "../ui/toasts.svelte";
+  import * as ipc from "../lib/ipc";
   import { errorMessage, revealInFinder, setProjectPhp, siteAction } from "../lib/ipc";
   import {
     below,
+    busyFor,
     middleTruncate,
     phpOptions,
     popupMenu,
@@ -20,6 +22,7 @@
     tildePath,
     versionForProject,
   } from "../lib/stores/app.svelte";
+  import type { MenuEntry } from "../lib/stores/app.svelte";
   import { go } from "../lib/router.svelte";
   import type { Project } from "../lib/bindings/Project";
   import type { SiteAction } from "../lib/bindings/SiteAction";
@@ -43,6 +46,27 @@
     toast(errorMessage(e), { tone: "error" });
   }
 
+  // «Arrancar lo que necesita» (04 §4.10). El comando `project_start_services`
+  // lo registra P99 en `commands/core.rs` y `ipc.ts`; hasta entonces la opción
+  // no aparece. Devuelve los servicios de Homebrew que ha arrancado.
+  const startServices = (ipc as { projectStartServices?: (dir: string) => Promise<string[]> })
+    .projectStartServices;
+
+  async function startNeeds(p: Project) {
+    if (!startServices) return;
+    try {
+      const started = await startServices(p.root);
+      toast(
+        started.length > 0
+          ? `Arrancado para ${p.name}: ${started.join(", ")}.`
+          : `${p.name} ya tiene en marcha lo que necesita.`,
+        { tone: "success" },
+      );
+    } catch (e) {
+      fail(e);
+    }
+  }
+
   async function act(p: Project, action: SiteAction) {
     try {
       await siteAction(p.id, action);
@@ -62,10 +86,21 @@
         { text: "Mostrar en Finder", action: () => void revealInFinder(p.root).catch(fail) },
         { text: "Copiar URL", enabled: web, action: () => void act(p, "copy_url") },
         "separator",
+        ...needsEntry(p),
         { text: "Ver logs", action: () => go(`#/logs?project=${encodeURIComponent(p.id)}`) },
       ],
       at,
     ).catch(fail);
+  }
+
+  function needsEntry(p: Project): MenuEntry[] {
+    if (!startServices) return [];
+    const busy = snapshot ? busyFor(snapshot, p.id) : undefined;
+    return [
+      busy
+        ? { text: busy.label, enabled: false }
+        : { text: "Arrancar lo que necesita", action: () => void startNeeds(p) },
+    ];
   }
 
   function phpChoice(p: Project) {

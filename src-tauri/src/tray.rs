@@ -13,11 +13,13 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use elephant_core::brew::Operation;
 use elephant_core::jobs::JobInfo;
+use elephant_core::needs;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
@@ -54,6 +56,8 @@ pub enum TrayAction {
     ServiceLog(String),
     /// `site:browser:<project_id>` · `editor` · `terminal` · `copy`
     Site(String, SiteAction),
+    /// `site-needs:<project_id>`: «Arrancar lo que necesita» (04 §4.10).
+    SiteNeeds(String),
     /// `mailpit:open`
     OpenMailpit,
     /// `quit`
@@ -123,6 +127,7 @@ impl fmt::Display for TrayAction {
             Self::ServicesAll(op) => write!(f, "svc-all:{}", operation_slug(*op)),
             Self::ServiceLog(name) => write!(f, "svc-log:{name}"),
             Self::Site(id, action) => write!(f, "site:{}:{id}", site_slug(*action)),
+            Self::SiteNeeds(id) => write!(f, "site-needs:{id}"),
             Self::OpenMailpit => f.write_str("mailpit:open"),
             Self::Quit => f.write_str("quit"),
         }
@@ -169,6 +174,7 @@ impl FromStr for TrayAction {
                 let action = parse_site_action(action).ok_or(ParseActionError)?;
                 Ok(Self::Site(non_empty(project)?, action))
             }
+            "site-needs" => Ok(Self::SiteNeeds(non_empty(rest)?)),
             _ => Err(ParseActionError),
         }
     }
@@ -443,6 +449,10 @@ fn sites_menu(snapshot: &Snapshot) -> Option<Entry> {
         .take(MAX_SITES)
         .map(|project| {
             let site = |action| TrayAction::Site(project.id.clone(), action);
+            let needs = match busy_label(snapshot, &project.id) {
+                Some(label) => Entry::item(TrayAction::SiteNeeds(project.id.clone()), label).enabled(false),
+                None => Entry::item(TrayAction::SiteNeeds(project.id.clone()), "Arrancar lo que necesita"),
+            };
             Entry::submenu(
                 project.hosts[0].clone(),
                 vec![
@@ -451,6 +461,7 @@ fn sites_menu(snapshot: &Snapshot) -> Option<Entry> {
                     Entry::item(site(SiteAction::Terminal), "Abrir terminal"),
                     Entry::item(site(SiteAction::CopyUrl), "Copiar URL"),
                     Entry::separator(),
+                    needs,
                     Entry::nav(&format!("#/logs?project={}", project.id), "Ver logs"),
                 ],
             )
@@ -894,6 +905,10 @@ fn run(app: &AppHandle, action: TrayAction) {
         TrayAction::ServicesAll(op) => actions::services_bulk(app, *op),
         TrayAction::ServiceLog(name) => untracked(app, name, actions::open_service_log(name)),
         TrayAction::Site(project, site) => untracked(app, project, actions::site(app, project, *site)),
+        TrayAction::SiteNeeds(project) => match project_root(app, project) {
+            Some(root) => start_project_services(app, &root).map(drop),
+            None => untracked(app, project, Err(GONE.to_string())),
+        },
         TrayAction::OpenMailpit => {
             let url = app.state::<AppState>().snapshot().mailpit.url;
             untracked(app, "mailpit", actions::open_url(&url))
@@ -903,6 +918,43 @@ fn run(app: &AppHandle, action: TrayAction) {
     if let Err(error) = result {
         eprintln!("Acción del menú «{action}»: {error}");
     }
+}
+
+const GONE: &str = "Ese proyecto ya no existe.";
+const NEEDS_BUSY: &str = "Arrancando lo que necesita…";
+
+fn project_root(app: &AppHandle, project_id: &str) -> Option<PathBuf> {
+    app.state::<AppState>()
+        .snapshot()
+        .projects
+        .into_iter()
+        .find(|p| p.id == project_id)
+        .map(|p| p.root)
+}
+
+/// «Arrancar lo que necesita» un proyecto, desde el tray o desde la ventana
+/// (comando `project_start_services`). Es lenta: llámala fuera del hilo
+/// principal. Mientras dura, el proyecto está `busy`; si falla, el problema
+/// queda en él y se ve en Sitios. Devuelve los servicios arrancados.
+pub fn start_project_services(app: &AppHandle, dir: &Path) -> Result<Vec<String>, String> {
+    let target = app
+        .state::<AppState>()
+        .snapshot()
+        .projects
+        .into_iter()
+        .find(|p| p.root == dir)
+        .map_or_else(|| dir.display().to_string(), |p| p.id);
+    state::set_busy(app, &target, NEEDS_BUSY);
+    let result = needs::start_project_services(dir);
+    if let Err(error) = state::refresh(app) {
+        eprintln!("No se pudo refrescar el estado: {error}");
+    }
+    state::clear_busy(app, &target);
+    match &result {
+        Ok(_) => state::clear_problems(app, &target),
+        Err(error) => state::add_problem(app, &target, error.clone(), ProblemKind::ActionFailed),
+    }
+    result
 }
 
 fn untracked(app: &AppHandle, target: &str, result: Result<(), String>) -> Result<(), String> {
@@ -1022,6 +1074,7 @@ mod tests {
             TrayAction::Site("0123456789abcdef".into(), SiteAction::Editor),
             TrayAction::Site("0123456789abcdef".into(), SiteAction::Terminal),
             TrayAction::Site("0123456789abcdef".into(), SiteAction::CopyUrl),
+            TrayAction::SiteNeeds("0123456789abcdef".into()),
             TrayAction::OpenMailpit,
             TrayAction::Quit,
         ];
@@ -1037,6 +1090,9 @@ mod tests {
         assert_eq!(TrayAction::ServicesAll(Operation::TurnOff).to_string(), "svc-all:turn_off");
         assert_eq!(TrayAction::PhpDefault("8.4@Herd".into()).to_string(), "php:default:8.4@Herd");
         assert_eq!(TrayAction::Site("x".into(), SiteAction::CopyUrl).to_string(), "site:copy:x");
+        assert_eq!(TrayAction::SiteNeeds("x".into()).to_string(), "site-needs:x");
+        assert!("site-needs:".parse::<TrayAction>().is_err());
+        assert!("site:needs:x".parse::<TrayAction>().is_err());
         assert_eq!(
             TrayAction::Open {
                 route: Some("#/logs".into())
@@ -1274,6 +1330,10 @@ mod tests {
             })
         );
 
+        let needs = find(&acme.children, "Arrancar lo que necesita").unwrap();
+        assert_eq!(needs.id, Some(TrayAction::SiteNeeds("aaaa".into())));
+        assert!(needs.enabled);
+
         let logs = find(&menu, "Logs").unwrap();
         assert_eq!(texts(&logs.children), ["Abrir visor", "Errores recientes (2)", "acme · 1 error"]);
         assert_eq!(
@@ -1285,6 +1345,28 @@ mod tests {
 
         let mailpit = find(&menu, "Abrir Mailpit").unwrap();
         assert!(!mailpit.enabled, "Mailpit detenido");
+    }
+
+    #[test]
+    fn starting_what_a_site_needs_shows_progress_in_place() {
+        let mut snapshot = empty();
+        snapshot.projects = vec![project("aaaa", "acme", Some("acme.test"))];
+        let before = entries(&snapshot, None);
+        snapshot.busy = vec![Busy {
+            target: "aaaa".into(),
+            label: NEEDS_BUSY.into(),
+        }];
+        let after = entries(&snapshot, None);
+
+        let site = &find(&after, "Sitios").unwrap().children[0];
+        let needs = site
+            .children
+            .iter()
+            .find(|e| e.id == Some(TrayAction::SiteNeeds("aaaa".into())))
+            .unwrap();
+        assert_eq!(needs.text, NEEDS_BUSY);
+        assert!(!needs.enabled);
+        assert_eq!(shape(&before), shape(&after), "se actualiza sin rehacer el menú");
     }
 
     #[test]

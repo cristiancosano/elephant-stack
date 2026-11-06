@@ -1,0 +1,386 @@
+// Copia en la interfaz del último `Snapshot` de Rust, que es la única fuente de
+// verdad (01 §4.3). Solo App.svelte la conecta; las vistas reciben el snapshot por
+// props y usan las funciones puras de abajo para derivar lo que pintan.
+//
+// Svelte 5 no permite exportar `$derived` de módulo, así que aquí se exportan
+// funciones que reciben el snapshot: dentro de un componente se usan con `$derived`.
+
+import { errorMessage, getSnapshot } from "../ipc";
+import { onStateChanged, type UnlistenFn } from "../events";
+import type { Busy } from "../bindings/Busy";
+import type { Component } from "../bindings/Component";
+import type { JobInfo } from "../bindings/JobInfo";
+import type { Problem } from "../bindings/Problem";
+import type { Project } from "../bindings/Project";
+import type { Service } from "../bindings/Service";
+import type { Snapshot } from "../bindings/Snapshot";
+import type { Usage } from "../bindings/Usage";
+import type { VersionInfo } from "../bindings/VersionInfo";
+import { formatCpu, formatMemory, plural, shouldShowCpu } from "../format";
+
+// ── Estado ──────────────────────────────────────────────────────────────────
+
+// `raw`: el snapshot se sustituye entero y nunca se muta, así que no hace falta
+// convertirlo en un proxy profundo.
+let current = $state.raw<Snapshot | null>(null);
+let lastError = $state<string | null>(null);
+
+export const app = {
+  get snapshot(): Snapshot | null {
+    return current;
+  },
+  /** Error al pedir el primer snapshot; se borra con el siguiente que llegue. */
+  get error(): string | null {
+    return lastError;
+  },
+};
+
+/** `next` sustituye a `prev` solo si es más reciente (las revisiones solo crecen). */
+export function isNewer(prev: Snapshot | null, next: Snapshot): boolean {
+  return prev === null || next.revision > prev.revision;
+}
+
+/** Aplica un snapshot si es más reciente que el actual. Devuelve si lo ha aplicado. */
+export function applySnapshot(next: Snapshot): boolean {
+  if (!isNewer(current, next)) return false;
+  current = next;
+  lastError = null;
+  return true;
+}
+
+async function fetchSnapshot(): Promise<void> {
+  try {
+    applySnapshot(await getSnapshot());
+  } catch (e) {
+    if (current === null) lastError = errorMessage(e);
+  }
+}
+
+/**
+ * Se suscribe a `state:changed` y pide el snapshot cacheado. Primero escucha, para
+ * no perder un cambio emitido mientras llega la respuesta. Al recuperar el foco se
+ * vuelve a pedir: `get_snapshot` lanza un refresco si el que tiene es de hace más
+ * de 2 s (las versiones de PHP, por ejemplo, cambian fuera de la app).
+ */
+export async function connect(): Promise<UnlistenFn> {
+  const stopListening = await onStateChanged((s) => applySnapshot(s));
+  await fetchSnapshot();
+  const onFocus = () => void fetchSnapshot();
+  window.addEventListener("focus", onFocus);
+  return () => {
+    stopListening();
+    window.removeEventListener("focus", onFocus);
+  };
+}
+
+/** Solo para tests. */
+export function resetApp(): void {
+  current = null;
+  lastError = null;
+}
+
+// ── Componentes y servicios ─────────────────────────────────────────────────
+
+/** Servicios instalados, los que están en marcha primero (orden estable). */
+export function services(s: Snapshot): Component[] {
+  return s.components
+    .filter((c) => c.installed && c.kind === "service")
+    .sort((a, b) => Number(b.service?.running ?? false) - Number(a.service?.running ?? false));
+}
+
+export function runningServices(s: Snapshot): Service[] {
+  return s.components.flatMap((c) => (c.installed && c.service?.running ? [c.service] : []));
+}
+
+/** PIDs de los servicios en marcha, para medir su consumo. */
+export function runningPids(s: Snapshot): number[] {
+  return runningServices(s).flatMap((service) => (service.pid ? [service.pid] : []));
+}
+
+/** Herramientas instaladas. Con versiones detectadas, PHP tiene su propia vista. */
+export function tools(s: Snapshot): Component[] {
+  const hasPhp = s.php.versions.length > 0;
+  return s.components.filter(
+    (c) => c.installed && c.kind === "tool" && !(c.id === "php" && hasPhp),
+  );
+}
+
+export function missing(s: Snapshot): Component[] {
+  return s.components.filter((c) => !c.installed);
+}
+
+export function busyFor(s: Snapshot, target: string): Busy | undefined {
+  return s.busy.find((b) => b.target === target);
+}
+
+/** Objetivo de `busy` de las acciones sobre PHP (actions.rs). */
+export const PHP_TARGET = "php";
+
+/**
+ * Hay algo en marcha en Homebrew: arrancar, parar, instalar o reiniciar todos.
+ * Homebrew admite una sola operación a la vez, así que el resto de controles esperan.
+ */
+export function brewBusy(s: Snapshot): boolean {
+  return s.busy.some((b) => b.target !== PHP_TARGET);
+}
+
+export function problemFor(s: Snapshot, target: string): Problem | undefined {
+  return s.problems.find((p) => p.target === target);
+}
+
+/** Lo que se lee bajo el nombre del servicio: «En marcha · 84 MB · 12 % CPU · Al iniciar sesión». */
+export function serviceStatusText(service: Service, usage?: Usage): string {
+  const parts: string[] = [];
+  if (service.running) {
+    parts.push("En marcha");
+    if (usage) {
+      parts.push(formatMemory(usage.memory_kb));
+      if (shouldShowCpu(usage.cpu_percent)) parts.push(`${formatCpu(usage.cpu_percent)} CPU`);
+    }
+  } else if (service.status === "error") {
+    parts.push(`Error · código ${service.exit_code ?? "desconocido"}`);
+  } else {
+    parts.push("Parado");
+  }
+  if (service.registered) parts.push("Al iniciar sesión");
+  return parts.join(" · ");
+}
+
+export type ServiceState = "running" | "stopped" | "error";
+
+export function serviceState(service: Service): ServiceState {
+  if (service.running) return "running";
+  return service.status === "error" ? "error" : "stopped";
+}
+
+/** Versión y origen. Homebrew es el origen por defecto, así que solo se nombra cualquier otro. */
+export function installedText(c: Component): string {
+  const origin = c.origin === "Homebrew" ? null : c.origin;
+  return [c.version, origin].filter(Boolean).join(" · ") || "Instalado";
+}
+
+// ── Tareas de agentes ───────────────────────────────────────────────────────
+
+/** Nombre legible del cliente de un agente (`audit.rs`: «claude-code 2.1.318», «mcp:cursor 1.2»…). */
+export function clientName(client: string | null): string | null {
+  if (!client) return null;
+  if (client === "tty") return "la terminal";
+  if (client === "script") return "un script";
+  const name = client.replace(/^mcp:/, "").split(" ")[0] ?? "";
+  if (name === "claude-code") return "Claude Code";
+  if (name === "claude-ai" || name === "claude-desktop") return "Claude";
+  if (!name) return null;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function jobTarget(job: JobInfo): string | null {
+  const args = job.args;
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    const value = (args as Record<string, unknown>).id ?? (args as Record<string, unknown>).name;
+    return typeof value === "string" ? value : null;
+  }
+  return null;
+}
+
+/** La tarea de un agente que está instalando este componente, si la hay. */
+export function jobForComponent(s: Snapshot, id: string): JobInfo | undefined {
+  return s.jobs.find((job) => job.kind === "component_install" && jobTarget(job) === id);
+}
+
+/** «Instalando redis… · pedido por Claude Code». */
+export function jobText(job: JobInfo): string {
+  const target = jobTarget(job);
+  let what: string;
+  if (job.message) what = job.message;
+  else if (job.kind === "component_install") what = target ? `Instalando ${target}…` : "Instalando…";
+  else if (job.kind === "project_create") what = target ? `Creando ${target}…` : "Creando un proyecto…";
+  else what = job.state === "queued" ? "En cola…" : "En curso…";
+  const who = clientName(job.client);
+  return who ? `${what} · pedido por ${who}` : what;
+}
+
+// ── PHP ─────────────────────────────────────────────────────────────────────
+
+/** Rama de la versión por defecto («8.4»), para la barra lateral. */
+export function phpBranch(s: Snapshot): string | null {
+  const id = s.php.active?.id;
+  if (!id) return null;
+  const match = /^(\d+)\.(\d+)/.exec(id);
+  return match ? `${match[1]}.${match[2]}` : id;
+}
+
+/**
+ * Opciones para elegir una versión. Si dos instalaciones comparten versión (la
+ * propia y la de Herd), se distinguen por el origen.
+ */
+export function phpOptions(versions: VersionInfo[]): { value: string; label: string }[] {
+  const count = new Map<string, number>();
+  for (const v of versions) count.set(v.id, (count.get(v.id) ?? 0) + 1);
+  return versions.map((v) => ({
+    value: v.key,
+    label: (count.get(v.id) ?? 0) > 1 ? `${v.id} · ${v.source}` : v.id,
+  }));
+}
+
+/**
+ * La instalación que corresponde a la versión de un `.php-version` («8.3» o
+ * «8.3.14»): primero la coincidencia exacta y luego la misma rama.
+ */
+export function versionForProject(versions: VersionInfo[], wanted: string | null): VersionInfo | undefined {
+  if (!wanted) return undefined;
+  return (
+    versions.find((v) => v.id === wanted) ?? versions.find((v) => v.id.startsWith(`${wanted}.`))
+  );
+}
+
+// ── Sitios ──────────────────────────────────────────────────────────────────
+
+/** Proyectos con dirección web: lo que sirve Herd hoy (C17). */
+export function sites(s: Snapshot): Project[] {
+  return s.projects.filter((p) => p.hosts.length > 0);
+}
+
+export function siteUrl(p: Project): string | null {
+  return p.hosts[0] ? `http://${p.hosts[0]}` : null;
+}
+
+/** `/Users/ana/Herd/acme` → `~/Herd/acme`. */
+export function tildePath(path: string): string {
+  return path.replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
+}
+
+/** Recorta por el centro para que se vean el principio y el final de una ruta. */
+export function middleTruncate(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= 1) return "…";
+  const keep = max - 1;
+  const head = Math.ceil(keep / 2);
+  const tail = keep - head;
+  return `${text.slice(0, head)}…${tail > 0 ? text.slice(-tail) : ""}`;
+}
+
+// ── Panel ───────────────────────────────────────────────────────────────────
+
+export type HeroTone = "ok" | "warn" | "bad";
+
+export interface Hero {
+  tone: HeroTone;
+  title: string;
+  detail: string;
+  action: { kind: "problem" | "start" | "services"; label: string } | null;
+}
+
+/** Servicios que arrancan al iniciar sesión pero ahora están parados. */
+export function startableServices(s: Snapshot): string[] {
+  return services(s).flatMap((c) =>
+    c.service && c.service.registered && !c.service.running ? [c.id] : [],
+  );
+}
+
+/** El héroe del Panel (01 §7.2): estado, una línea de resumen y una sola acción. */
+export function hero(s: Snapshot, memoryKb: number): Hero {
+  const running = runningServices(s).length;
+  const installed = services(s).length;
+  const detail = [
+    running > 0 ? plural(running, "servicio") : installed > 0 ? "Ningún servicio en marcha" : "Sin servicios",
+    s.php.active ? `PHP ${phpBranch(s)}` : null,
+    memoryKb > 0 ? formatMemory(memoryKb) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const problem = s.problems[0];
+  if (problem) {
+    const more = s.problems.length - 1;
+    return {
+      tone: "bad",
+      // El mensaje empieza a veces por el nombre del servicio: no se capitaliza.
+      title: problem.message,
+      detail: more > 0 ? `${detail} · ${plural(more, "problema")} más` : detail,
+      action: { kind: "problem", label: "Ver problema" },
+    };
+  }
+
+  const busy = s.busy[0];
+  const job = s.jobs[0];
+  if (busy || job) {
+    const title = busy
+      ? busy.target === "services" || busy.target === PHP_TARGET
+        ? busy.label
+        : `${busy.target}: ${lowerFirst(busy.label)}`
+      : jobText(job!);
+    return { tone: "warn", title, detail, action: null };
+  }
+
+  if (running > 0) {
+    return { tone: "ok", title: "Todo en marcha", detail, action: null };
+  }
+  const startable = startableServices(s);
+  return {
+    tone: "ok",
+    title: "Nada en marcha",
+    detail,
+    action:
+      startable.length > 0
+        ? { kind: "start", label: "Arrancar servicios" }
+        : installed > 0
+          ? { kind: "services", label: "Ver servicios" }
+          : null,
+  };
+}
+
+/** Escala del anillo de RAM: el primer escalón que deja la cifra por debajo del 100 %. */
+export function gaugeMaxKb(kb: number): number {
+  const mb = 1024;
+  for (const step of [512, 1024, 2048, 4096, 8192, 16384, 32768]) {
+    if (kb <= step * mb) return step * mb;
+  }
+  return Math.ceil(kb / (16384 * mb)) * 16384 * mb;
+}
+
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
+// ── Menús nativos ───────────────────────────────────────────────────────────
+
+export type MenuEntry =
+  | { text: string; enabled?: boolean; checked?: boolean; action?: () => void }
+  | "separator";
+
+// El menú anterior se suelta al abrir otro, no antes: sus acciones pueden llegar
+// después de que `popup` resuelva.
+let lastMenu: { close(): Promise<void> } | null = null;
+
+/**
+ * Menú contextual nativo (01 §6.6), en `at` (coordenadas de la ventana) o bajo el
+ * puntero. `@tauri-apps/api/menu` se carga solo al usarlo.
+ */
+export async function popupMenu(entries: MenuEntry[], at?: { x: number; y: number }): Promise<void> {
+  const [{ Menu }, { LogicalPosition }] = await Promise.all([
+    import("@tauri-apps/api/menu"),
+    import("@tauri-apps/api/dpi"),
+  ]);
+  const previous = lastMenu;
+  lastMenu = null;
+  void previous?.close().catch(() => {});
+  const menu = await Menu.new({
+    items: entries.map((e) =>
+      e === "separator"
+        ? { item: "Separator" as const }
+        : e.checked === undefined
+          ? { text: e.text, enabled: e.enabled ?? true, action: e.action }
+          : { text: e.text, enabled: e.enabled ?? true, checked: e.checked, action: e.action },
+    ),
+  });
+  lastMenu = menu;
+  await menu.popup(at ? new LogicalPosition(at.x, at.y) : undefined);
+}
+
+/** Punto bajo el borde inferior izquierdo del botón pulsado, para colgar un menú de él. */
+export function below(event: MouseEvent): { x: number; y: number } | undefined {
+  const el = event.currentTarget;
+  if (!(el instanceof Element)) return undefined;
+  const rect = el.getBoundingClientRect();
+  return { x: rect.left, y: rect.bottom + 2 };
+}

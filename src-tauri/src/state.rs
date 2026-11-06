@@ -117,7 +117,6 @@ pub struct NavGo {
 }
 
 /// Carga de `ui:command`, que envía el menú de la aplicación.
-#[allow(dead_code)] // Lo emite el menú de la aplicación de P05.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(test, derive(ts_rs::TS), ts(export))]

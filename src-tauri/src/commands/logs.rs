@@ -67,7 +67,6 @@ fn claim_turn(last: &AtomicI64, now_ms: i64) -> bool {
 /// Recalcula `snapshot.logs`, como mucho una vez cada 30 s y en otro hilo:
 /// contar errores puede costar cientos de ms. Lo llama el tray en `Enter` y
 /// `Click` (C16), nunca un temporizador.
-#[allow(dead_code)] // Lo llama el tray de P05.
 pub fn refresh_brief(app: &AppHandle) {
     let now = elephant_core::now_ms();
     let logs = app.state::<LogsState>();

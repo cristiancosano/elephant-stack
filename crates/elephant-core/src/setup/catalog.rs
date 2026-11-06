@@ -13,6 +13,13 @@ use super::presets;
 use super::{Catalog, ComposerRelease, PhpRelease};
 use crate::{fsutil, paths};
 
+/// Índice que publica el workflow de php-builds, con la misma forma que la
+/// respuesta de la API. Es un archivo de una release y no cuenta para el límite
+/// de la API anónima de GitHub: 60 consultas por hora y por IP, que una VPN
+/// compartida (Cloudflare WARP, por ejemplo) agota enseguida.
+const INDEX_URL: &str =
+    "https://github.com/cristiancosano/php-builds/releases/download/catalog/index.json";
+/// Respaldo por si el índice todavía no existe o no se puede leer.
 const RELEASES_URL: &str =
     "https://api.github.com/repos/cristiancosano/php-builds/releases?per_page=50";
 const COMPOSER_VERSIONS_URL: &str = "https://getcomposer.org/versions";
@@ -138,8 +145,10 @@ pub(crate) fn merge(
 pub(crate) fn fetch(curl: &Path) -> (Option<Vec<PhpRelease>>, Option<ComposerRelease>) {
     std::thread::scope(|scope| {
         let php = scope.spawn(|| {
-            let json = download::fetch_text(curl, RELEASES_URL).ok()?;
-            parse_releases(&json).ok().map(|(php, _)| php)
+            [INDEX_URL, RELEASES_URL].into_iter().find_map(|url| {
+                let json = download::fetch_text(curl, url).ok()?;
+                parse_releases(&json).ok().map(|(php, _)| php)
+            })
         });
         let composer = scope.spawn(|| {
             let json = download::fetch_text(curl, COMPOSER_VERSIONS_URL).ok()?;

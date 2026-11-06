@@ -90,23 +90,26 @@
   }
 
   // ── Descargas (php-builds) ──
-  // Si el catálogo no está disponible o viene vacío, el botón no aparece.
+  // El botón siempre está: si el catálogo no llega, la hoja explica por qué y
+  // deja reintentar, en vez de ocultar la función sin decir nada.
   let catalog = $state<Catalog | null>(null);
+  let catalogLoading = $state(true);
   let sheetOpen = $state(false);
   let downloading: Record<string, number | undefined> = $state({});
 
+  async function loadCatalog() {
+    catalogLoading = true;
+    try {
+      catalog = await phpCatalog();
+    } catch {
+      catalog = null;
+    } finally {
+      catalogLoading = false;
+    }
+  }
+
   $effect(() => {
-    let cancelled = false;
-    phpCatalog()
-      .then((c) => {
-        if (!cancelled) catalog = c;
-      })
-      .catch(() => {
-        if (!cancelled) catalog = null;
-      });
-    return () => {
-      cancelled = true;
-    };
+    void loadCatalog();
   });
 
   const releases = $derived(catalog?.php ?? []);
@@ -134,9 +137,12 @@
   <header class="toolbar" data-tauri-drag-region>
     <h1 data-tauri-drag-region>PHP</h1>
     {#if busy}<ProgressRing label={busy.label} />{/if}
-    {#if releases.length > 0}
-      <Button onclick={() => (sheetOpen = true)}>Descargar versión…</Button>
-    {/if}
+    <Button
+      onclick={() => {
+        sheetOpen = true;
+        if (!catalogLoading && releases.length === 0) void loadCatalog();
+      }}>Descargar versión…</Button
+    >
   </header>
 
   <div class="scroll">
@@ -199,7 +205,18 @@
 </div>
 
 <Sheet open={sheetOpen} title="Descargar una versión de PHP" onclose={() => (sheetOpen = false)}>
-  {#if catalog?.offline}
+  {#if releases.length === 0}
+    {#if catalogLoading}
+      <Skeleton lines={3} />
+    {:else}
+      <EmptyState
+        icon="warning"
+        title="No se pudo consultar las versiones"
+        message="Elephant no ha podido leer el catálogo de php-builds en GitHub. Comprueba la conexión y vuelve a intentarlo en unos minutos."
+        action={{ label: "Reintentar", onclick: () => void loadCatalog() }}
+      />
+    {/if}
+  {:else if catalog?.offline}
     <p class="note">Sin conexión: se muestran las versiones que había la última vez.</p>
   {/if}
   <Group>

@@ -35,6 +35,15 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+unsafe extern "C" {
+    safe fn geteuid() -> u32;
+}
+
+/// Usuario efectivo del proceso (el dueño de lo que crea).
+pub(crate) fn current_uid() -> u32 {
+    geteuid()
+}
+
 /// JSON con sangría y salto de línea final.
 pub(crate) fn write_json_atomic<T: serde::Serialize>(path: &Path, value: &T) -> Result<(), String> {
     let json = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;

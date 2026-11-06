@@ -21,11 +21,11 @@ use crate::{monitor, tr};
 use crate::php::VersionInfo;
 
 mod apply;
-mod catalog;
+pub(crate) mod catalog;
 mod detect;
-mod download;
+pub(crate) mod download;
 mod plan;
-mod presets;
+pub(crate) mod presets;
 pub mod shell;
 pub mod state;
 

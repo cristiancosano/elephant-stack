@@ -19,6 +19,7 @@ pub mod paths;
 pub mod php;
 pub mod project;
 pub mod redact;
+pub mod services;
 pub mod settings;
 pub mod setup;
 pub mod stamp;

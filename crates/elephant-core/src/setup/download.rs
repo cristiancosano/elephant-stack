@@ -17,7 +17,7 @@ use super::{ComposerRelease, PhpRelease};
 use crate::{paths, tr, tr_str};
 
 const SYSTEM_CURL: &str = "/usr/bin/curl";
-const SYSTEM_TAR: &str = "/usr/bin/tar";
+pub(crate) const SYSTEM_TAR: &str = "/usr/bin/tar";
 const POLL: Duration = Duration::from_millis(250);
 /// Una descarga que no avanza en este tiempo se cancela (además de los
 /// límites del propio curl): sin esto, una red que se cae sin cerrar la
@@ -71,7 +71,7 @@ impl Tools {
         })
     }
 
-    fn data(&self) -> PathBuf {
+    pub(crate) fn data(&self) -> PathBuf {
         paths::data_dir_in(&self.home)
     }
 }
@@ -114,7 +114,7 @@ pub(crate) fn fetch_text(curl: &Path, url: &str) -> Result<String, String> {
 
 /// Descarga a `dest`. El progreso se calcula sondeando el tamaño del archivo
 /// cada 250 ms contra `total`.
-fn download_file(
+pub(crate) fn download_file(
     curl: &Path,
     url: &str,
     dest: &Path,
@@ -275,7 +275,7 @@ pub(crate) fn check_listing(names: &[String], kinds: &[char]) -> Result<(), Stri
     Ok(())
 }
 
-fn tar_output(tar: &Path, args: &[&str], archive: &Path) -> Result<String, String> {
+pub(crate) fn tar_output(tar: &Path, args: &[&str], archive: &Path) -> Result<String, String> {
     let output = Command::new(tar)
         .args(args)
         .arg(archive)
@@ -283,7 +283,7 @@ fn tar_output(tar: &Path, args: &[&str], archive: &Path) -> Result<String, Strin
         .output()
         .map_err(|error| tr!("No se pudo ejecutar tar: {error}", "Couldn’t run tar: {error}"))?;
     if !output.status.success() {
-        return Err(tr!("El paquete de PHP está dañado.", "The PHP package is damaged."));
+        return Err(tr!("El paquete descargado está dañado.", "The downloaded package is damaged."));
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
@@ -301,7 +301,7 @@ fn check_archive(tar: &Path, archive: &Path) -> Result<(), String> {
     check_listing(&names, &kinds)
 }
 
-fn asset_name(url: &str) -> Result<&str, String> {
+pub(crate) fn asset_name(url: &str) -> Result<&str, String> {
     let name = url.rsplit('/').next().unwrap_or("");
     let valid = !name.is_empty()
         && !name.starts_with('.')
@@ -315,7 +315,7 @@ fn asset_name(url: &str) -> Result<&str, String> {
     }
 }
 
-fn dir_for(path: &Path) -> Result<(), String> {
+pub(crate) fn dir_for(path: &Path) -> Result<(), String> {
     match path.parent() {
         Some(dir) => fs::create_dir_all(dir)
             .map_err(|error| {

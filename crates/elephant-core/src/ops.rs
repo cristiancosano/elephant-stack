@@ -7,13 +7,70 @@ use std::path::{Path, PathBuf};
 use elephant_php::Layout;
 
 use crate::brew::{self, Operation, Service};
-use crate::{components, lock, paths, php, setup, stamp, validate};
+use crate::{components, launchd, lock, paths, php, services, setup, stamp, validate};
 
 pub fn service_control(name: &str, op: Operation) -> Result<Vec<Service>, String> {
     let lock = lock::brew()?;
     let services = brew::apply(&lock, name, op)?;
     stamp::touch("services");
+    if matches!(op, Operation::TurnOn | Operation::Restart | Operation::TurnOnWithAutostart) {
+        verify_brew_start(name)?;
+    }
     Ok(services)
+}
+
+/// Tras arrancar un servicio de brew, durante unos segundos su proceso tiene
+/// que seguir vivo. Si termina (también con código 0, como `mysqld_safe`
+/// cuando no puede usar sus datos), es un error con la explicación que haya.
+fn verify_brew_start(name: &str) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+    let label = format!("homebrew.mxcl.{name}");
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let job = launchd::homebrew_jobs()?.into_iter().find(|job| job.label == label);
+        // Sin puerto que mirar: basta con que el proceso siga vivo.
+        match services::probe(job.as_ref(), true) {
+            services::Probe::Exited(code) => return Err(brew_start_error(name, code)),
+            _ if Instant::now() >= deadline => return Ok(()),
+            _ => std::thread::sleep(Duration::from_millis(250)),
+        }
+    }
+}
+
+fn brew_start_error(name: &str, code: Option<i64>) -> String {
+    let code = code.map_or_else(|| "?".to_string(), |c| c.to_string());
+    let prefix = Path::new("/opt/homebrew/var");
+    let mut detail = brew_log_line(prefix, name).map(|line| format!(" {line}")).unwrap_or_default();
+    if (name == "mysql" || name.starts_with("mysql@"))
+        && let Err(owner) = services::check_owner(&prefix.join("mysql"))
+    {
+        detail = format!(" {owner}");
+    }
+    crate::tr!(
+        "{name} se ha detenido justo después de arrancar (código {code}).{detail}",
+        "{name} stopped right after starting (code {code}).{detail}"
+    )
+}
+
+/// La última línea útil del log de un servicio de brew, si se puede leer.
+fn brew_log_line(var: &Path, name: &str) -> Option<String> {
+    let base = name.split('@').next().unwrap_or(name);
+    let mut candidates = vec![var.join(format!("log/{name}.log")), var.join(format!("log/{base}.log"))];
+    if base == "mysql"
+        && let Ok(entries) = std::fs::read_dir(var.join("mysql"))
+    {
+        candidates.extend(
+            entries
+                .flatten()
+                .map(|e| e.path())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "err")),
+        );
+    }
+    candidates.into_iter().find_map(|path| {
+        let text = std::fs::read_to_string(path).ok()?;
+        let tail: String = text.chars().rev().take(16 * 1024).collect::<Vec<_>>().into_iter().rev().collect();
+        services::last_useful_line(&tail)
+    })
 }
 
 /// Reiniciar o detener todos los servicios que están en marcha, con un solo
@@ -113,6 +170,25 @@ mod tests {
         fs::create_dir_all(&php_dir).unwrap();
         write_script(&php_dir.join("php"), "echo 8.4.27");
         home
+    }
+
+    #[test]
+    fn brew_logs_give_the_last_useful_line() {
+        let var = TempDir::new("ops-brew-log");
+        fs::create_dir_all(var.path().join("log")).unwrap();
+        fs::write(var.path().join("log/redis.log"), "1:M 06 Nov arrancando\n1:M 06 Nov # Fallo al abrir el puerto\n").unwrap();
+        assert_eq!(brew_log_line(var.path(), "redis").as_deref(), Some("1:M 06 Nov # Fallo al abrir el puerto"));
+        fs::create_dir_all(var.path().join("mysql")).unwrap();
+        fs::write(
+            var.path().join("mysql/host.err"),
+            "2026-11-06T10:00:00.000000Z 0 [ERROR] [MY-010273] [Server] No se puede crear el socket\n",
+        )
+        .unwrap();
+        assert_eq!(
+            brew_log_line(var.path(), "mysql").as_deref(),
+            Some("[ERROR] [MY-010273] [Server] No se puede crear el socket")
+        );
+        assert_eq!(brew_log_line(var.path(), "nginx"), None);
     }
 
     #[test]

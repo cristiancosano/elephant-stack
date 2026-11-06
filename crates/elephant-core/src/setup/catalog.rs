@@ -19,7 +19,31 @@ const COMPOSER_VERSIONS_URL: &str = "https://getcomposer.org/versions";
 const MEMORY_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// Caché en memoria de la última fuente consultada.
-static MEMORY: Mutex<Option<(Instant, String, Catalog)>> = Mutex::new(None);
+static MEMORY: MemoryCache<Catalog> = MemoryCache::new();
+
+/// Último valor leído de la red, con la clave de su fuente y una hora de
+/// vida. La comparten este catálogo y el de los servicios propios.
+pub(crate) struct MemoryCache<T>(Mutex<Option<(Instant, String, T)>>);
+
+impl<T: Clone> MemoryCache<T> {
+    pub(crate) const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    pub(crate) fn get(&self, key: &str) -> Option<T> {
+        let memory = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        match memory.as_ref() {
+            Some((at, cached_key, value)) if at.elapsed() < MEMORY_TTL && cached_key == key => {
+                Some(value.clone())
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn put(&self, key: String, value: T) {
+        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = Some((Instant::now(), key, value));
+    }
+}
 
 /// De dónde salen las versiones de PHP que se pueden descargar (Ajustes ▸
 /// General). Las dos formas dan un índice con la forma de la API de releases
@@ -314,14 +338,8 @@ pub(crate) fn fetch(
 pub(crate) fn catalog(force_refresh: bool) -> Catalog {
     let source = configured_source();
     let key = source.key();
-    if !force_refresh {
-        let memory = MEMORY.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some((at, cached_key, catalog)) = memory.as_ref()
-            && at.elapsed() < MEMORY_TTL
-            && *cached_key == key
-        {
-            return catalog.clone();
-        }
+    if !force_refresh && let Some(catalog) = MEMORY.get(&key) {
+        return catalog;
     }
     let home = paths::home().ok();
     let (php, composer) = fetch(&download::curl_path(), &source);
@@ -335,8 +353,7 @@ pub(crate) fn catalog(force_refresh: bool) -> Catalog {
         if let Some(home) = &home {
             let _ = fsutil::write_json_atomic(&cache_path(home, &source), &catalog);
         }
-        *MEMORY.lock().unwrap_or_else(|p| p.into_inner()) =
-            Some((Instant::now(), key, catalog.clone()));
+        MEMORY.put(key, catalog.clone());
     }
     catalog
 }

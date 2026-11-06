@@ -400,6 +400,8 @@ pub fn detect(launch_at_login: bool) -> Detection {
 
 /// Releases de php-builds y Composer estable. Una hora en memoria y copia en
 /// `~/.elephant-stack/cache/catalog.json` para trabajar sin red.
+pub use catalog::{DEFAULT_SOURCE, SourceCheck, check_source, parse_source};
+
 pub fn catalog(force_refresh: bool) -> Catalog {
     catalog::catalog(force_refresh)
 }
@@ -655,7 +657,7 @@ mod system_tests {
     #[ignore = "depende del Mac en el que se ejecuta y de la red"]
     fn prints_the_real_plans() {
         let detection = detect(false);
-        let (php, composer) = catalog::fetch(&download::curl_path());
+        let (php, composer) = catalog::fetch(&download::curl_path(), &catalog::configured_source());
         let catalog = catalog::merge(php, composer, None);
         for input in [
             ProfileInput::Laravel,

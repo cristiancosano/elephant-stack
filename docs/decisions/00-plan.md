@@ -618,6 +618,7 @@ Todos son `async`, devuelven `Result<_, String>` y hacen el trabajo en `spawn_bl
 | | `setup_shell_preview` | — | `ShellPreview` |
 | | `setup_shell_apply` | `hash: String` | `()` |
 | | `php_catalog` | — | `Catalog` |
+| | `php_source_check` | `source: String` | `SourceCheck` |
 | | `php_download` | `version: String, on_event: Channel<SetupProgress>` | `ApplyReport` |
 | `mcp.rs` · P09 | `mcp_status` | — | `McpStatus { linked, link_path, target, mode, claude_path: Option<String>, claude_registered: bool, last_used_ms }` (`claude_registered` = plugin `elephant@elephant-stack` instalado, según `claude plugin list --json`) |
 | | `mcp_enable` / `mcp_disable` | — | `McpStatus` (crea o quita el enlace `~/.elephant-stack/bin/elephant` → `sidecar::path("cli")`; `mcp_disable` además ejecuta `claude plugin uninstall elephant@elephant-stack` si el plugin está instalado) |

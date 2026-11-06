@@ -122,6 +122,7 @@ export const snapshot: Snapshot = {
     show_php_in_menu_bar: false,
     watch_services: true,
     editor: "vscode",
+    php_source: null,
     mcp: { mode: "confirm" },
   },
 };

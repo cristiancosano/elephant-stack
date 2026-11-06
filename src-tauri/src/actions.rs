@@ -116,6 +116,7 @@ pub fn start_project_services(app: &AppHandle, dir: &Path) -> Result<Vec<String>
 /// La interfaz no conoce `extra`: se conservan las claves guardadas que no
 /// envía. Aplica el tema a la ventana y emite el estado nuevo.
 pub fn set_settings(app: &AppHandle, s: Settings) -> Result<Settings, String> {
+    let s = normalize_php_source(s)?;
     let merged = merge_extra(s, settings::load());
     settings::save(&merged)?;
     window::apply_theme(app, merged.appearance);
@@ -125,6 +126,18 @@ pub fn set_settings(app: &AppHandle, s: Settings) -> Result<Settings, String> {
         snapshot.mcp.mode = mode;
     });
     Ok(merged)
+}
+
+/// Una fuente vacía vuelve a la por defecto; una mal escrita no se guarda.
+fn normalize_php_source(mut s: Settings) -> Result<Settings, String> {
+    s.php_source = match s.php_source.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(source) => {
+            elephant_core::setup::parse_source(source)?;
+            Some(source.to_string())
+        }
+    };
+    Ok(s)
 }
 
 fn merge_extra(mut new: Settings, saved: Settings) -> Settings {
@@ -295,6 +308,22 @@ fn percent_encode_path(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn php_source_is_trimmed_validated_and_empty_means_default() {
+        let with = |source: Option<&str>| Settings {
+            php_source: source.map(str::to_string),
+            ..Settings::default()
+        };
+        assert_eq!(normalize_php_source(with(Some("  "))).unwrap().php_source, None);
+        assert_eq!(normalize_php_source(with(None)).unwrap().php_source, None);
+        assert_eq!(
+            normalize_php_source(with(Some(" yo/php "))).unwrap().php_source.as_deref(),
+            Some("yo/php")
+        );
+        assert!(normalize_php_source(with(Some("http://inseguro.test/index.json"))).is_err());
+        assert!(normalize_php_source(with(Some("no-es-un-repo"))).is_err());
+    }
 
     #[test]
     fn editor_urls_for_each_editor() {

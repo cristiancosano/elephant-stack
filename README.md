@@ -29,6 +29,15 @@ Un pequeño ejecutable `php` (el selector, en `shim/`) decide qué versión usar
 
 Si un proyecto pide una versión que no tienes, da error en vez de usar otra sin avisar. Detecta los PHP de Herd y los propios (`~/.elephant-stack/php/<versión>/php`). Solo cubre `php` en la terminal: los sitios servidos por Herd siguen usando su configuración. El asistente añade la línea del `PATH` a `~/.zshrc` si se lo pides, enseñándote antes el cambio.
 
+**De dónde salen.** Las versiones que se instalan desde la vista PHP vienen de [php-builds](https://github.com/cristiancosano/php-builds), que compila PHP estático con static-php-cli. En Ajustes ▸ General se puede usar otra fuente:
+
+- un repositorio de GitHub (`usuario/repo`) que publique igual que php-builds: un `index.json` en la release `catalog` o, como respaldo, releases `php-X.Y.Z` con `php-X.Y.Z-macos-arm64.tar.gz` y su `.sha256` (o `SHA256SUMS`);
+- la URL https de un `index.json` con esa misma forma (la de la API de releases de GitHub: `[{tag_name, draft, prerelease, assets: [{name, browser_download_url, size}]}]`).
+
+«Probar» comprueba la fuente antes de guardarla. Esos binarios se ejecutan como tu `php` y el SHA-256 viene de la misma fuente, así que solo protege de descargas corruptas: usa fuentes de confianza.
+
+Con una versión instalada, una más reciente de su misma rama (8.4.27 → 8.4.28) aparece como «Actualizar»: se descarga, pasa a ser la versión por defecto y la de los proyectos que fijaban la anterior, y la anterior se borra. Las versiones de Herd no se listan, aunque el selector las sigue resolviendo.
+
 ## Canal de agentes
 
 Hay un único catálogo de operaciones (`crates/elephant-api`, contrato en [`docs/agent-api.json`](docs/agent-api.json)) con dos fachadas:

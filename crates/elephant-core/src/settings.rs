@@ -71,6 +71,9 @@ pub struct Settings {
     pub watch_services: bool,
     pub editor: Editor,
     pub mcp: McpSettings,
+    /// Fuente de las versiones de PHP descargables: `usuario/repo` de GitHub o
+    /// la URL https de un `index.json`. Sin valor, la de php-builds.
+    pub php_source: Option<String>,
     /// Claves que esta versión no conoce: se conservan al guardar para que una
     /// app antigua no borre lo que escribió una más nueva.
     #[serde(flatten)]
@@ -88,6 +91,7 @@ impl Default for Settings {
             watch_services: true,
             editor: Editor::Vscode,
             mcp: McpSettings::default(),
+            php_source: None,
             extra: serde_json::Map::new(),
         }
     }

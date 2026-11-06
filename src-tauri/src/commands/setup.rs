@@ -249,6 +249,12 @@ pub async fn php_catalog() -> Result<Catalog, String> {
     blocking(|| Ok(setup::catalog(false))).await
 }
 
+/// Comprueba una fuente de versiones de PHP sin guardarla (Ajustes ▸ General).
+#[tauri::command]
+pub async fn php_source_check(source: String) -> Result<setup::SourceCheck, String> {
+    blocking(move || setup::check_source(&source)).await
+}
+
 #[tauri::command]
 pub async fn php_download(
     app: AppHandle,

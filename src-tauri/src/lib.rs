@@ -109,6 +109,7 @@ pub fn run() {
             commands::setup::setup_shell_preview,
             commands::setup::setup_shell_apply,
             commands::setup::php_catalog,
+            commands::setup::php_source_check,
             commands::setup::php_download,
             commands::mcp::mcp_status,
             commands::mcp::mcp_enable,

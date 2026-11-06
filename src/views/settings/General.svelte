@@ -8,13 +8,15 @@
   import Select from "../../ui/Select.svelte";
   import Button from "../../ui/Button.svelte";
   import Skeleton from "../../ui/Skeleton.svelte";
+  import ProgressRing from "../../ui/ProgressRing.svelte";
   import { toast } from "../../ui/toasts.svelte";
-  import { errorMessage, setSettings } from "../../lib/ipc";
+  import { errorMessage, phpSourceCheck, setSettings } from "../../lib/ipc";
   import { go } from "../../lib/router.svelte";
   import type { AppearanceMode } from "../../lib/bindings/AppearanceMode";
   import type { Editor } from "../../lib/bindings/Editor";
   import type { Settings } from "../../lib/bindings/Settings";
   import type { Snapshot } from "../../lib/bindings/Snapshot";
+  import type { SourceCheck } from "../../lib/bindings/SourceCheck";
 
   let { snapshot }: { snapshot: Snapshot | null } = $props();
 
@@ -46,6 +48,72 @@
     } finally {
       if (pending === next) pending = null;
     }
+  }
+
+  // ── Fuente de las versiones de PHP ──
+  // Una fuente propia solo se guarda después de probarla: así nunca queda
+  // guardada una que no da versiones.
+  const DEFAULT_SOURCE = "cristiancosano/php-builds";
+  const SOURCE_MODES: { value: "default" | "custom"; label: string }[] = [
+    { value: "default", label: "php-builds" },
+    { value: "custom", label: "Personalizada" },
+  ];
+  let customOpen = $state(false);
+  let draft = $state("");
+  let draftLoaded = false;
+  let checking = $state(false);
+  let check = $state<SourceCheck | null>(null);
+  let checkError = $state<string | null>(null);
+
+  const sourceMode = $derived<"default" | "custom">(customOpen || settings?.php_source ? "custom" : "default");
+  const draftIsSaved = $derived((settings?.php_source ?? "") === draft.trim());
+
+  $effect(() => {
+    if (draftLoaded || !settings) return;
+    draft = settings.php_source ?? "";
+    draftLoaded = true;
+  });
+
+  function resetCheck() {
+    check = null;
+    checkError = null;
+  }
+
+  function chooseMode(mode: "default" | "custom") {
+    resetCheck();
+    if (mode === "custom") {
+      customOpen = true;
+      return;
+    }
+    customOpen = false;
+    draft = "";
+    void change("php_source", null);
+  }
+
+  async function probe() {
+    const source = draft.trim();
+    if (!source || checking) return;
+    checking = true;
+    resetCheck();
+    try {
+      check = await phpSourceCheck(source);
+    } catch (e) {
+      checkError = errorMessage(e);
+    } finally {
+      checking = false;
+    }
+  }
+
+  async function useSource() {
+    await change("php_source", draft.trim());
+    resetCheck();
+    toast("Las versiones de PHP se descargarán de la nueva fuente.", { tone: "success" });
+  }
+
+  function versionsText(versions: string[]): string {
+    const shown = versions.slice(0, 4).join(", ");
+    const more = versions.length > 4 ? ` y ${versions.length - 4} más` : "";
+    return `${versions.length === 1 ? "1 versión" : `${versions.length} versiones`}: ${shown}${more}`;
   }
 </script>
 
@@ -107,6 +175,62 @@
     </Row>
   </Group>
 
+  <Group
+    title="Versiones de PHP"
+    footer="Una fuente propia debe publicar igual que php-builds: un index.json en la release «catalog», o releases php-X.Y.Z con el paquete php-X.Y.Z-macos-arm64.tar.gz y su .sha256. Esos binarios se ejecutan como tu php, y el SHA-256 viene de la misma fuente: usa solo fuentes de confianza."
+  >
+    <Row
+      title="Origen de las descargas"
+      subtitle={settings.php_source ?? `${DEFAULT_SOURCE} (recomendado)`}
+    >
+      {#snippet trailing()}
+        <SegmentedControl
+          options={SOURCE_MODES}
+          value={sourceMode}
+          label="Origen de las versiones de PHP"
+          onchange={chooseMode}
+        />
+      {/snippet}
+    </Row>
+    {#if sourceMode === "custom"}
+      <Row title="Repositorio o índice">
+        {#snippet trailing()}
+          <input
+            class="field"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="usuario/repo o https://…/index.json"
+            aria-label="Repositorio de GitHub o URL del índice de versiones de PHP"
+            bind:value={draft}
+            oninput={resetCheck}
+            onkeydown={(event) => {
+              if (event.key === "Enter") void probe();
+            }}
+          />
+          <Button onclick={() => void probe()} disabled={checking || draft.trim() === ""}>Probar</Button>
+        {/snippet}
+      </Row>
+      {#if checking}
+        <Row title="Comprobando la fuente…">
+          {#snippet trailing()}<ProgressRing label="Comprobando la fuente" />{/snippet}
+        </Row>
+      {:else if checkError}
+        <Row title="No sirve como fuente" subtitle={checkError} />
+      {:else if check}
+        <Row title={versionsText(check.versions)} subtitle={check.url}>
+          {#snippet trailing()}
+            {#if draftIsSaved}
+              <span class="saved">En uso</span>
+            {:else}
+              <Button variant="primary" onclick={() => void useSource()}>Usar esta fuente</Button>
+            {/if}
+          {/snippet}
+        </Row>
+      {/if}
+    {/if}
+  </Group>
+
   <Group footer="Revisa qué servicios y versiones de PHP quieres, sin perder lo que ya tienes.">
     <Row title="Asistente de configuración">
       {#snippet trailing()}
@@ -115,3 +239,32 @@
     </Row>
   </Group>
 {/if}
+
+<style>
+  .field {
+    width: 280px;
+    height: var(--control-height-large);
+    padding: 0 var(--s-2);
+    border: none;
+    border-radius: var(--r-sm);
+    background: var(--fill-2);
+    color: var(--label);
+    font: var(--t-body);
+    box-shadow: 0 0 0 1px transparent;
+    transition: box-shadow var(--d-1) var(--ease);
+  }
+
+  .field::placeholder {
+    color: var(--label-3);
+  }
+
+  .field:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--focus-ring);
+  }
+
+  .saved {
+    color: var(--label-2);
+    font: var(--t-callout);
+  }
+</style>

@@ -16,4 +16,9 @@ show_php_in_menu_bar: boolean,
 /**
  * Vigila los servicios de Homebrew cada 20 s.
  */
-watch_services: boolean, editor: Editor, mcp: McpSettings, };
+watch_services: boolean, editor: Editor, mcp: McpSettings, 
+/**
+ * Fuente de las versiones de PHP descargables: `usuario/repo` de GitHub o
+ * la URL https de un `index.json`. Sin valor, la de php-builds.
+ */
+php_source: string | null, };

@@ -33,6 +33,7 @@ import type { SetupStatus } from "./bindings/SetupStatus";
 import type { ShellPreview } from "./bindings/ShellPreview";
 import type { SiteAction } from "./bindings/SiteAction";
 import type { Snapshot } from "./bindings/Snapshot";
+import type { SourceCheck } from "./bindings/SourceCheck";
 import type { Usage } from "./bindings/Usage";
 
 /** Canal de Tauri que entrega cada mensaje a `cb`. */
@@ -144,6 +145,7 @@ export const setupSkip = () => invoke<SetupFile>("setup_skip");
 export const setupShellPreview = () => invoke<ShellPreview>("setup_shell_preview");
 export const setupShellApply = (hash: string) => invoke<void>("setup_shell_apply", { hash });
 export const phpCatalog = () => invoke<Catalog>("php_catalog");
+export const phpSourceCheck = (source: string) => invoke<SourceCheck>("php_source_check", { source });
 
 export function phpDownload(version: string, onEvent: (e: SetupProgress) => void): Promise<ApplyReport> {
   return invoke<ApplyReport>("php_download", { version, onEvent: channel(onEvent) });

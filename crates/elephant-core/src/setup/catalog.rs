@@ -6,26 +6,156 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::download;
 use super::presets;
 use super::{Catalog, ComposerRelease, PhpRelease};
 use crate::{fsutil, paths};
 
-/// Índice que publica el workflow de php-builds, con la misma forma que la
-/// respuesta de la API. Es un archivo de una release y no cuenta para el límite
-/// de la API anónima de GitHub: 60 consultas por hora y por IP, que una VPN
-/// compartida (Cloudflare WARP, por ejemplo) agota enseguida.
-const INDEX_URL: &str =
-    "https://github.com/cristiancosano/php-builds/releases/download/catalog/index.json";
-/// Respaldo por si el índice todavía no existe o no se puede leer.
-const RELEASES_URL: &str =
-    "https://api.github.com/repos/cristiancosano/php-builds/releases?per_page=50";
+/// Repositorio por defecto de las versiones de PHP.
+pub const DEFAULT_SOURCE: &str = "cristiancosano/php-builds";
 const COMPOSER_VERSIONS_URL: &str = "https://getcomposer.org/versions";
 const MEMORY_TTL: Duration = Duration::from_secs(60 * 60);
 
-static MEMORY: Mutex<Option<(Instant, Catalog)>> = Mutex::new(None);
+/// Caché en memoria de la última fuente consultada.
+static MEMORY: Mutex<Option<(Instant, String, Catalog)>> = Mutex::new(None);
+
+/// De dónde salen las versiones de PHP que se pueden descargar (Ajustes ▸
+/// General). Las dos formas dan un índice con la forma de la API de releases
+/// de GitHub: `[{tag_name, draft, prerelease, assets: [{name,
+/// browser_download_url, size}]}]`, con releases `php-X.Y.Z`, paquetes
+/// `php-X.Y.Z-macos-arm64.tar.gz` y su `.sha256` (o `SHA256SUMS`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PhpSource {
+    /// Un repositorio de GitHub que publica como php-builds.
+    GitHub { owner: String, repo: String },
+    /// La URL https de un `index.json`.
+    Index(String),
+}
+
+impl Default for PhpSource {
+    fn default() -> Self {
+        parse_source(DEFAULT_SOURCE).expect("la fuente por defecto es válida")
+    }
+}
+
+impl PhpSource {
+    /// Dónde se busca el índice, por orden. Para GitHub, primero el
+    /// `index.json` de la release `catalog`, que no cuenta para el límite de la
+    /// API anónima (60 consultas por hora y por IP, que una VPN compartida como
+    /// Cloudflare WARP agota enseguida), y la API como respaldo.
+    pub fn urls(&self) -> Vec<String> {
+        match self {
+            Self::GitHub { owner, repo } => vec![
+                format!("https://github.com/{owner}/{repo}/releases/download/catalog/index.json"),
+                format!("https://api.github.com/repos/{owner}/{repo}/releases?per_page=50"),
+            ],
+            Self::Index(url) => vec![url.clone()],
+        }
+    }
+
+    /// Identifica la fuente en las cachés.
+    fn key(&self) -> String {
+        match self {
+            Self::GitHub { owner, repo } => format!("{owner}/{repo}"),
+            Self::Index(url) => url.clone(),
+        }
+    }
+}
+
+fn is_github_name(name: &str, max: usize) -> bool {
+    !name.is_empty()
+        && name.len() <= max
+        && name != "."
+        && name != ".."
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
+}
+
+/// `usuario/repo` de GitHub o la URL https de un `index.json`.
+pub fn parse_source(input: &str) -> Result<PhpSource, String> {
+    let input = input.trim();
+    if input.starts_with("https://") {
+        let valid = input.len() <= 2048
+            && input.len() > "https://".len()
+            && !input.chars().any(|c| c.is_whitespace() || c.is_control());
+        return if valid {
+            Ok(PhpSource::Index(input.to_string()))
+        } else {
+            Err("La URL del índice no es válida.".to_string())
+        };
+    }
+    if input.contains("://") {
+        return Err("Solo se admiten URL https.".to_string());
+    }
+    match input.split_once('/') {
+        Some((owner, repo)) if is_github_name(owner, 39) && is_github_name(repo, 100) => {
+            Ok(PhpSource::GitHub {
+                owner: owner.to_string(),
+                repo: repo.to_string(),
+            })
+        }
+        _ => Err("Escribe un repositorio de GitHub (usuario/repo) o la URL https de un index.json.".to_string()),
+    }
+}
+
+/// La fuente guardada en los ajustes, o la por defecto si no hay o no es válida.
+pub fn configured_source() -> PhpSource {
+    crate::settings::load()
+        .php_source
+        .as_deref()
+        .and_then(|input| parse_source(input).ok())
+        .unwrap_or_default()
+}
+
+/// Resultado de «Probar» una fuente antes de guardarla.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct SourceCheck {
+    /// Versiones con paquete para macOS arm64, de la más reciente a la más antigua.
+    pub versions: Vec<String>,
+    /// Releases descartadas y el motivo.
+    pub skipped: Vec<String>,
+    /// URL de la que se ha leído el índice.
+    pub url: String,
+}
+
+/// Lee y valida una fuente sin guardarla ni tocar las cachés.
+pub fn check_source(input: &str) -> Result<SourceCheck, String> {
+    let source = parse_source(input)?;
+    let curl = download::curl_path();
+    let mut last_error = String::from("No se ha podido leer el índice.");
+    for url in source.urls() {
+        match download::fetch_text(&curl, &url).and_then(|json| parse_releases(&json)) {
+            Ok((php, skipped)) if !php.is_empty() => {
+                return Ok(SourceCheck {
+                    versions: php.into_iter().map(|release| release.version).collect(),
+                    skipped,
+                    url,
+                });
+            }
+            Ok((_, skipped)) => {
+                last_error = if skipped.is_empty() {
+                    "El índice no tiene ninguna release php-X.Y.Z.".to_string()
+                } else {
+                    format!("Ninguna versión sirve en este Mac: {}", skipped.join("; "))
+                };
+            }
+            Err(error) => last_error = error,
+        }
+    }
+    // El error de curl solo (por ejemplo, el 403 de la API sin cupo) no dice
+    // qué falta; se explica qué se ha buscado.
+    Err(match &source {
+        PhpSource::GitHub { owner, repo } => format!(
+            "No se encuentra un índice de versiones en {owner}/{repo}: falta la release «catalog» con index.json, o el repositorio no existe o es privado. Detalle: {last_error}"
+        ),
+        PhpSource::Index(_) => format!("No se ha podido leer el índice. Detalle: {last_error}"),
+    })
+}
 
 #[derive(Deserialize)]
 struct Release {
@@ -117,12 +247,25 @@ fn is_https(url: &str) -> bool {
     url.starts_with("https://")
 }
 
-fn cache_path(home: &Path) -> PathBuf {
-    paths::data_dir_in(home).join("cache/catalog.json")
+/// FNV-1a de 64 bits: nombre de archivo estable para la caché de cada fuente.
+fn fnv1a(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
-fn load_disk(home: &Path) -> Option<Catalog> {
-    let text = std::fs::read_to_string(cache_path(home)).ok()?;
+/// La fuente por defecto conserva `catalog.json`; cada fuente propia tiene la suya.
+fn cache_path(home: &Path, source: &PhpSource) -> PathBuf {
+    let name = if *source == PhpSource::default() {
+        "catalog.json".to_string()
+    } else {
+        format!("catalog-{:016x}.json", fnv1a(&source.key()))
+    };
+    paths::data_dir_in(home).join("cache").join(name)
+}
+
+fn load_disk(home: &Path, source: &PhpSource) -> Option<Catalog> {
+    let text = std::fs::read_to_string(cache_path(home, source)).ok()?;
     serde_json::from_str(&text).ok()
 }
 
@@ -142,11 +285,14 @@ pub(crate) fn merge(
     }
 }
 
-pub(crate) fn fetch(curl: &Path) -> (Option<Vec<PhpRelease>>, Option<ComposerRelease>) {
+pub(crate) fn fetch(
+    curl: &Path,
+    source: &PhpSource,
+) -> (Option<Vec<PhpRelease>>, Option<ComposerRelease>) {
     std::thread::scope(|scope| {
         let php = scope.spawn(|| {
-            [INDEX_URL, RELEASES_URL].into_iter().find_map(|url| {
-                let json = download::fetch_text(curl, url).ok()?;
+            source.urls().into_iter().find_map(|url| {
+                let json = download::fetch_text(curl, &url).ok()?;
                 parse_releases(&json).ok().map(|(php, _)| php)
             })
         });
@@ -159,23 +305,31 @@ pub(crate) fn fetch(curl: &Path) -> (Option<Vec<PhpRelease>>, Option<ComposerRel
 }
 
 pub(crate) fn catalog(force_refresh: bool) -> Catalog {
+    let source = configured_source();
+    let key = source.key();
     if !force_refresh {
         let memory = MEMORY.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some((at, catalog)) = memory.as_ref()
+        if let Some((at, cached_key, catalog)) = memory.as_ref()
             && at.elapsed() < MEMORY_TTL
+            && *cached_key == key
         {
             return catalog.clone();
         }
     }
     let home = paths::home().ok();
-    let (php, composer) = fetch(&download::curl_path());
+    let (php, composer) = fetch(&download::curl_path(), &source);
     let fetched = php.is_some();
-    let catalog = merge(php, composer, home.as_deref().and_then(load_disk));
+    let catalog = merge(
+        php,
+        composer,
+        home.as_deref().and_then(|home| load_disk(home, &source)),
+    );
     if fetched {
         if let Some(home) = &home {
-            let _ = fsutil::write_json_atomic(&cache_path(home), &catalog);
+            let _ = fsutil::write_json_atomic(&cache_path(home, &source), &catalog);
         }
-        *MEMORY.lock().unwrap_or_else(|p| p.into_inner()) = Some((Instant::now(), catalog.clone()));
+        *MEMORY.lock().unwrap_or_else(|p| p.into_inner()) =
+            Some((Instant::now(), key, catalog.clone()));
     }
     catalog
 }
@@ -269,14 +423,71 @@ mod tests {
 }
 
 #[cfg(test)]
+mod source_tests {
+    use super::*;
+
+    #[test]
+    fn github_repositories_use_the_index_first_and_the_api_as_fallback() {
+        let source = parse_source(" mi-org/php.builds_2 ").unwrap();
+        assert_eq!(
+            source.urls(),
+            [
+                "https://github.com/mi-org/php.builds_2/releases/download/catalog/index.json",
+                "https://api.github.com/repos/mi-org/php.builds_2/releases?per_page=50",
+            ]
+        );
+        assert_eq!(PhpSource::default().key(), DEFAULT_SOURCE);
+    }
+
+    #[test]
+    fn index_urls_must_be_https_without_spaces() {
+        let url = "https://cdn.example.test/php/index.json";
+        assert_eq!(parse_source(url).unwrap().urls(), [url]);
+        assert!(parse_source("http://example.test/index.json").is_err());
+        assert!(parse_source("file:///etc/passwd").is_err());
+        assert!(parse_source("https://example.test/a b.json").is_err());
+        assert!(parse_source("https://").is_err());
+    }
+
+    #[test]
+    fn rejects_anything_that_is_not_a_repository() {
+        for input in ["", "php-builds", "a/b/c", "../x", "a/..", "org/repo name", "org/re;po"] {
+            assert!(parse_source(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
+    fn each_custom_source_has_its_own_cache_file() {
+        let home = Path::new("/tmp/elephant-home");
+        let default = cache_path(home, &PhpSource::default());
+        assert!(default.ends_with("cache/catalog.json"));
+        let one = cache_path(home, &parse_source("a/b").unwrap());
+        let two = cache_path(home, &parse_source("a/c").unwrap());
+        assert_ne!(one, two);
+        assert_ne!(one, default);
+    }
+}
+
+#[cfg(test)]
 mod system_tests {
     /// Consulta la red sin escribir nada: `cargo test system_tests -- --ignored --nocapture`.
     #[test]
     #[ignore = "necesita red"]
     fn reads_the_real_catalog() {
         let curl = super::download::curl_path();
-        let (php, composer) = super::fetch(&curl);
+        let (php, composer) = super::fetch(&curl, &super::PhpSource::default());
         println!("{php:#?}\n{composer:#?}");
         assert!(php.is_some_and(|php| !php.is_empty()));
+    }
+
+    /// Lo que hace «Probar» en Ajustes, contra la red real.
+    #[test]
+    #[ignore = "necesita red"]
+    fn checks_real_sources() {
+        let ok = super::check_source(super::DEFAULT_SOURCE).expect("php-builds debe servir");
+        println!("{ok:#?}");
+        assert!(!ok.versions.is_empty());
+        let error = super::check_source("cristiancosano/no-existe-este-repo").unwrap_err();
+        println!("{error}");
     }
 }

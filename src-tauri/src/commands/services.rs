@@ -1,8 +1,10 @@
 //! Servicios propios (06): catálogo, instalar, actualizar, desinstalar,
 //! encender o apagar, arranque al iniciar sesión e importar datos de brew.
-//! El estado llega en `Snapshot.managed`.
+//! Y las herramientas (phpMyAdmin, pgAdmin): instalar o actualizar,
+//! desinstalar, encender su servidor y abrir. El estado llega en
+//! `Snapshot.managed` y `Snapshot.managed_tools`.
 
-use elephant_core::services::{self, ImportReport, InstallProgress, ServiceKind, ServicesCatalog, StartReport, UpdateReport};
+use elephant_core::services::{self, ImportReport, InstallProgress, ServiceKind, ServicesCatalog, StartReport, ToolKind, UpdateReport};
 use tauri::ipc::Channel;
 use tauri::AppHandle;
 
@@ -81,4 +83,36 @@ pub async fn service_autostart(app: AppHandle, service: ServiceKind, branch: Str
 #[tauri::command]
 pub async fn service_import(app: AppHandle, service: ServiceKind, branch: String) -> Result<ImportReport, String> {
     blocking(move || actions::managed_import(&app, service, &branch)).await
+}
+
+/// Instala o actualiza una herramienta a la última versión del catálogo.
+/// Devuelve la versión instalada; el progreso llega por `on_event`.
+#[tauri::command]
+pub async fn tool_install(app: AppHandle, tool: ToolKind, on_event: Channel<InstallProgress>) -> Result<String, String> {
+    blocking(move || {
+        let (mut on_line, mut on_bytes) = progress(&on_event);
+        let result = services::tools::install(tool, &mut on_line, &mut on_bytes);
+        state::refresh_in_background(&app);
+        result
+    })
+    .await
+}
+
+/// Borra lo que instaló Elephant (nunca un pgAdmin que no instaló).
+#[tauri::command]
+pub async fn tool_uninstall(app: AppHandle, tool: ToolKind) -> Result<(), String> {
+    blocking(move || actions::tool_uninstall(&app, tool)).await
+}
+
+/// Enciende o apaga el servidor de phpMyAdmin.
+#[tauri::command]
+pub async fn tool_power(app: AppHandle, tool: ToolKind, on: bool) -> Result<(), String> {
+    blocking(move || actions::tool_power(&app, tool, on)).await
+}
+
+/// Abre phpMyAdmin en el navegador (encendiendo su servidor) o pgAdmin.
+/// Devuelve la URL o la app.
+#[tauri::command]
+pub async fn tool_open(app: AppHandle, tool: ToolKind) -> Result<String, String> {
+    blocking(move || actions::tool_open(&app, tool)).await
 }

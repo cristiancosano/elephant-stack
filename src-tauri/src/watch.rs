@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 use elephant_core::components::Component;
 use elephant_core::launchd::{self, LaunchJob};
 use elephant_core::stamp::{self, Stamp};
-use elephant_core::services::{self, ManagedService};
+use elephant_core::services::{self, ManagedService, ToolStatus};
 use elephant_core::{jobs, monitor, paths};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tauri::{AppHandle, Manager};
@@ -141,6 +141,7 @@ fn tick(app: &AppHandle) {
     now.extend(own_fingerprint(&own_jobs));
     let mut before = services_fingerprint(&snapshot.components);
     before.extend(managed_fingerprint(&snapshot.managed));
+    before.extend(tools_fingerprint(&snapshot.managed_tools));
     let refresh = {
         let mut inner = watch.lock();
         let (refresh, remember) = decide_refresh(&now, &before, inner.refreshed_for.as_ref());
@@ -210,6 +211,14 @@ fn managed_fingerprint(managed: &[ManagedService]) -> Fingerprint {
         .iter()
         .flat_map(|s| &s.branches)
         .filter_map(|b| Some((b.label.clone(), (Some(b.pid?), None))))
+        .collect()
+}
+
+/// El servidor de phpMyAdmin es otro agente `sh.elephant.*`.
+fn tools_fingerprint(tools: &[ToolStatus]) -> Fingerprint {
+    tools
+        .iter()
+        .filter_map(|t| Some((t.target.clone(), (Some(t.pid?), None))))
         .collect()
 }
 

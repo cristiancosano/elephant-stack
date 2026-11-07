@@ -12,7 +12,7 @@ use elephant_core::monitor::Usage;
 use elephant_core::php::{self, PhpStatus};
 use elephant_core::settings::{McpMode, Settings};
 use elephant_core::i18n::{self, Locale};
-use elephant_core::services::{self, ManagedService, RunState};
+use elephant_core::services::{self, ManagedService, RunState, ToolStatus};
 use elephant_core::{paths, setup, tr};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager};
@@ -30,6 +30,8 @@ pub struct Snapshot {
     pub components: Vec<Component>,
     /// Servicios propios de Elephant (06): versiones, ramas y su estado.
     pub managed: Vec<ManagedService>,
+    /// Herramientas de Elephant (06 fase 2): phpMyAdmin y pgAdmin.
+    pub managed_tools: Vec<ToolStatus>,
     pub php: PhpStatus,
     /// Lo que descubre `elephant-logs`, incluidos los sitios de Herd (C17).
     pub projects: Vec<elephant_logs::Project>,
@@ -158,6 +160,7 @@ impl AppState {
             refreshed_at_ms: 0,
             components: Vec::new(),
             managed: Vec::new(),
+            managed_tools: Vec::new(),
             php: PhpStatus::default(),
             projects: Vec::new(),
             busy: Vec::new(),
@@ -271,6 +274,7 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
         .map(|list| list.iter().filter_map(|c| c.service.clone()).collect())
         .unwrap_or_default();
     let managed = services::status();
+    let managed_tools = services::tools::status();
     let php = php::status().unwrap_or_default();
     let projects = elephant_logs::projects::discover(&home);
     let jobs = jobs::list_active();
@@ -289,6 +293,7 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
         s.problems.retain(|p| p.kind != ProblemKind::ServiceError || !own(p));
         s.problems.extend(managed_problems(&managed));
         s.managed = managed;
+        s.managed_tools = managed_tools;
         if let Some(mailpit) = mailpit {
             s.mailpit = mailpit;
         }

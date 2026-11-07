@@ -11,6 +11,7 @@ import type { PhpStatus } from "./PhpStatus";
 import type { Problem } from "./Problem";
 import type { Project } from "./Project";
 import type { Settings } from "./Settings";
+import type { ToolStatus } from "./ToolStatus";
 
 export type Snapshot = { 
 /**
@@ -20,7 +21,11 @@ revision: number, refreshed_at_ms: number, components: Array<Component>,
 /**
  * Servicios propios de Elephant (06): versiones, ramas y su estado.
  */
-managed: Array<ManagedService>, php: PhpStatus, 
+managed: Array<ManagedService>, 
+/**
+ * Herramientas de Elephant (06 fase 2): phpMyAdmin y pgAdmin.
+ */
+managed_tools: Array<ToolStatus>, php: PhpStatus, 
 /**
  * Lo que descubre `elephant-logs`, incluidos los sitios de Herd (C17).
  */

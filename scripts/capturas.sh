@@ -45,11 +45,12 @@ for _ in $(seq 1 50); do
 done
 
 mkdir -p "$out"
-# nombre del archivo y ruta de la app
+# nombre del archivo, ruta de la app y, si no es el de la ventana, tamaño
 views=(
   "panel #/panel"
   "sitios #/sitios"
   "servicios #/servicios"
+  "servicios-todo #/servicios 920,1560"
   "php #/php"
   "logs #/logs?range=all"
   "logs-inspector #/logs?range=all&entry=00000000000000ab-9f20"
@@ -64,11 +65,10 @@ for lang in "${langs[@]}"; do
   [ "$lang" = es ] || suffix="-$lang"
   for theme in claro oscuro; do
     for view in "${views[@]}"; do
-      name="${view%% *}"
-      route="${view#* }"
+      read -r name route view_size <<<"$view"
       file="$out/$name-$theme$suffix.png"
       "$chrome" --headless=new --disable-gpu --hide-scrollbars --no-first-run \
-        --user-data-dir="$profile/chrome" --window-size="$size" --force-device-scale-factor=1 \
+        --user-data-dir="$profile/chrome" --window-size="${view_size:-$size}" --force-device-scale-factor=1 \
         --virtual-time-budget=5000 --screenshot="$file" \
         "http://localhost:$port/src/dev/capturas.html?tema=$theme&idioma=$lang$route" >/dev/null 2>&1
       echo "${file#"$root"/}"

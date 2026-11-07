@@ -18,6 +18,8 @@ import {
   problemsClearedBy,
   resetApp,
   managedCounts,
+  ownMailpitBranch,
+  quickManaged,
   runningPids,
   serviceStatusText,
   services,
@@ -87,6 +89,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
     refreshed_at_ms: 0,
     components: [],
     managed: [],
+    managed_tools: [],
     php: { versions: [], active: null },
     projects: [],
     busy: [],
@@ -179,6 +182,29 @@ describe("servicios y herramientas", () => {
     expect(runningPids(own)).toEqual([20, 10, 30]);
     expect(managedCounts(own)).toEqual({ installed: 1, running: 1 });
     expect(targetName(own, "sh.elephant.mysql.8.4")).toBe("MySQL 8.4");
+    expect(quickManaged(own).map((q) => `${q.service.name} ${q.branch.branch}`)).toEqual(["MySQL 8.4"]);
+    expect(ownMailpitBranch(own)).toBeNull();
+    const withTools = snapshot({
+      ...own,
+      managed_tools: [
+        {
+          tool: "phpmyadmin",
+          name: "phpMyAdmin",
+          version: "5.2.3",
+          path: "/t",
+          external: null,
+          target: "sh.elephant.phpmyadmin",
+          running: false,
+          pid: null,
+          url: "http://127.0.0.1:8081/",
+          php: "8.3.36",
+          php_range: ">=7.2,<8.4",
+          warning: null,
+          blocked: false,
+        },
+      ],
+    });
+    expect(targetName(withTools, "sh.elephant.phpmyadmin")).toBe("phpMyAdmin");
   });
 
   it("deja PHP fuera de las herramientas si tiene versiones propias", () => {

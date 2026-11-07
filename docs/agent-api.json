@@ -807,6 +807,14 @@
                   "null"
                 ]
               },
+              "pid": {
+                "description": "phpMyAdmin: el proceso de su servidor.",
+                "format": "int64",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
               "running": {
                 "description": "phpMyAdmin: su servidor está en marcha.",
                 "type": "boolean"
@@ -3080,6 +3088,14 @@
                 "description": "phpMyAdmin: las versiones de PHP que admite (`>=7.2,<8.4`).",
                 "type": [
                   "string",
+                  "null"
+                ]
+              },
+              "pid": {
+                "description": "phpMyAdmin: el proceso de su servidor.",
+                "format": "int64",
+                "type": [
+                  "integer",
                   "null"
                 ]
               },

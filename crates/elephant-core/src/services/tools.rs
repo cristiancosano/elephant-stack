@@ -92,6 +92,9 @@ pub struct ToolStatus {
     pub target: String,
     /// phpMyAdmin: su servidor está en marcha.
     pub running: bool,
+    /// phpMyAdmin: el proceso de su servidor.
+    #[cfg_attr(feature = "ts", ts(type = "number | null"))]
+    pub pid: Option<i64>,
     /// phpMyAdmin: dónde se abre (solo en 127.0.0.1).
     pub url: Option<String>,
     /// phpMyAdmin: el PHP de Elephant con el que se sirve.
@@ -258,6 +261,7 @@ fn empty_status(tool: ToolKind) -> ToolStatus {
         external: None,
         target: tool.target(),
         running: false,
+        pid: None,
         url: None,
         php: None,
         php_range: None,
@@ -266,14 +270,15 @@ fn empty_status(tool: ToolKind) -> ToolStatus {
     }
 }
 
-fn phpmyadmin_status(env: &Env, running: bool) -> ToolStatus {
+fn phpmyadmin_status(env: &Env, pid: Option<i64>) -> ToolStatus {
     let mut status = empty_status(ToolKind::Phpmyadmin);
     status.url = Some(pma_url(env));
     let Some(installed) = read_marker(env, ToolKind::Phpmyadmin).filter(|i| Path::new(&i.path).join("index.php").is_file())
     else {
         return status;
     };
-    status.running = running;
+    status.running = pid.is_some();
+    status.pid = pid;
     status.php_range = installed.php.clone();
     match php_for(env, installed.php.as_deref()) {
         Some((php, _)) => status.php = Some(php),
@@ -326,8 +331,8 @@ fn pgadmin_status(env: &Env) -> ToolStatus {
 }
 
 fn status_in(env: &Env) -> Vec<ToolStatus> {
-    let running = job(&pma_label(env)).is_some_and(|job| job.pid.is_some());
-    vec![phpmyadmin_status(env, running), pgadmin_status(env)]
+    let pid = job(&pma_label(env)).and_then(|job| job.pid);
+    vec![phpmyadmin_status(env, pid), pgadmin_status(env)]
 }
 
 /// Lo instalado y su estado. Solo lee: `launchctl list`, carpetas y, con

@@ -7,9 +7,11 @@
 
 import { errorMessage, getSnapshot } from "../ipc";
 import { onStateChanged, type UnlistenFn } from "../events";
+import type { BranchStatus } from "../bindings/BranchStatus";
 import type { Busy } from "../bindings/Busy";
 import type { Component } from "../bindings/Component";
 import type { JobInfo } from "../bindings/JobInfo";
+import type { ManagedService } from "../bindings/ManagedService";
 import type { Problem } from "../bindings/Problem";
 import type { Project } from "../bindings/Project";
 import type { Service } from "../bindings/Service";
@@ -99,6 +101,19 @@ export function managedCounts(s: Snapshot): { installed: number; running: number
   return { installed: branches.length, running: branches.filter((b) => b.state === "running").length };
 }
 
+/** Ramas propias que el usuario usa (en marcha o al iniciar sesión), para el Panel. */
+export function quickManaged(s: Snapshot): { service: ManagedService; branch: BranchStatus }[] {
+  return s.managed.flatMap((m) =>
+    m.branches.filter((b) => b.state === "running" || b.autostart).map((branch) => ({ service: m, branch })),
+  );
+}
+
+/** La rama de Mailpit propia que se enciende desde el Panel: la que arranca al iniciar sesión o la más reciente. */
+export function ownMailpitBranch(s: Snapshot): BranchStatus | null {
+  const own = s.managed.find((m) => m.service === "mailpit");
+  return own?.branches.find((b) => b.autostart) ?? own?.branches[0] ?? null;
+}
+
 /** PIDs de los servicios en marcha (de brew y propios), para medir su consumo. */
 export function runningPids(s: Snapshot): number[] {
   const own = s.managed.flatMap((m) => m.branches.flatMap((b) => (b.pid ? [b.pid] : [])));
@@ -142,6 +157,8 @@ export function targetName(s: Snapshot, target: string): string {
     const branch = m.branches.find((b) => b.label === target);
     if (branch) return `${m.name} ${branch.branch}`;
   }
+  const tool = s.managed_tools.find((tool) => tool.target === target);
+  if (tool) return tool.name;
   return s.projects.find((p) => p.id === target)?.name ?? target;
 }
 

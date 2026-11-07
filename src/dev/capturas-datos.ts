@@ -19,6 +19,7 @@ import type { Service } from "../lib/bindings/Service";
 import type { ServiceRelease } from "../lib/bindings/ServiceRelease";
 import type { ServicesCatalog } from "../lib/bindings/ServicesCatalog";
 import type { Snapshot } from "../lib/bindings/Snapshot";
+import type { ToolStatus } from "../lib/bindings/ToolStatus";
 import type { Usage } from "../lib/bindings/Usage";
 
 const NOW = Date.now();
@@ -58,7 +59,7 @@ const components: Component[] = [
   component("mailpit", "service", {
     description: rust("Correo de pruebas", "Test mail"),
     version: "1.27.10",
-    service: service("mailpit", true, 873),
+    service: service("mailpit", false, null, false),
   }),
   component("mysql", "service", {
     description: rust("Base de datos MySQL", "MySQL database"),
@@ -106,23 +107,27 @@ const projects: Project[] = [
 
 const ES = "/Users/ana/.elephant-stack";
 
-function branch(b: string, version: string, over: Partial<BranchStatus> = {}): BranchStatus {
+function branch(b: string, version: string, over: Partial<BranchStatus> = {}, id = "mysql"): BranchStatus {
   return {
     branch: b,
     version,
-    label: `sh.elephant.mysql.${b}`,
+    label: `sh.elephant.${id}.${b}`,
     state: "stopped",
     pid: null,
     autostart: false,
     error: null,
-    data_dir: `${ES}/data/mysql/${b}`,
+    data_dir: `${ES}/data/${id}/${b}`,
     data_ready: true,
-    log_path: `${ES}/logs/mysql-${b}.err`,
+    log_path: `${ES}/logs/${id}-${b}.err`,
     ...over,
   };
 }
 
-/** MySQL propio: 8.4 en marcha (con un parche nuevo), 9.7 instalada y los datos de brew de 9.7. */
+/**
+ * Servicios propios: MySQL 8.4 en marcha (con un parche nuevo), 9.7 instalada y
+ * los datos de brew de 9.7; PostgreSQL 18 parado, con los datos de brew en uso;
+ * Redis 8.2 en error porque el de brew ocupa el puerto; Mailpit en marcha.
+ */
 const managed: ManagedService[] = [
   {
     service: "mysql",
@@ -147,7 +152,98 @@ const managed: ManagedService[] = [
       replaces: false,
     },
   },
+  {
+    service: "postgresql",
+    name: "PostgreSQL",
+    port: 5432,
+    web_port: null,
+    versions: [{ version: "18.6.1", branch: "18", path: `${ES}/services/postgresql/18.6.1` }],
+    branches: [branch("18", "18.6.1", {}, "postgresql")],
+    import: {
+      source: "/opt/homebrew/var/postgresql@18",
+      version: "18",
+      branch: "18",
+      size: 61_400_000,
+      blocked: rust(
+        "El PostgreSQL de Homebrew está usando estos datos: detenlo con «brew services stop postgresql@18» antes de copiarlos.",
+        "Homebrew’s PostgreSQL is using this data. Stop it with “brew services stop postgresql@18” before copying.",
+      ),
+      manual: null,
+      replaces: true,
+    },
+  },
+  {
+    service: "redis",
+    name: "Redis",
+    port: 6379,
+    web_port: null,
+    versions: [{ version: "8.2.11", branch: "8.2", path: `${ES}/services/redis/8.2.11` }],
+    branches: [
+      branch(
+        "8.2",
+        "8.2.11",
+        {
+          state: "error",
+          error: rust(
+            "El puerto 6379 lo usa Redis de Homebrew. Para encender Redis de Elephant, detenlo con «brew services stop redis» (sus datos no se tocan) y vuelve a intentarlo.",
+            "Port 6379 is used by Redis from Homebrew. To turn on Elephant’s Redis, stop it with “brew services stop redis” (its data isn’t touched) and try again.",
+          ),
+        },
+        "redis",
+      ),
+    ],
+    import: null,
+  },
+  {
+    service: "mailpit",
+    name: "Mailpit",
+    port: 1025,
+    web_port: 8025,
+    versions: [{ version: "1.33.0", branch: "1", path: `${ES}/services/mailpit/1.33.0` }],
+    branches: [
+      branch("1", "1.33.0", { state: "running", pid: 903, autostart: true, data_dir: `${ES}/data/mailpit` }, "mailpit"),
+    ],
+    import: null,
+  },
 ];
+
+/** phpMyAdmin instalado y en marcha con el PHP 8.3 de Elephant; pgAdmin sin instalar. */
+const managedTools: ToolStatus[] = [
+  {
+    tool: "phpmyadmin",
+    name: "phpMyAdmin",
+    version: "5.2.3",
+    path: `${ES}/tools/phpmyadmin/5.2.3`,
+    external: null,
+    target: "sh.elephant.phpmyadmin",
+    running: true,
+    pid: 950,
+    url: "http://127.0.0.1:8081/",
+    php: "8.3.36",
+    php_range: ">=7.2,<8.4",
+    warning: null,
+    blocked: false,
+  },
+  {
+    tool: "pgadmin",
+    name: "pgAdmin",
+    version: null,
+    path: null,
+    external: null,
+    target: "sh.elephant.pgadmin",
+    running: false,
+    pid: null,
+    url: null,
+    php: null,
+    php_range: null,
+    warning: null,
+    blocked: false,
+  },
+];
+
+function serviceRelease(service: ServiceRelease["service"], version: string, branchName: string, url: string, size: number, lts: boolean): ServiceRelease {
+  return { service, version, branch: branchName, url, sha256: "b96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009", size, lts };
+}
 
 function mysqlRelease(version: string, size: number, lts: boolean): ServiceRelease {
   const branchName = version.split(".").slice(0, 2).join(".");
@@ -168,8 +264,30 @@ export const servicesCatalog: ServicesCatalog = {
     mysqlRelease("9.7.1", 188_000_000, true),
     mysqlRelease("8.4.12", 168_100_000, true),
     mysqlRelease("8.4.11", 167_977_240, true),
+    serviceRelease("postgresql", "18.6.1", "18", "https://github.com/theseus-rs/postgresql-binaries/releases/download/18.6.1/postgresql-18.6.1-aarch64-apple-darwin.tar.gz", 88_814_625, true),
+    serviceRelease("postgresql", "17.11.1", "17", "https://github.com/theseus-rs/postgresql-binaries/releases/download/17.11.1/postgresql-17.11.1-aarch64-apple-darwin.tar.gz", 90_030_572, true),
+    serviceRelease("redis", "8.10.3", "8.10", "https://github.com/cristiancosano/php-builds/releases/download/redis-8.10.3/redis-8.10.3-macos-arm64.tar.gz", 1_493_851, false),
+    serviceRelease("redis", "8.2.11", "8.2", "https://github.com/cristiancosano/php-builds/releases/download/redis-8.2.11/redis-8.2.11-macos-arm64.tar.gz", 1_299_441, false),
+    serviceRelease("mailpit", "1.33.0", "1", "https://github.com/axllent/mailpit/releases/download/v1.33.0/mailpit-darwin-arm64.tar.gz", 10_406_800, false),
   ],
-  tools: [],
+  tools: [
+    {
+      tool: "phpmyadmin",
+      version: "5.2.3",
+      url: "https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip",
+      sha256: "2d2e13c735366d318425c78e4ee2cc8fc648d77faba3ddea2cd516e43885733f",
+      size: 16_431_330,
+      php: ">=7.2,<8.4",
+    },
+    {
+      tool: "pgadmin",
+      version: "9.19",
+      url: "https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v9.19/macos/pgadmin4-9.19-arm64.dmg",
+      sha256: "8827d9444752497602f15cb01bd4014378510a2fdd118902686da3f36713b8ed",
+      size: 234_409_999,
+      php: null,
+    },
+  ],
   offline: false,
 };
 
@@ -178,6 +296,7 @@ export const snapshot: Snapshot = {
   refreshed_at_ms: NOW,
   components,
   managed,
+  managed_tools: managedTools,
   php: {
     versions: [
       { key: "own:8.4.27", id: "8.4.27", source: "Elephant" },

@@ -644,6 +644,10 @@ Todos son `async`, devuelven `Result<_, String>` y hacen el trabajo en `spawn_bl
 | | `service_power` | `service: ServiceKind, branch: String, on: bool` | `StartReport` (encender apaga las otras ramas del servicio y comprueba que arranca) |
 | | `service_autostart` | `service: ServiceKind, branch: String, on: bool` | `()` (`RunAtLoad`; solo una rama por servicio) |
 | | `service_import` | `service: ServiceKind, branch: String` | `ImportReport` (copia los datos de Homebrew; nunca los mueve) |
+| `services.rs` · 06 fase 2 | `tool_install` | `tool: ToolKind, on_event: Channel<InstallProgress>` | `String` (instala o actualiza phpMyAdmin o pgAdmin a la última del catálogo; el estado va en `Snapshot.managed_tools`) |
+| | `tool_uninstall` | `tool: ToolKind` | `()` (solo lo que instaló Elephant) |
+| | `tool_power` | `tool: ToolKind, on: bool` | `()` (el servidor de phpMyAdmin, `php -S 127.0.0.1:8081`) |
+| | `tool_open` | `tool: ToolKind` | `String` (phpMyAdmin en el navegador, encendiéndolo si hace falta, o pgAdmin; la URL o la app) |
 | `mcp.rs` · P09 | `mcp_status` | — | `McpStatus { linked, link_path, target, mode, claude_path: Option<String>, claude_registered: bool, last_used_ms }` (`claude_registered` = plugin `elephant@elephant-stack` instalado, según `claude plugin list --json`) |
 | | `mcp_enable` / `mcp_disable` | — | `McpStatus` (crea o quita el enlace `~/.elephant-stack/bin/elephant` → `sidecar::path("cli")`; `mcp_disable` además ejecuta `claude plugin uninstall elephant@elephant-stack` si el plugin está instalado) |
 | | `mcp_connect_claude` | — | `McpStatus` (escribe el plugin con `elephant __write-plugin` y ejecuta, con argumentos separados y sin shell, `claude plugin marketplace add ~/.elephant-stack/share/claude-plugin` y `claude plugin install elephant@elephant-stack -s user`; 05 §6.4) |

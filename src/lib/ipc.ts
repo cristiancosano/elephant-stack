@@ -37,6 +37,7 @@ import type { ImportReport } from "./bindings/ImportReport";
 import type { InstallProgress } from "./bindings/InstallProgress";
 import type { ServiceKind } from "./bindings/ServiceKind";
 import type { ServicesCatalog } from "./bindings/ServicesCatalog";
+import type { ToolKind } from "./bindings/ToolKind";
 import type { SourceCheck } from "./bindings/SourceCheck";
 import type { StartReport } from "./bindings/StartReport";
 import type { UpdateReport } from "./bindings/UpdateReport";
@@ -182,6 +183,15 @@ export const serviceAutostart = (service: ServiceKind, branch: string, on: boole
   invoke<void>("service_autostart", { service, branch, on });
 export const serviceImport = (service: ServiceKind, branch: string) =>
   invoke<ImportReport>("service_import", { service, branch });
+
+/** Instala o actualiza phpMyAdmin o pgAdmin a la última del catálogo; devuelve la versión. */
+export function toolInstall(tool: ToolKind, onEvent: (e: InstallProgress) => void): Promise<string> {
+  return invoke<string>("tool_install", { tool, onEvent: channel(onEvent) });
+}
+export const toolUninstall = (tool: ToolKind) => invoke<void>("tool_uninstall", { tool });
+export const toolPower = (tool: ToolKind, on: boolean) => invoke<void>("tool_power", { tool, on });
+/** Abre phpMyAdmin (enciende su servidor si hace falta) o pgAdmin; devuelve la URL o la app. */
+export const toolOpen = (tool: ToolKind) => invoke<string>("tool_open", { tool });
 
 // ── Canal de agentes (commands/mcp.rs; conserva los nombres, C26) ───────────
 

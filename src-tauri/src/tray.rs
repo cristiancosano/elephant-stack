@@ -19,6 +19,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use elephant_core::brew::Operation;
 use elephant_core::jobs::JobInfo;
+use elephant_core::services::{RunState, ServiceKind};
 use elephant_core::{tr, tr_str};
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -54,6 +55,9 @@ pub enum TrayAction {
     ServicesAll(Operation),
     /// `svc-log:mysql`
     ServiceLog(String),
+    /// `own:on:mysql:9.7` · `own:off:postgresql:18`: una rama de un servicio
+    /// propio (06), encender o apagar.
+    Managed(ServiceKind, String, bool),
     /// `site:browser:<project_id>` · `editor` · `terminal` · `copy`
     Site(String, SiteAction),
     /// `site-needs:<project_id>`: «Arrancar lo que necesita» (04 §4.10).
@@ -126,6 +130,7 @@ impl fmt::Display for TrayAction {
             Self::Service(name, op) => write!(f, "svc:{}:{name}", operation_slug(*op)),
             Self::ServicesAll(op) => write!(f, "svc-all:{}", operation_slug(*op)),
             Self::ServiceLog(name) => write!(f, "svc-log:{name}"),
+            Self::Managed(kind, branch, on) => write!(f, "own:{}:{}:{branch}", if *on { "on" } else { "off" }, kind.id()),
             Self::Site(id, action) => write!(f, "site:{}:{id}", site_slug(*action)),
             Self::SiteNeeds(id) => write!(f, "site-needs:{id}"),
             Self::OpenMailpit => f.write_str("mailpit:open"),
@@ -169,6 +174,17 @@ impl FromStr for TrayAction {
                 _ => Err(ParseActionError),
             },
             "svc-log" => Ok(Self::ServiceLog(non_empty(rest)?)),
+            "own" => {
+                let (on, rest) = rest.split_once(':').ok_or(ParseActionError)?;
+                let on = match on {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err(ParseActionError),
+                };
+                let (kind, branch) = rest.split_once(':').ok_or(ParseActionError)?;
+                let kind = ServiceKind::parse(kind).map_err(|_| ParseActionError)?;
+                Ok(Self::Managed(kind, non_empty(branch)?, on))
+            }
             "site" => {
                 let (action, project) = rest.split_once(':').ok_or(ParseActionError)?;
                 let action = parse_site_action(action).ok_or(ParseActionError)?;
@@ -358,8 +374,18 @@ fn services(snapshot: &Snapshot) -> Vec<&elephant_core::brew::Service> {
     list
 }
 
+/// Ramas instaladas de los servicios propios: `(servicio, nombre, rama)`.
+fn own_branches(snapshot: &Snapshot) -> Vec<(ServiceKind, &str, &elephant_core::services::BranchStatus)> {
+    snapshot
+        .managed
+        .iter()
+        .flat_map(|m| m.branches.iter().map(move |b| (m.service, m.name.as_str(), b)))
+        .collect()
+}
+
 fn header(snapshot: &Snapshot, usage_kb: Option<u64>) -> String {
-    let running = services(snapshot).iter().filter(|s| s.running).count();
+    let own = own_branches(snapshot).iter().filter(|(_, _, b)| b.state == RunState::Running).count();
+    let running = services(snapshot).iter().filter(|s| s.running).count() + own;
     if running == 0 {
         return tr!("○ Ningún servicio en marcha", "○ No services running");
     }
@@ -405,18 +431,39 @@ fn php_menu(snapshot: &Snapshot) -> Entry {
 
 fn services_menu(snapshot: &Snapshot) -> Option<Entry> {
     let list = services(snapshot);
-    if list.is_empty() {
+    let own = own_branches(snapshot);
+    if list.is_empty() && own.is_empty() {
         return None;
     }
     let any_running = list.iter().any(|s| s.running);
     let bulk_busy = busy_label(snapshot, "services");
-    let mut children = vec![
-        Entry::item(TrayAction::ServicesAll(Operation::Restart), tr_str!("Reiniciar todos", "Restart all"))
-            .enabled(any_running && bulk_busy.is_none()),
-        Entry::item(TrayAction::ServicesAll(Operation::TurnOff), tr_str!("Detener todos", "Stop all"))
-            .enabled(any_running && bulk_busy.is_none()),
-        Entry::separator(),
-    ];
+    let mut children = Vec::new();
+    // Los propios: un interruptor por rama (encender una apaga las demás).
+    for (kind, name, branch) in &own {
+        let running = branch.state == RunState::Running;
+        let text = format!("{name} {}", branch.branch);
+        let entry = match busy_label(snapshot, &branch.label) {
+            Some(label) => Entry::check(TrayAction::Managed(*kind, branch.branch.clone(), !running), format!("{text} · {label}"), running)
+                .enabled(false),
+            None if branch.state == RunState::Error => {
+                Entry::check(TrayAction::Managed(*kind, branch.branch.clone(), true), tr!("{text} · error", "{text} · error"), false)
+            }
+            None => Entry::check(TrayAction::Managed(*kind, branch.branch.clone(), !running), text, running),
+        };
+        children.push(entry);
+    }
+    if !list.is_empty() {
+        if !children.is_empty() {
+            children.push(Entry::separator());
+        }
+        children.extend([
+            Entry::item(TrayAction::ServicesAll(Operation::Restart), tr_str!("Reiniciar todos", "Restart all"))
+                .enabled(any_running && bulk_busy.is_none()),
+            Entry::item(TrayAction::ServicesAll(Operation::TurnOff), tr_str!("Detener todos", "Stop all"))
+                .enabled(any_running && bulk_busy.is_none()),
+            Entry::separator(),
+        ]);
+    }
     for service in list {
         let name = &service.name;
         let svc = |op| TrayAction::Service(name.clone(), op);
@@ -936,6 +983,7 @@ fn run(app: &AppHandle, action: TrayAction) {
         TrayAction::Service(name, op) => actions::service_operation(app, name, *op),
         TrayAction::ServicesAll(op) => actions::services_bulk(app, *op),
         TrayAction::ServiceLog(name) => untracked(app, name, actions::open_service_log(name)),
+        TrayAction::Managed(kind, branch, on) => actions::managed_power(app, *kind, branch, *on).map(drop),
         TrayAction::Site(project, site) => untracked(app, project, actions::site(app, project, *site)),
         TrayAction::SiteNeeds(project) => match project_root(app, project) {
             Some(root) => actions::start_project_services(app, &root).map(drop),
@@ -989,6 +1037,7 @@ mod tests {
             refreshed_at_ms: 1,
             components: Vec::new(),
             managed: Vec::new(),
+            managed_tools: Vec::new(),
             php: PhpStatus::default(),
             projects: Vec::new(),
             busy: Vec::new(),
@@ -1078,6 +1127,8 @@ mod tests {
             TrayAction::ServicesAll(Operation::Restart),
             TrayAction::ServicesAll(Operation::TurnOff),
             TrayAction::ServiceLog("mysql".into()),
+            TrayAction::Managed(ServiceKind::Mysql, "9.7".into(), true),
+            TrayAction::Managed(ServiceKind::Postgresql, "18".into(), false),
             TrayAction::Site("0123456789abcdef".into(), SiteAction::Browser),
             TrayAction::Site("0123456789abcdef".into(), SiteAction::Editor),
             TrayAction::Site("0123456789abcdef".into(), SiteAction::Terminal),
@@ -1099,6 +1150,9 @@ mod tests {
         assert_eq!(TrayAction::PhpDefault("8.4@Herd".into()).to_string(), "php:default:8.4@Herd");
         assert_eq!(TrayAction::Site("x".into(), SiteAction::CopyUrl).to_string(), "site:copy:x");
         assert_eq!(TrayAction::SiteNeeds("x".into()).to_string(), "site-needs:x");
+        assert_eq!(TrayAction::Managed(ServiceKind::Redis, "8.2".into(), false).to_string(), "own:off:redis:8.2");
+        assert!("own:on:redis".parse::<TrayAction>().is_err() && "own:si:redis:8.2".parse::<TrayAction>().is_err());
+        assert!("own:on:mariadb:11".parse::<TrayAction>().is_err());
         assert!("site-needs:".parse::<TrayAction>().is_err());
         assert!("site:needs:x".parse::<TrayAction>().is_err());
         assert_eq!(
@@ -1108,6 +1162,50 @@ mod tests {
             .to_string(),
             "nav:#/logs"
         );
+    }
+
+    fn own(kind: ServiceKind, name: &str, branch: &str, state: RunState) -> elephant_core::services::ManagedService {
+        use elephant_core::services::{BranchStatus, InstalledVersion, ManagedService};
+        ManagedService {
+            service: kind,
+            name: name.into(),
+            port: kind.default_port(),
+            web_port: kind.default_web_port(),
+            versions: vec![InstalledVersion { version: format!("{branch}.1"), branch: branch.into(), path: "/x".into() }],
+            branches: vec![BranchStatus {
+                branch: branch.into(),
+                version: format!("{branch}.1"),
+                label: elephant_core::services::label(kind, branch),
+                state,
+                pid: (state == RunState::Running).then_some(7),
+                autostart: false,
+                error: None,
+                data_dir: "/d".into(),
+                data_ready: true,
+                log_path: "/l".into(),
+            }],
+            import: None,
+        }
+    }
+
+    #[test]
+    fn own_services_get_a_switch_in_the_services_menu_and_count_in_the_header() {
+        let mut snapshot = empty();
+        snapshot.managed = vec![
+            own(ServiceKind::Mysql, "MySQL", "9.7", RunState::Running),
+            own(ServiceKind::Postgresql, "PostgreSQL", "18", RunState::Stopped),
+        ];
+        let menu = services_menu(&snapshot).unwrap();
+        // Sin servicios de brew, ni «Reiniciar todos» ni «Detener todos».
+        assert_eq!(texts(&menu.children), ["MySQL 9.7", "PostgreSQL 18"]);
+        assert_eq!(menu.children[0].checked, Some(true));
+        assert_eq!(menu.children[0].id, Some(TrayAction::Managed(ServiceKind::Mysql, "9.7".into(), false)));
+        assert_eq!(menu.children[1].id, Some(TrayAction::Managed(ServiceKind::Postgresql, "18".into(), true)));
+        assert!(header(&snapshot, None).contains('1'), "{}", header(&snapshot, None));
+        snapshot.busy.push(Busy { target: "sh.elephant.postgresql.18".into(), label: "Arrancando…".into() });
+        let menu = services_menu(&snapshot).unwrap();
+        assert_eq!(menu.children[1].text, "PostgreSQL 18 · Arrancando…");
+        assert!(!menu.children[1].enabled);
     }
 
     #[test]

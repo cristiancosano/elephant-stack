@@ -27,6 +27,10 @@ target: string,
  */
 running: boolean, 
 /**
+ * phpMyAdmin: el proceso de su servidor.
+ */
+pid: number | null, 
+/**
  * phpMyAdmin: dónde se abre (solo en 127.0.0.1).
  */
 url: string | null, 

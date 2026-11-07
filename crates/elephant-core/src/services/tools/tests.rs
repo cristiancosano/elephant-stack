@@ -112,7 +112,7 @@ fn phpmyadmin_installs_with_a_local_only_config_and_picks_a_compatible_php() {
 
     // Sin un PHP de Elephant que valga (8.4 no), no se puede abrir.
     own_php(s.home.path(), "8.4.27");
-    let status = phpmyadmin_status(&env, false);
+    let status = phpmyadmin_status(&env, None);
     assert_eq!(status.version.as_deref(), Some("5.2.3"));
     assert!(status.blocked && status.php.is_none());
     assert!(status.warning.unwrap().contains("Instala PHP 8.3"));
@@ -121,7 +121,7 @@ fn phpmyadmin_installs_with_a_local_only_config_and_picks_a_compatible_php() {
     // Con 8.2 y 8.3, la más reciente que valga; y avisa de que MySQL está apagado.
     own_php(s.home.path(), "8.2.29");
     let php = own_php(s.home.path(), "8.3.20");
-    let status = phpmyadmin_status(&env, false);
+    let status = phpmyadmin_status(&env, None);
     assert_eq!(status.php.as_deref(), Some("8.3.20"));
     assert!(!status.blocked && status.warning.unwrap().contains("MySQL no está encendido"));
     assert_eq!(status.url.as_deref(), Some("http://127.0.0.1:8399/"));
@@ -142,7 +142,7 @@ fn updating_phpmyadmin_replaces_the_old_version_and_a_lying_zip_installs_nothing
     let error = install_in(&env, &lying, &mut |_| {}, &mut |_, _| {}).unwrap_err();
     assert!(error.contains("no contiene phpMyAdmin 5.2.4"), "{error}");
     assert!(!root.join("5.2.4").exists() && !root.join(".tmp-5.2.4").exists());
-    assert_eq!(phpmyadmin_status(&env, false).version.as_deref(), Some("5.2.3"));
+    assert_eq!(phpmyadmin_status(&env, None).version.as_deref(), Some("5.2.3"));
 
     let mut bad = phpmyadmin_zip(s.fixtures.path(), "5.2.4", "5.2.4");
     bad.sha256 = "0".repeat(64);
@@ -150,11 +150,11 @@ fn updating_phpmyadmin_replaces_the_old_version_and_a_lying_zip_installs_nothing
 
     install_in(&env, &phpmyadmin_zip(s.fixtures.path(), "5.2.4", "5.2.4"), &mut |_| {}, &mut |_, _| {}).unwrap();
     assert!(root.join("5.2.4/index.php").is_file() && !root.join("5.2.3").exists());
-    assert_eq!(phpmyadmin_status(&env, false).version.as_deref(), Some("5.2.4"));
+    assert_eq!(phpmyadmin_status(&env, None).version.as_deref(), Some("5.2.4"));
 
     uninstall_in(&env, ToolKind::Phpmyadmin).unwrap();
     assert!(!root.join("5.2.4").exists());
-    assert_eq!(phpmyadmin_status(&env, false).version, None);
+    assert_eq!(phpmyadmin_status(&env, None).version, None);
     assert!(uninstall_in(&env, ToolKind::Phpmyadmin).is_err());
 }
 
@@ -320,7 +320,7 @@ fn real_phpmyadmin_is_served_on_localhost_with_elephants_php() {
         } else {
             println!("No hay binarios de MySQL de Elephant: phpMyAdmin no podrá conectar.");
         }
-        let status = phpmyadmin_status(&env, false);
+        let status = phpmyadmin_status(&env, None);
         println!("{status:#?}");
         assert_eq!(status.php.as_deref(), Some(php83.version.as_str()));
         assert_eq!(status.warning.is_none(), mysql_version.is_some());

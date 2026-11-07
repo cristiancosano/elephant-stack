@@ -19,15 +19,19 @@
     openUrl,
     refresh,
     serviceOperation,
+    servicePower,
     setGlobalPhp,
     siteAction,
   } from "../lib/ipc";
   import {
     brewBusy,
+    busyFor,
     gaugeMaxKb,
     hero,
+    ownMailpitBranch,
     phpOptions,
     problemRoute,
+    quickManaged,
     runningPids,
     serviceState,
     serviceStatusText,
@@ -39,7 +43,9 @@
   import { go } from "../lib/router.svelte";
   import { formatMemory, formatRelative } from "../lib/format";
   import { t } from "../lib/i18n/index.svelte";
+  import type { BranchStatus } from "../lib/bindings/BranchStatus";
   import type { LogEntry } from "../lib/bindings/LogEntry";
+  import type { ManagedService } from "../lib/bindings/ManagedService";
   import type { Snapshot } from "../lib/bindings/Snapshot";
   import type { Route } from "../lib/route";
 
@@ -62,6 +68,8 @@
           .slice(0, 5)
       : [],
   );
+  /** Los propios (06) que se usan, en el hueco que dejen los de brew. */
+  const quickOwn = $derived(snapshot ? quickManaged(snapshot).slice(0, Math.max(0, 5 - quick.length)) : []);
   const siteList = $derived(snapshot ? sites(snapshot).slice(0, 5) : []);
   const mailpit = $derived(snapshot?.mailpit ?? null);
 
@@ -87,6 +95,22 @@
         }
       }
     }
+  }
+
+  async function powerOwn(service: ManagedService, branch: BranchStatus, on: boolean) {
+    try {
+      await servicePower(service.service, branch.branch, on);
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  /** El Mailpit propio si está instalado; si no, el de brew. */
+  function startMailpit() {
+    const own = snapshot ? ownMailpitBranch(snapshot) : null;
+    const mailpitService = snapshot?.managed.find((m) => m.service === "mailpit");
+    if (own && mailpitService) void powerOwn(mailpitService, own, true);
+    else void operate("mailpit", true);
   }
 
   async function operate(name: string, on: boolean) {
@@ -224,7 +248,7 @@
 
           <section class="card" aria-labelledby="card-services">
             <h2 class="card-title" id="card-services">{t("panel.services.title")}</h2>
-            {#if quick.length === 0}
+            {#if quick.length === 0 && quickOwn.length === 0}
               <p class="muted">{t("panel.services.empty")}</p>
               <a class="link" href="#/servicios">{t("panel.services.viewAll")}</a>
             {:else}
@@ -245,6 +269,22 @@
                       />
                     </li>
                   {/if}
+                {/each}
+                {#each quickOwn as own (own.branch.label)}
+                  {@const name = `${own.service.name} ${own.branch.branch}`}
+                  {@const busy = busyFor(snapshot, own.branch.label)}
+                  <li class="line">
+                    <StatusDot state={busy ? "busy" : own.branch.state} label={busy?.label ?? name} />
+                    <span class="line-text">{name}</span>
+                    <Switch
+                      checked={own.branch.state === "running"}
+                      label={own.branch.state === "running"
+                        ? t("panel.services.toggleStop", { id: name })
+                        : t("panel.services.toggleStart", { id: name })}
+                      disabled={!!busy}
+                      onchange={(on) => void powerOwn(own.service, own.branch, on)}
+                    />
+                  </li>
                 {/each}
               </ul>
             {/if}
@@ -284,7 +324,7 @@
             {:else if !mailpit.running}
               <p class="muted">{t("panel.mailpit.stopped")}</p>
               <div>
-                <Button disabled={locked} onclick={() => void operate("mailpit", true)}>{t("panel.mailpit.start")}</Button>
+                <Button disabled={locked && !ownMailpitBranch(snapshot)} onclick={startMailpit}>{t("panel.mailpit.start")}</Button>
               </div>
             {:else}
               <p class="muted num">

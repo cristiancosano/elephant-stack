@@ -168,12 +168,48 @@ fn verify_and_extract(
     dest: &Path,
     on_line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
-    if download::sha256_file(part)? != expected.to_ascii_lowercase() {
+    let name = kind.name();
+    let package = Package { tar: &env.tools.tar, archive: part, sha256: expected, rooted: kind.rooted_package(), name, version };
+    unpack(&package, dest, on_line, &mut |tmp| match kind.version_of(tmp) {
+        Some(found) if kind.version_matches(&found, version) => Ok(()),
+        Some(found) => Err(tr!(
+            "El paquete dice ser {name} {version} pero contiene {name} {found}.",
+            "The package says it’s {name} {version} but contains {name} {found}."
+        )),
+        None => Err(tr!(
+            "El {name} {version} descargado no arranca en este Mac.",
+            "The downloaded {name} {version} doesn’t run on this Mac."
+        )),
+    })
+}
+
+/// Un paquete descargado que hay que comprobar y descomprimir.
+pub(crate) struct Package<'a> {
+    pub tar: &'a Path,
+    pub archive: &'a Path,
+    pub sha256: &'a str,
+    /// Todo va dentro de una carpeta raíz, que se quita al descomprimir.
+    pub rooted: bool,
+    /// Para los mensajes: `MySQL`, `Node`.
+    pub name: &'a str,
+    pub version: &'a str,
+}
+
+/// Comprueba el sha256 y las entradas, descomprime en `.tmp-<versión>` junto a
+/// `dest`, deja que `finish` compruebe (y complete) la carpeta y solo entonces
+/// la renombra a `dest`. Si algo falla, no queda nada.
+pub(crate) fn unpack(
+    package: &Package,
+    dest: &Path,
+    on_line: &mut dyn FnMut(&str),
+    finish: &mut dyn FnMut(&Path) -> Result<(), String>,
+) -> Result<(), String> {
+    let Package { tar, archive, sha256, rooted, name, version } = *package;
+    if download::sha256_file(archive)? != sha256.to_ascii_lowercase() {
         return Err(download::mismatch());
     }
     on_line(tr_str!("Firma correcta. Comprobando el contenido del paquete", "Signature OK. Checking the package contents"));
-    let rooted = kind.rooted_package();
-    check_entries(&list_archive(&env.tools.tar, part)?, rooted)?;
+    check_entries(&list_archive(tar, archive)?, rooted)?;
 
     let root = dest.parent().ok_or_else(|| tr!("Ruta de instalación no válida.", "Invalid install path."))?;
     let tmp = root.join(format!(".tmp-{version}"));
@@ -182,13 +218,12 @@ fn verify_and_extract(
         let dir = tmp.display();
         tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
     })?;
-    let name = kind.name();
     let installed = (|| {
         on_line(tr_str!("Descomprimiendo", "Extracting"));
         let strip = if rooted { "1" } else { "0" };
-        let status = Command::new(&env.tools.tar)
+        let status = Command::new(tar)
             .arg("-xzf")
-            .arg(part)
+            .arg(archive)
             .args(["--strip-components", strip, "-C"])
             .arg(&tmp)
             .stdin(Stdio::null())
@@ -197,21 +232,7 @@ fn verify_and_extract(
         if !status.success() {
             return Err(tr!("No se ha podido extraer el paquete.", "Couldn’t extract the package."));
         }
-        match kind.version_of(&tmp) {
-            Some(found) if kind.version_matches(&found, version) => {}
-            Some(found) => {
-                return Err(tr!(
-                    "El paquete dice ser {name} {version} pero contiene {name} {found}.",
-                    "The package says it’s {name} {version} but contains {name} {found}."
-                ));
-            }
-            None => {
-                return Err(tr!(
-                    "El {name} {version} descargado no arranca en este Mac.",
-                    "The downloaded {name} {version} doesn’t run on this Mac."
-                ));
-            }
-        }
+        finish(&tmp)?;
         if dest.exists() {
             return Ok(());
         }

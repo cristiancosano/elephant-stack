@@ -530,19 +530,8 @@ pub fn apply_if_current(
 /// La usa [`crate::ops::install_component`] para `composer`: el phar propio
 /// y, si falta, el selector `php` que lo ejecuta.
 pub fn install_composer(on_line: &mut dyn FnMut(&str)) -> Result<(), String> {
-    let tools = download::Tools::system()?;
-    let release = catalog(false)
-        .composer
-        .ok_or_else(|| {
-            tr!("No se ha podido consultar la versión estable de Composer.", "Couldn’t check the stable version of Composer.")
-        })?;
-    let shim = elephant_php::Layout::from_home(&tools.home).shim_path();
-    if !shim.is_file()
-        && let Some(source) = detect::default_shim_source()
-    {
-        download::install_shim(&tools, &source)?;
-    }
-    download::install_composer(&tools, &release, on_line)
+    crate::composer::install(crate::composer::ComposerChannel::Stable, on_line)
+        .map(drop)
         .map_err(|e| apply::translate(&e).map_or(e, String::from))
 }
 

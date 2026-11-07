@@ -90,9 +90,7 @@ pub(crate) fn detect(launch_at_login: bool) -> Detection {
             .collect();
         detection.global_php = global_php(&layout);
         detection.shim = file_state(&layout.shim_path(), default_shim_source().as_deref());
-        detection.composer_phar = paths::data_dir_in(&home)
-            .join("libexec/composer.phar")
-            .is_file();
+        detection.composer_phar = layout.composer_phar().is_some();
         detection.path = path_state(&home);
         detection.herd = herd_info(&home, &ps);
     }
@@ -334,6 +332,41 @@ pub(crate) fn path_state_of(home: &Path, scripts: &[String]) -> PathState {
         (None, Some(_)) => PathState::AfterHerdMissing,
         (None, None) => PathState::Missing,
     }
+}
+
+/// Si alguna línea de `scripts` pone `~/.elephant-stack/bin` en el PATH y,
+/// en ese caso, quién se carga después y queda delante: `Herd` (su `export
+/// PATH`) o `nvm` (al cargar `nvm.sh` pone su versión por defecto delante).
+pub(crate) fn path_shadow(home: &Path, scripts: &[String]) -> (bool, Option<&'static str>) {
+    let ours = canonical(&paths::data_dir_in(home).join("bin"));
+    let (mut index, mut last_ours, mut last_herd, mut last_nvm) = (0usize, None, None, None);
+    for line in scripts.iter().flat_map(|text| text.lines()) {
+        index += 1;
+        if line.trim().starts_with('#') {
+            continue;
+        }
+        if line.contains("nvm.sh") {
+            last_nvm = Some(index);
+        }
+        let Some(first) = path_first_entry(line) else {
+            continue;
+        };
+        if first.contains("Herd/bin") {
+            last_herd = Some(index);
+        }
+        if canonical(&expand(&first, home)) == ours {
+            last_ours = Some(index);
+        }
+    }
+    let Some(ours) = last_ours else {
+        return (false, None);
+    };
+    let shadow = [(last_herd, "Herd"), (last_nvm, "nvm")]
+        .into_iter()
+        .filter_map(|(at, who)| at.filter(|at| *at > ours).map(|at| (at, who)))
+        .max()
+        .map(|(_, who)| who);
+    (true, shadow)
 }
 
 /// Primera entrada de una asignación `export PATH=…` o `PATH=…`, sin comillas.

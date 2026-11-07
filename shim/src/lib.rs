@@ -1,8 +1,14 @@
-//! Localiza las versiones de PHP y decide cuál usar. Lo comparten el selector
-//! `php` y la app, para que ambos lleguen siempre a la misma respuesta.
+//! Localiza las versiones de PHP y de Node y decide cuál usar. Lo comparten
+//! los selectores de `~/.elephant-stack/bin` y la app, para que ambos lleguen
+//! siempre a la misma respuesta.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use elephant_i18n::tr;
+
+pub mod node;
+pub mod selectors;
 
 pub const PROJECT_FILE: &str = ".php-version";
 const HERD: &str = "Herd";
@@ -108,7 +114,8 @@ impl Layout {
     pub fn set_project(&self, dir: &Path, requested: &str) -> Result<(), String> {
         self.ensure_available(requested)?;
         if !dir.is_dir() {
-            return Err(format!("No existe la carpeta {}.", dir.display()));
+            let dir = dir.display();
+            return Err(tr!("No existe la carpeta {dir}.", "The folder {dir} doesn’t exist."));
         }
         fs::write(dir.join(PROJECT_FILE), format!("{}\n", requested.trim()))
             .map_err(|error| error.to_string())
@@ -131,14 +138,11 @@ impl Layout {
 
     fn not_found(&self, requested: &str, origin: &str) -> String {
         let available: Vec<String> = self.discover().into_iter().map(|v| v.id).collect();
-        format!(
-            "Elephant Stack: PHP {} no está disponible (pedido por {origin}). Disponibles: {}.",
-            requested.trim(),
-            if available.is_empty() {
-                "ninguna".to_string()
-            } else {
-                available.join(", ")
-            }
+        let requested = requested.trim();
+        let list = if available.is_empty() { tr!("ninguna", "none") } else { available.join(", ") };
+        tr!(
+            "Elephant Stack: PHP {requested} no está disponible (pedido por {origin}). Disponibles: {list}.",
+            "Elephant Stack: PHP {requested} isn’t available (requested by {origin}). Available: {list}."
         )
     }
 
@@ -153,12 +157,14 @@ impl Layout {
         if let Some(requested) = self.global() {
             return self
                 .find(&requested)
-                .ok_or_else(|| self.not_found(&requested, "el ajuste global"));
+                .ok_or_else(|| self.not_found(&requested, &tr!("el ajuste global", "the global setting")));
         }
-        self.discover()
-            .into_iter()
-            .next()
-            .ok_or_else(|| "Elephant Stack: no hay ninguna versión de PHP disponible.".to_string())
+        self.discover().into_iter().next().ok_or_else(|| {
+            tr!(
+                "Elephant Stack: no hay ninguna versión de PHP disponible.",
+                "Elephant Stack: no PHP version is available."
+            )
+        })
     }
 }
 
@@ -172,7 +178,7 @@ fn herd_binary_version(name: &str) -> Option<String> {
     Some(format!("{major}.{minor}"))
 }
 
-fn numeric_key(id: &str) -> Vec<u32> {
+pub(crate) fn numeric_key(id: &str) -> Vec<u32> {
     id.split('.').map(|part| part.parse().unwrap_or(0)).collect()
 }
 
@@ -194,7 +200,7 @@ fn matches_version(requested: &str, id: &str) -> bool {
     wanted.iter().zip(&have).all(|(a, b)| a == b)
 }
 
-fn read_version_file(path: &Path) -> Option<String> {
+pub(crate) fn read_version_file(path: &Path) -> Option<String> {
     let text = fs::read_to_string(path).ok()?;
     let version = text.lines().map(str::trim).find(|line| !line.is_empty())?;
     Some(version.to_string())
@@ -209,20 +215,20 @@ fn find_project_version(cwd: &Path) -> Option<(PathBuf, String)> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static NEXT: AtomicU32 = AtomicU32::new(0);
 
     /// Carpeta temporal con un HOME falso: nunca toca el real.
-    struct Sandbox {
-        root: PathBuf,
-        layout: Layout,
+    pub(crate) struct Sandbox {
+        pub root: PathBuf,
+        pub layout: Layout,
     }
 
     impl Sandbox {
-        fn new() -> Self {
+        pub fn new() -> Self {
             let root = std::env::temp_dir().join(format!(
                 "elephant-test-{}-{}",
                 std::process::id(),
@@ -244,7 +250,19 @@ mod tests {
             fs::write(dir.join("php"), "").unwrap();
         }
 
-        fn project(&self, relative: &str, version: Option<&str>) -> PathBuf {
+        /// `node/<id>/bin/{node,npm,npx}`; `lts` escribe la marca (`Some("")`: no es LTS).
+        pub fn node(&self, id: &str, lts: Option<&str>) {
+            let dir = self.layout.node_root().join(id);
+            fs::create_dir_all(dir.join("bin")).unwrap();
+            for name in ["node", "npm", "npx"] {
+                fs::write(dir.join("bin").join(name), "").unwrap();
+            }
+            if let Some(lts) = lts {
+                fs::write(dir.join(node::LTS_MARKER), lts).unwrap();
+            }
+        }
+
+        pub fn project(&self, relative: &str, version: Option<&str>) -> PathBuf {
             let dir = self.root.join(relative);
             fs::create_dir_all(&dir).unwrap();
             if let Some(version) = version {

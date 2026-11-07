@@ -1,7 +1,7 @@
 [package]
 name = "elephant-php"
 version = "0.1.0"
-description = "Selector de versión de PHP de Elephant Stack"
+description = "Selectores de Elephant Stack (php, node, npm, npx, composer…): un binario que elige la versión según el proyecto"
 authors = ["Cristian Cosano"]
 edition = "2024"
 
@@ -9,6 +9,15 @@ edition = "2024"
 name = "elephant_php"
 path = "src/lib.rs"
 
+# Un único binario multi-llamada: en ~/.elephant-stack/bin es `php` y los demás
+# selectores son enlaces a él (decide por argv[0]).
 [[bin]]
 name = "php"
 path = "src/main.rs"
+
+[dependencies]
+elephant-i18n.workspace = true
+
+# Los tests escriben en español (docs/i18n.md).
+[dev-dependencies]
+elephant-i18n = { workspace = true, features = ["test-locale"] }

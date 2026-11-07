@@ -15,7 +15,6 @@ use crate::{fsutil, paths, tr};
 
 /// Repositorio por defecto de las versiones de PHP.
 pub const DEFAULT_SOURCE: &str = "cristiancosano/php-builds";
-const COMPOSER_VERSIONS_URL: &str = "https://getcomposer.org/versions";
 const MEMORY_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// Caché en memoria de la última fuente consultada.
@@ -255,23 +254,11 @@ pub(crate) fn parse_releases(json: &str) -> Result<(Vec<PhpRelease>, Vec<String>
     Ok((php, skipped))
 }
 
-/// `stable[0].version` de getcomposer.org, con las URL versionadas del phar.
+/// La versión estable de getcomposer.org ([`crate::composer::parse_versions`]),
+/// con las URL versionadas del phar.
 pub(crate) fn parse_composer(json: &str) -> Option<ComposerRelease> {
-    let value: serde_json::Value = serde_json::from_str(json).ok()?;
-    let version = value["stable"].get(0)?["version"].as_str()?;
-    let parts: Vec<&str> = version.split('.').collect();
-    let valid = (2..=3).contains(&parts.len())
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
-    if !valid {
-        return None;
-    }
-    Some(ComposerRelease {
-        version: version.to_string(),
-        url: format!("https://getcomposer.org/download/{version}/composer.phar"),
-        checksum_url: format!("https://getcomposer.org/download/{version}/composer.phar.sha256sum"),
-    })
+    let stable = crate::composer::parse_versions(json)?.stable?;
+    Some(ComposerRelease { version: stable.version, url: stable.url, checksum_url: stable.checksum_url })
 }
 
 fn is_https(url: &str) -> bool {
@@ -328,7 +315,7 @@ pub(crate) fn fetch(
             })
         });
         let composer = scope.spawn(|| {
-            let json = download::fetch_text(curl, COMPOSER_VERSIONS_URL).ok()?;
+            let json = download::fetch_text(curl, crate::composer::VERSIONS_URL).ok()?;
             parse_composer(&json)
         });
         (php.join().ok().flatten(), composer.join().ok().flatten())

@@ -896,6 +896,9 @@ dependencies = [
 [[package]]
 name = "elephant-php"
 version = "0.1.0"
+dependencies = [
+ "elephant-i18n",
+]
 
 [[package]]
 name = "elephant-stack"

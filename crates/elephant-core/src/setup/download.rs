@@ -46,8 +46,6 @@ pub(crate) fn mismatch() -> String {
     )
 }
 
-const COMPOSER_WRAPPER: &str = "#!/bin/sh\nexec \"$HOME/.elephant-stack/bin/php\" \"$HOME/.elephant-stack/libexec/composer.phar\" \"$@\"\n";
-
 /// `curl` del sistema; en debug, el de `ELEPHANT_STACK_CURL` si existe.
 pub(crate) fn curl_path() -> PathBuf {
     paths::tool_override("curl").unwrap_or_else(|| PathBuf::from(SYSTEM_CURL))
@@ -110,6 +108,26 @@ pub(crate) fn fetch_text(curl: &Path, url: &str) -> Result<String, String> {
             },
         ))
     }
+}
+
+/// Tamaño de una descarga (`Content-Length` de la última respuesta, tras las
+/// redirecciones), para mostrar el progreso. `None` si no lo dice.
+pub(crate) fn content_length(curl: &Path, url: &str) -> Option<u64> {
+    let output = Command::new(curl)
+        .args(["-fsSIL", "--proto", "=https", "--tlsv1.2", "--max-time", "20", url])
+        .stdin(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .rev()
+        .find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.trim().eq_ignore_ascii_case("content-length").then(|| value.trim().parse().ok()).flatten()
+        })
 }
 
 /// Descarga a `dest`. El progreso se calcula sondeando el tamaño del archivo
@@ -460,55 +478,15 @@ fn write_executable(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
-/// `composer.phar` verificado en `libexec`, más el envoltorio `bin/composer`
-/// que lo ejecuta con el PHP que elige el selector para la carpeta actual.
+/// `composer.phar` verificado en `tools/composer/<versión>/`, más el selector
+/// `bin/composer`, que lo ejecuta con el PHP que elige el selector para la
+/// carpeta actual (ver [`crate::composer`]).
 pub(crate) fn install_composer(
     tools: &Tools,
     release: &ComposerRelease,
     on_line: &mut dyn FnMut(&str),
 ) -> Result<(), String> {
-    let version = &release.version;
-    on_line(&tr!("Consultando la firma de Composer {version}", "Checking the signature of Composer {version}"));
-    let sums = fetch_text(&tools.curl, &release.checksum_url)?;
-    let expected =
-        expected_hash(&sums, "composer.phar")
-        .ok_or_else(|| tr!("No se encuentra la firma de Composer.", "Couldn’t find Composer’s signature."))?;
-
-    let part = tools
-        .data()
-        .join("cache")
-        .join(format!("composer-{}.phar.part", release.version));
-    dir_for(&part)?;
-    let _ = fs::remove_file(&part);
-    let url = &release.url;
-    on_line(&tr!("Descargando {url}", "Downloading {url}"));
-    download_file(&tools.curl, &release.url, &part, 0, &mut |_, _| {})?;
-    let verified = sha256_file(&part).and_then(|actual| {
-        if actual == expected {
-            Ok(())
-        } else {
-            Err(mismatch())
-        }
-    });
-    if let Err(error) = verified {
-        let _ = fs::remove_file(&part);
-        return Err(error);
-    }
-
-    let phar = tools.data().join("libexec/composer.phar");
-    dir_for(&phar)?;
-    let moved = fs::set_permissions(&part, fs::Permissions::from_mode(0o644))
-        .and_then(|()| fs::rename(&part, &phar));
-    if let Err(error) = moved {
-        let _ = fs::remove_file(&part);
-        return Err(tr!("No se pudo instalar Composer: {error}", "Couldn’t install Composer: {error}"));
-    }
-    write_executable(
-        &tools.data().join("bin/composer"),
-        COMPOSER_WRAPPER.as_bytes(),
-    )?;
-    on_line(&tr!("Composer {version} instalado", "Composer {version} installed"));
-    Ok(())
+    crate::composer::install_release(tools, release, on_line)
 }
 
 /// Copia el selector empaquetado a `~/.elephant-stack/bin/php`.
@@ -842,19 +820,11 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi"#,
     }
 
     #[test]
-    fn composer_gets_a_verified_phar_and_a_wrapper() {
+    fn composer_gets_a_verified_phar_and_its_selector() {
         let s = sandbox();
-        fs::write(
-            s.fixtures.path().join("composer.phar"),
-            "<?php echo 'composer';",
-        )
-        .unwrap();
+        fs::write(s.fixtures.path().join("composer.phar"), "<?php echo 'composer';").unwrap();
         let hash = sha256_file(&s.fixtures.path().join("composer.phar")).unwrap();
-        fs::write(
-            s.fixtures.path().join("composer.phar.sha256sum"),
-            format!("{hash}  composer.phar\n"),
-        )
-        .unwrap();
+        fs::write(s.fixtures.path().join("composer.phar.sha256sum"), format!("{hash}  composer.phar\n")).unwrap();
         let tools = tools(&s.home, s.bin.path(), s.fixtures.path());
         let release = ComposerRelease {
             version: "2.11.1".into(),
@@ -863,25 +833,13 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi"#,
         };
         install_composer(&tools, &release, &mut |_| {}).unwrap();
         let data = s.home.path().join(".elephant-stack");
-        assert!(data.join("libexec/composer.phar").is_file());
-        let wrapper = data.join("bin/composer");
-        assert_eq!(fs::read_to_string(&wrapper).unwrap(), COMPOSER_WRAPPER);
-        assert_eq!(
-            fs::metadata(&wrapper).unwrap().permissions().mode() & 0o777,
-            0o755
-        );
+        assert!(data.join("tools/composer/2.11.1/composer.phar").is_file());
+        assert_eq!(fs::read_link(data.join("bin/composer")).unwrap(), Path::new("php"));
 
-        fs::write(
-            s.fixtures.path().join("composer.phar.sha256sum"),
-            format!("{}  composer.phar\n", "b".repeat(64)),
-        )
-        .unwrap();
-        fs::remove_file(data.join("libexec/composer.phar")).unwrap();
-        assert_eq!(
-            install_composer(&tools, &release, &mut |_| {}).unwrap_err(),
-            mismatch()
-        );
-        assert!(!data.join("libexec/composer.phar").exists());
+        fs::write(s.fixtures.path().join("composer.phar.sha256sum"), format!("{}  composer.phar\n", "b".repeat(64))).unwrap();
+        fs::remove_dir_all(data.join("tools/composer")).unwrap();
+        assert_eq!(install_composer(&tools, &release, &mut |_| {}).unwrap_err(), mismatch());
+        assert!(!data.join("tools/composer/2.11.1").exists());
     }
 
     #[test]

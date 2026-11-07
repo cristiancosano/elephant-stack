@@ -32,7 +32,7 @@ use crate::setup::presets;
 use crate::{fsutil, stamp, tr};
 
 pub mod catalog;
-mod install;
+pub(crate) mod install;
 mod mailpit;
 mod mysql;
 mod ports;

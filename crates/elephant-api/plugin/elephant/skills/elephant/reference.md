@@ -43,6 +43,27 @@ Versiones de PHP instaladas (Elephant Stack y Herd), la global y la que usa una 
 |---|---|---|
 | `--dir` | `dir` | Carpeta del proyecto (por defecto, la actual o la raíz del proyecto) |
 
+### `elephant node list`
+
+MCP: `node_list`.
+
+Versiones de Node de Elephant (sin nvm): instaladas con sus paquetes globales, la global, la que usa una carpeta y por qué (.nvmrc, .node-version, global o la más reciente), las que se pueden instalar (LTS con soporte y Current; --all, todas) y el aviso del PATH.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `--dir` | `dir` | Carpeta del proyecto (por defecto, la actual) |
+| `--all` | `all` | Todas las versiones mayores, no solo las LTS con soporte y la Current. |
+
+### `elephant composer list`
+
+MCP: `composer_list`.
+
+Composer de Elephant: la versión instalada y su canal, las disponibles (stable y 2.2 LTS de getcomposer.org) y con qué PHP se ejecuta en una carpeta (el del selector de PHP, que respeta .php-version).
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `--dir` | `dir` | Carpeta del proyecto (por defecto, la actual): dice con qué PHP se ejecuta ahí. |
+
 ### `elephant project list`
 
 MCP: `projects_list`.
@@ -177,6 +198,33 @@ Fija la versión de PHP de un proyecto escribiendo su .php-version (como herd is
 | `VERSION` | `version` | `8.4`, `8.4.27` o `8.4@Herd`. |
 | `--dir` | `dir` | Carpeta del proyecto (por defecto, la raíz del proyecto actual) |
 
+### `elephant node use VERSION`
+
+MCP: `node_set_global`.
+
+Cambia la versión de Node global de Elephant (la que se usa fuera de un proyecto con .nvmrc o .node-version): 24, 24.11.1, lts/* o node. Solo versiones ya instaladas.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `VERSION` | `version` | 24, 24.11.1, lts/* o node (vuelve a «la más reciente») |
+
+### `elephant node isolate VERSION`
+
+MCP: `node_set_project`.
+
+Fija la versión de Node de un proyecto escribiendo su .nvmrc (o su .node-version, si ya usa ese), compatible con nvm. Solo versiones instaladas y carpetas dentro de tu carpeta personal.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `VERSION` | `version` | 24, 24.11.1, lts/* o lts/krypton. |
+| `--dir` | `dir` | Carpeta del proyecto (por defecto, la raíz del proyecto actual) |
+
+### `elephant node reshim`
+
+MCP: `node_reshim`.
+
+Regenera los selectores de ~/.elephant-stack/bin para los ejecutables de las versiones de Node (node, npm, npx, corepack y paquetes globales como pnpm). npm -g por el selector ya lo hace solo.
+
 ### `elephant component install ID`
 
 MCP: `component_install` · tarea larga (espera 45 s; después, código 75 y `job show`).
@@ -210,6 +258,28 @@ Instala o actualiza (la última del catálogo), desinstala o abre phpmyadmin (se
 |---|---|---|
 | `OPERACION` | `operation` | install (o actualizar), uninstall, start, stop u open. Valores: install, uninstall, start, stop, open. |
 | `TOOL` | `tool` | Herramienta: phpmyadmin o pgadmin. |
+| `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
+
+### `elephant node install VERSION`
+
+MCP: `node_install` · tarea larga (espera 45 s; después, código 75 y `job show`).
+
+Descarga de nodejs.org (con su SHASUMS256) e instala una versión de Node en Elephant: 24 (la más reciente de la 24), 24.11.1, lts, lts/krypton o node. Crea los selectores node, npm y npx. No cambia la global. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `VERSION` | `version` | 24, 24.11.1, lts, lts/krypton o node (la más reciente) |
+| `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
+
+### `elephant composer install`
+
+MCP: `composer_install` · tarea larga (espera 45 s; después, código 75 y `job show`).
+
+Instala o actualiza el Composer de Elephant (composer.phar oficial con su sha256) a la última del canal: stable o lts (2.2). Deja el selector composer, que usa el PHP del proyecto. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `--channel` | `channel` | stable (por defecto) o lts (2.2, para PHP anterior a 7.2.5) Valores: stable, lts. |
 | `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
 
 ### `elephant project start-services`

@@ -1045,6 +1045,460 @@
       }
     },
     {
+      "about": "Versiones de Node de Elephant (sin nvm): instaladas con sus paquetes globales, la global, la que usa una carpeta y por qué (.nvmrc, .node-version, global o la más reciente), las que se pueden instalar (LTS con soporte y Current; --all, todas) y el aviso del PATH.",
+      "cli": "elephant node list",
+      "id": "node_list",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "all": {
+            "default": false,
+            "description": "Todas las versiones mayores, no solo las LTS con soporte y la Current.",
+            "type": "boolean"
+          },
+          "dir": {
+            "default": null,
+            "description": "Carpeta del proyecto (por defecto, la actual).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "ListArgs",
+        "type": "object"
+      },
+      "kind": "read",
+      "long": false,
+      "output_schema": {
+        "$defs": {
+          "NodeChoice": {
+            "description": "La versión que se usa en una carpeta, con el motivo.",
+            "properties": {
+              "dir": {
+                "type": "string"
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "file": {
+                "description": "El `.nvmrc` o `.node-version` que lo pide.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "$ref": "#/$defs/NodeReason"
+              },
+              "requested": {
+                "description": "Lo que se pide (`20`, `lts/*`), si hay algo elegido.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version": {
+                "description": "La que resuelve; `None` si lo pedido no está instalado (ver `error`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "dir",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "NodeInstalled": {
+            "description": "Una versión instalada.",
+            "properties": {
+              "globals": {
+                "description": "Paquetes globales de npm con ejecutable (`pnpm`), sin `npm`, `npx` ni `corepack`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "lts": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "major": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "npm": {
+                "description": "La versión de npm que trae.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "path": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "major",
+              "path",
+              "globals"
+            ],
+            "type": "object"
+          },
+          "NodeReason": {
+            "oneOf": [
+              {
+                "enum": [
+                  "global"
+                ],
+                "type": "string"
+              },
+              {
+                "const": "project_file",
+                "description": "`.nvmrc` o `.node-version`.",
+                "type": "string"
+              },
+              {
+                "const": "newest",
+                "description": "No hay nada elegido: la más reciente instalada.",
+                "type": "string"
+              }
+            ]
+          },
+          "NodeRelease": {
+            "description": "Una versión publicada en `index.json` para esta plataforma.",
+            "properties": {
+              "date": {
+                "description": "`2025-11-11`.",
+                "type": "string"
+              },
+              "featured": {
+                "default": false,
+                "description": "Se muestra por defecto: es la más reciente de una LTS con soporte o\nde la Current.",
+                "type": "boolean"
+              },
+              "lts": {
+                "description": "Nombre en clave de la LTS en minúsculas (`krypton`), si lo es.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "major": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "npm": {
+                "description": "La versión de npm que trae.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "security": {
+                "default": false,
+                "description": "Corrige vulnerabilidades.",
+                "type": "boolean"
+              },
+              "version": {
+                "description": "`24.11.1`, sin la `v`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "major",
+              "date"
+            ],
+            "type": "object"
+          },
+          "PathAdvice": {
+            "description": "Si `~/.elephant-stack/bin` va delante en la shell (lo que lee `~/.zprofile`\ny `~/.zshrc`, sin ejecutarlos).",
+            "properties": {
+              "bin": {
+                "description": "`~/.elephant-stack/bin`.",
+                "type": "string"
+              },
+              "configured": {
+                "description": "Alguna línea pone esa carpeta en el PATH.",
+                "type": "boolean"
+              },
+              "line": {
+                "description": "La línea que hay que poner al final de `~/.zshrc`.",
+                "type": "string"
+              },
+              "shadowed_by": {
+                "description": "`Herd` o `nvm`, si se cargan después y quedan delante.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "bin",
+              "configured",
+              "line"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "available": {
+            "description": "La más reciente de cada mayor que se puede instalar (sin red ni caché, vacío).",
+            "items": {
+              "$ref": "#/$defs/NodeRelease"
+            },
+            "type": "array"
+          },
+          "global": {
+            "description": "El ajuste global (`24`, `lts/*`); vacío = la más reciente.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "here": {
+            "$ref": "#/$defs/NodeChoice",
+            "description": "La que resuelve la carpeta, con el motivo."
+          },
+          "nvm": {
+            "description": "`~/.nvm`, si existe: Elephant no lo usa.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "path": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/PathAdvice"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Si la terminal encuentra antes los selectores de Elephant que nvm o Herd."
+          },
+          "versions": {
+            "description": "Instaladas, de la más reciente a la más antigua.",
+            "items": {
+              "$ref": "#/$defs/NodeInstalled"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "versions",
+          "here",
+          "available"
+        ],
+        "title": "ListOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Composer de Elephant: la versión instalada y su canal, las disponibles (stable y 2.2 LTS de getcomposer.org) y con qué PHP se ejecuta en una carpeta (el del selector de PHP, que respeta .php-version).",
+      "cli": "elephant composer list",
+      "id": "composer_list",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dir": {
+            "default": null,
+            "description": "Carpeta del proyecto (por defecto, la actual): dice con qué PHP se ejecuta ahí.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "ComposerListArgs",
+        "type": "object"
+      },
+      "kind": "read",
+      "long": false,
+      "output_schema": {
+        "$defs": {
+          "ComposerCatalog": {
+            "properties": {
+              "lts": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ComposerVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "offline": {
+                "description": "Sin red ni copia en disco.",
+                "type": "boolean"
+              },
+              "stable": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ComposerVersion"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "offline"
+            ],
+            "type": "object"
+          },
+          "ComposerChannel": {
+            "oneOf": [
+              {
+                "const": "stable",
+                "description": "La versión estable más reciente.",
+                "type": "string"
+              },
+              {
+                "const": "lts",
+                "description": "2.2 LTS: para proyectos con PHP anterior a 7.2.5.",
+                "type": "string"
+              }
+            ]
+          },
+          "ComposerStatus": {
+            "description": "Lo instalado.",
+            "properties": {
+              "channel": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ComposerChannel"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "installed": {
+                "type": "boolean"
+              },
+              "phar": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "php": {
+                "description": "El PHP con el que se ejecuta fuera de cualquier proyecto.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "selector": {
+                "description": "`bin/composer` es el selector de Elephant (o el envoltorio antiguo).",
+                "type": "boolean"
+              },
+              "version": {
+                "description": "`None` con el `composer.phar` antiguo del asistente (sin versión en la ruta).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "installed",
+              "selector"
+            ],
+            "type": "object"
+          },
+          "ComposerVersion": {
+            "description": "Una versión que se puede descargar.",
+            "properties": {
+              "channel": {
+                "$ref": "#/$defs/ComposerChannel"
+              },
+              "checksum_url": {
+                "type": "string"
+              },
+              "min_php": {
+                "description": "PHP mínimo: `7.2.5`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "url": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "version",
+              "channel",
+              "url",
+              "checksum_url"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "catalog": {
+            "$ref": "#/$defs/ComposerCatalog",
+            "description": "Las versiones de los canales stable y 2.2 LTS."
+          },
+          "dir": {
+            "type": "string"
+          },
+          "installed": {
+            "$ref": "#/$defs/ComposerStatus"
+          },
+          "php": {
+            "description": "El PHP con el que se ejecuta en `dir`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "php_error": {
+            "description": "Por qué no hay PHP para `dir` (no está instalado el que pide su .php-version…).",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "installed",
+          "catalog",
+          "dir"
+        ],
+        "title": "ComposerListOut",
+        "type": "object"
+      }
+    },
+    {
       "about": "Proyectos PHP y Laravel locales (sitios .test de Herd y carpetas añadidas): id, nombre, hosts, tipo, versión de PHP y errores de las últimas 24 h. El id es el que usan las órdenes de logs.",
       "cli": "elephant project list",
       "id": "projects_list",
@@ -2898,6 +3352,146 @@
       }
     },
     {
+      "about": "Cambia la versión de Node global de Elephant (la que se usa fuera de un proyecto con .nvmrc o .node-version): 24, 24.11.1, lts/* o node. Solo versiones ya instaladas.",
+      "cli": "elephant node use",
+      "id": "node_set_global",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "version": {
+            "description": "24, 24.11.1, lts/* o node (vuelve a «la más reciente»).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "UseArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": false,
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "active": {
+            "description": "La que resuelve ahora fuera de cualquier proyecto.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "global": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "title": "UseOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Fija la versión de Node de un proyecto escribiendo su .nvmrc (o su .node-version, si ya usa ese), compatible con nvm. Solo versiones instaladas y carpetas dentro de tu carpeta personal.",
+      "cli": "elephant node isolate",
+      "id": "node_set_project",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dir": {
+            "default": null,
+            "description": "Carpeta del proyecto (por defecto, la raíz del proyecto actual).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "description": "24, 24.11.1, lts/* o lts/krypton.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "IsolateArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": false,
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dir": {
+            "type": "string"
+          },
+          "file": {
+            "description": "El `.nvmrc` (o `.node-version`) escrito.",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dir",
+          "file",
+          "version"
+        ],
+        "title": "IsolateOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Regenera los selectores de ~/.elephant-stack/bin para los ejecutables de las versiones de Node (node, npm, npx, corepack y paquetes globales como pnpm). npm -g por el selector ya lo hace solo.",
+      "cli": "elephant node reshim",
+      "id": "node_reshim",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "ReshimArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": false,
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "added": {
+            "description": "Selectores nuevos en ~/.elephant-stack/bin.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "removed": {
+            "description": "Los que ya no tiene ninguna versión.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "skipped": {
+            "description": "Ya había un archivo con ese nombre que no es de Elephant: no se ha tocado.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "added",
+          "removed",
+          "skipped"
+        ],
+        "title": "ReshimOut",
+        "type": "object"
+      }
+    },
+    {
       "about": "Instala un componente con Homebrew (mysql, postgresql@18, redis, mailpit, nginx, dnsmasq) o el Composer de Elephant. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.",
       "cli": "elephant component install",
       "id": "component_install",
@@ -3174,6 +3768,100 @@
           "operation"
         ],
         "title": "ToolOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Descarga de nodejs.org (con su SHASUMS256) e instala una versión de Node en Elephant: 24 (la más reciente de la 24), 24.11.1, lts, lts/krypton o node. Crea los selectores node, npm y npx. No cambia la global. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.",
+      "cli": "elephant node install",
+      "id": "node_install",
+      "idempotent": true,
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "detach": {
+            "default": false,
+            "description": "No esperar: devuelve el id de la tarea al momento.",
+            "type": "boolean"
+          },
+          "version": {
+            "description": "24, 24.11.1, lts, lts/krypton o node (la más reciente).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "InstallArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": true,
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "InstallOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Instala o actualiza el Composer de Elephant (composer.phar oficial con su sha256) a la última del canal: stable o lts (2.2). Deja el selector composer, que usa el PHP del proyecto. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.",
+      "cli": "elephant composer install",
+      "id": "composer_install",
+      "idempotent": true,
+      "input_schema": {
+        "$defs": {
+          "Channel": {
+            "enum": [
+              "stable",
+              "lts"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "channel": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Channel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "stable (por defecto) o lts (2.2, para PHP anterior a 7.2.5)."
+          },
+          "detach": {
+            "default": false,
+            "description": "No esperar: devuelve el id de la tarea al momento.",
+            "type": "boolean"
+          }
+        },
+        "title": "ComposerInstallArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": true,
+      "output_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "InstallOut",
         "type": "object"
       }
     },

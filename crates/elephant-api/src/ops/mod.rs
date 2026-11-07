@@ -1,4 +1,4 @@
-//! Las 21 operaciones de 00 §5.9 (las 17 del plan y las 4 de `stack`, 06). Cada una es un tipo que implementa [`Op`];
+//! Las 28 operaciones de 00 §5.9 (las 17 del plan, las 4 de `stack` y las 7 de `node` y `composer`, 06). Cada una es un tipo que implementa [`Op`];
 //! [`meta`] la convierte en una fila del catálogo con punteros a funciones
 //! genéricas, así que no hace falta macro ni `match` a mano.
 
@@ -13,6 +13,7 @@ use crate::{ApiError, Ctx, ErrorCode, Op, OpMeta, Output, Prepared};
 
 mod jobs;
 pub(crate) mod logs;
+mod node;
 mod php;
 mod projects;
 mod services;
@@ -25,6 +26,8 @@ pub(crate) static CATALOG: &[OpMeta] = &[
     meta::<status::ComponentsList>(),
     meta::<stack::StackList>(),
     meta::<php::PhpVersions>(),
+    meta::<node::NodeList>(),
+    meta::<node::ComposerList>(),
     meta::<projects::ProjectsList>(),
     meta::<projects::ProjectNeeds>(),
     meta::<logs::LogsSources>(),
@@ -37,9 +40,14 @@ pub(crate) static CATALOG: &[OpMeta] = &[
     meta::<stack::StackControl>(),
     meta::<php::PhpSetGlobal>(),
     meta::<php::PhpSetProject>(),
+    meta::<node::NodeSetGlobal>(),
+    meta::<node::NodeSetProject>(),
+    meta::<node::NodeReshim>(),
     meta::<services::ComponentInstall>(),
     meta::<stack::StackInstall>(),
     meta::<stack::StackTool>(),
+    meta::<node::NodeInstall>(),
+    meta::<node::ComposerInstall>(),
     meta::<projects::ProjectStartServices>(),
     meta::<projects::ProjectCreate>(),
 ];

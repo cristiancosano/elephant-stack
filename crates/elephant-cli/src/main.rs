@@ -148,6 +148,14 @@ fn group_about(group: &str) -> &'static str {
             "Servicios propios de Elephant, sin Homebrew (MySQL, PostgreSQL, Redis, Mailpit) y sus herramientas (phpMyAdmin, pgAdmin)",
             "Elephant’s own services, without Homebrew (MySQL, PostgreSQL, Redis, Mailpit), and its tools (phpMyAdmin, pgAdmin)"
         ),
+        "node" => tr_str!(
+            "Versiones de Node de Elephant, sin nvm: la global y la de cada proyecto (.nvmrc)",
+            "Elephant’s Node versions, without nvm: the global one and each project’s (.nvmrc)"
+        ),
+        "composer" => tr_str!(
+            "Composer de Elephant, que se ejecuta con el PHP del proyecto",
+            "Elephant’s Composer, which runs with the project’s PHP"
+        ),
         _ => "",
     }
 }
@@ -266,6 +274,9 @@ fn doctor(json: bool) -> Result<(), ApiError> {
         .and_then(|dir| std::fs::read_to_string(dir.join(plugin::VERSION_FILE)).ok())
         .map(|v| v.trim().to_string());
     let mode = settings::load().mcp.mode;
+    let checks = paths::home()
+        .map(|home| elephant_core::selectors::command_checks(&std::env::var_os("PATH").unwrap_or_default(), &home))
+        .unwrap_or_default();
     let report = serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
         "api": elephant_api::API_VERSION,
@@ -278,11 +289,49 @@ fn doctor(json: bool) -> Result<(), ApiError> {
         "exe": std::env::current_exe().ok(),
         "plugin_dir": plugin,
         "plugin_version": plugin_version,
+        "selectors": checks,
     });
     if json {
         return print_text(&report.to_string());
     }
-    print_text(&doctor_text(mode, link.as_deref(), linked, target.as_deref(), plugin_version.as_deref()))
+    let mut text = doctor_text(mode, link.as_deref(), linked, target.as_deref(), plugin_version.as_deref());
+    for line in selector_lines(&checks) {
+        text.push('\n');
+        text.push_str(&line);
+    }
+    print_text(&text)
+}
+
+/// Qué `php`, `composer`, `node`, `npm` y `npx` encuentra la terminal (el
+/// `PATH` de este proceso) y, si no son los de Elephant, qué línea mover.
+fn selector_lines(checks: &[elephant_core::selectors::CommandCheck]) -> Vec<String> {
+    let line = elephant_core::selectors::PATH_LINE;
+    let mut lines = Vec::new();
+    let mut shadowed = false;
+    for check in checks {
+        let command = &check.command;
+        let found = check.found.as_ref().map(|f| f.display().to_string());
+        lines.push(match (check.ours, check.available, found) {
+            (true, _, _) => tr!("{command}: el de Elephant", "{command}: Elephant’s"),
+            (false, true, Some(found)) => {
+                shadowed = true;
+                tr!("{command}: AVISO, el del PATH es {found}, no el de Elephant", "{command}: WARNING, PATH finds {found}, not Elephant’s")
+            }
+            (false, true, None) => {
+                shadowed = true;
+                tr!("{command}: AVISO, ~/.elephant-stack/bin no está en el PATH", "{command}: WARNING, ~/.elephant-stack/bin isn’t in PATH")
+            }
+            (false, false, Some(found)) => tr!("{command}: {found} (Elephant no lo tiene instalado)", "{command}: {found} (not installed in Elephant)"),
+            (false, false, None) => tr!("{command}: no está", "{command}: not found"),
+        });
+    }
+    if shadowed {
+        lines.push(tr!(
+            "Para que la terminal use los de Elephant, pon esta línea al final de ~/.zshrc (después de nvm, Herd y Homebrew) y abre otra terminal: {line}",
+            "To make the terminal use Elephant’s, put this line at the end of ~/.zshrc (after nvm, Herd and Homebrew) and open a new terminal: {line}"
+        ));
+    }
+    lines
 }
 
 /// La salida de texto de `elephant doctor`, en el idioma de la persona (la
@@ -442,6 +491,28 @@ mod tests {
     }
 
     #[test]
+    fn doctor_says_which_line_to_move_when_path_finds_another_node() {
+        use elephant_core::selectors::CommandCheck;
+        let check = |command: &str, ours, available, found: Option<&str>| CommandCheck {
+            command: command.into(),
+            ours,
+            available,
+            found: found.map(PathBuf::from),
+        };
+        let lines = selector_lines(&[
+            check("php", true, true, Some("/h/.localdeck/bin/php")),
+            check("node", false, true, Some("/h/.nvm/versions/node/v24.18.0/bin/node")),
+            check("composer", false, false, Some("/h/Library/Application Support/Herd/bin/composer")),
+        ]);
+        assert_eq!(lines[0], "php: el de Elephant");
+        assert!(lines[1].contains("AVISO") && lines[1].contains(".nvm"), "{}", lines[1]);
+        assert!(lines[2].contains("Elephant no lo tiene instalado"), "{}", lines[2]);
+        assert!(lines[3].ends_with(elephant_core::selectors::PATH_LINE), "{}", lines[3]);
+        let fine = selector_lines(&[check("node", true, true, Some("/h/.elephant-stack/bin/node"))]);
+        assert_eq!(fine.len(), 1);
+    }
+
+    #[test]
     fn the_command_tree_is_valid() {
         cli().debug_assert();
     }
@@ -500,6 +571,12 @@ mod tests {
             "stack_install" => vec!["mysql", "8.4.11", "--detach"],
             "stack_tool" => vec!["install", "phpmyadmin", "--detach"],
             "project_create" => vec!["shop", "--template", "blank", "--php", "8.4", "--detach"],
+            "node_list" => vec!["--dir", "/tmp/x", "--all"],
+            "composer_list" => vec!["--dir", "/tmp/x"],
+            "node_install" => vec!["lts/krypton", "--detach"],
+            "node_set_global" => vec!["24"],
+            "node_set_project" => vec!["v22.11.0", "--dir", "/tmp/x"],
+            "composer_install" => vec!["--channel", "lts", "--detach"],
             _ => vec![],
         }
     }

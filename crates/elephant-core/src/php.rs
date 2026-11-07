@@ -1,6 +1,7 @@
 use std::path::Path;
 
-use elephant_php::{Layout, PhpVersion};
+pub use elephant_php::Layout;
+use elephant_php::PhpVersion;
 use serde::Serialize;
 
 use crate::paths;

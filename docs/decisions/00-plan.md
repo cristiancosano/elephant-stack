@@ -774,6 +774,13 @@ Un **único catálogo tipado** en `crates/elephant-api` con dos fachadas: la CLI
 | `stack_control` | `stack control start\|stop\|autostart-on\|autostart-off SERVICE BRANCH` | mutación | `operation`, `service` (`mysql`, `postgresql`, `redis`, `mailpit`), `branch` | `services::set_running` / `services::set_autostart` |
 | `stack_install` | `stack install SERVICE VERSION [--detach]` | mutación (tarea larga) | `service`, `version`, `detach?` | `services::install` |
 | `stack_tool` | `stack tool install\|uninstall\|start\|stop\|open TOOL [--detach]` | mutación (tarea larga) | `operation`, `tool` (`phpmyadmin`, `pgadmin`), `detach?` | `services::tools::{install, uninstall, set_running, open}` (06 fase 2) |
+| `node_list` | `node list [--dir D] [--all]` | lectura | `dir?`, `all?` | `node::status` + `node::catalog` (instaladas, global, la que usa `dir` y por qué, disponibles y aviso del PATH; 06 fase 3) |
+| `composer_list` | `composer list [--dir D]` | lectura | `dir?` | `composer::status` + `composer::catalog` + `Layout::resolve` (con qué PHP se ejecuta en `dir`) |
+| `node_set_global` | `node use VERSION` | mutación | `version` (`24`, `24.11.1`, `lts/*`, `node`) | `node::set_global` |
+| `node_set_project` | `node isolate VERSION [--dir D]` | mutación | `version`, `dir?` | `node::set_project` (`.nvmrc`, o `.node-version` si ya usa ese) |
+| `node_reshim` | `node reshim` | mutación | — | `node::reshim` (selectores de `bin/` para los ejecutables de las versiones) |
+| `node_install` | `node install VERSION [--detach]` | mutación (tarea larga) | `version`, `detach?` | `node::install` |
+| `composer_install` | `composer install [--channel stable\|lts] [--detach]` | mutación (tarea larga) | `channel?`, `detach?` | `composer::install` (instala o actualiza en su canal) |
 
 **Interfaz de `elephant-api`** (05 §6.1; P01 deja los tipos y un catálogo vacío, P09 lo llena):
 

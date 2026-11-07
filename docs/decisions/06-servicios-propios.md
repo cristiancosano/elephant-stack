@@ -63,6 +63,7 @@ tienen API (todas menos MySQL).
   services/<servicio>/<versión>/   binarios (mysql/8.4.7, postgresql/18.6.1…)
   data/<servicio>/<mayor>/          datos (mysql/8.4, postgresql/18…)
   node/<versión>/                   versiones de Node
+  tools/composer/<versión>/         composer.phar (una sola versión)
   bin/                              selectores php, node, npm, npx, composer
   launchd/                          plists que genera Elephant (copia de referencia)
 ```
@@ -217,6 +218,95 @@ Cada fase deja la app funcionando, con sus tests y capturas en los dos idiomas.
 - **Superficies:** comandos `tool_*`, `Snapshot.managed_tools`, la sección
   Herramientas de la vista Servicios, interruptores de las ramas propias en
   el Panel y en el menú de la barra, y `elephant stack tool`.
+
+### Fase 3: cómo ha quedado
+
+- **Un solo binario para todos los selectores.** `bin/php` es el binario
+  del crate `elephant-php` (el sidecar `php-selector`, como antes) y
+  `node`, `npm`, `npx`, `corepack`, `composer` y los paquetes globales de
+  npm son enlaces simbólicos relativos a él (`node -> php`). Decide por
+  `argv[0]`: `php` (como siempre), `composer` (el phar con el PHP que
+  resuelve el selector de PHP para la carpeta, así que respeta
+  `.php-version`) y cualquier otro nombre es un ejecutable del `bin/` de
+  la versión de Node elegida. Actualizar `bin/php` actualiza todos. Antes
+  de crear enlaces, Elephant deja en `bin/php` el binario de la app si
+  falta o es otro (`selectors::ensure_shim`): un `php` antiguo con un
+  enlace `node` ejecutaría PHP. Los mensajes del selector salen en los dos
+  idiomas (ahora depende de `elephant-i18n`; pasa de 402 a 506 KB).
+- **Elegir Node** (`elephant_php::node`, compartido con la app): en cada
+  carpeta, subiendo hasta la raíz, `.nvmrc` y después `.node-version`;
+  si no hay, `global-node`; si tampoco, la más reciente. Formatos: `20`,
+  `v20.11.1`, `20.11`, `20.x`, `lts/*`, `lts/iron`, `node` (también
+  `latest`, `current`, `stable`) y comentarios `#`. `system`, rangos
+  (`>=18`) o `lts/-1` dan un error que dice qué formatos valen. Lo pedido
+  que no está instalado es un error con la orden para instalarlo, nunca
+  otra versión en silencio. La LTS de cada versión se apunta al instalar
+  en `node/<v>/.elephant-lts` (de `index.json`); sin esa marca, una
+  tabla por mayor.
+- **PATH del hijo:** el `bin/` de la versión va delante y se quitan las
+  otras carpetas de `node/`, así que `npm run`, los `#!/usr/bin/env node`
+  y los scripts usan la misma versión sin pasar otra vez por el selector.
+- **Paquetes globales de npm:** se instalan en el `bin/` de la versión
+  (prefijo por defecto de npm) y Elephant crea un selector en
+  `~/.elephant-stack/bin` por cada ejecutable de cualquier versión
+  instalada (`reshim`). Se regeneran al instalar, actualizar y
+  desinstalar, y el propio selector lo hace tras `npm -g …` y `corepack
+  enable|disable|install` (en esos casos espera al hijo en vez de hacer
+  `exec`). `elephant node reshim` lo hace a mano. Un selector de un
+  paquete que no tiene la versión de esa carpeta da un error que dice qué
+  versiones lo tienen. Nunca se pisa un archivo de `bin/` que no sea un
+  enlace de Elephant. Se descartó un prefijo global común (como hace
+  volta): los módulos nativos se compilan para una versión concreta.
+- **Catálogo de Node:** `nodejs.org/dist/index.json` directo (no pasa por
+  php-builds), con las versiones estables `vX.Y.Z` que tienen
+  `osx-arm64-tar`; una hora en memoria y `cache/node-index.json`. Se
+  destacan la más reciente de cada LTS con soporte (fin aproximado: abril
+  del tercer año tras su primera versión, con un mes de margen) y la
+  Current (la mayor más reciente si aún no es LTS); hoy, 26 (Lithium), 24
+  y 22. El resto, con «Mostrar N versiones más» o `node list --all`.
+- **Instalar Node:** `node-v<v>-darwin-arm64.tar.gz`, `SHASUMS256.txt`,
+  el tamaño con un `HEAD` (para el progreso) y el instalador común de los
+  servicios generalizado (`services::install::unpack`: sha256, entradas
+  dentro de una carpeta raíz, `bin/node --version` y `rename`).
+  Actualizar = instalar la más reciente de la mayor y `node::replace_in`
+  (global y `.nvmrc`/`.node-version` que fijaban la exacta, conservando la
+  `v`), como `php::replace_own`. Desinstalar vuelve a «la más reciente»
+  si la global fijaba esa versión exacta.
+- **La app elige la mayor:** «Por defecto» y «Usar en proyecto…»
+  escriben `24`, que sigue valiendo tras actualizar, salvo que haya otra
+  24 más reciente instalada; entonces, la exacta. El proyecto recibe
+  `.nvmrc`, o `.node-version` si ya usaba ese.
+- **Composer:** `tools/composer/<v>/composer.phar` con su `.sha256sum`,
+  una versión a la vez (al instalar otra se borran las demás). Canales de
+  `getcomposer.org/versions`: `stable` y `2.2` (LTS, para PHP < 7.2.5);
+  actualizar sigue en el canal instalado. El asistente usa lo mismo; el
+  `libexec/composer.phar` y el envoltorio `#!/bin/sh` de antes se migran
+  al instalar (el selector también sabe ejecutar el phar antiguo).
+  `component install composer` llama a lo mismo.
+- **Dónde está en la app:** vista Node propia (barra lateral, ⌘5; Logs
+  pasa a ⌘6) y Composer como sección de la vista PHP, no en Servicios ▸
+  Herramientas: no es un servicio ni se abre, y lo que importa de él es con
+  qué PHP se ejecuta.
+- **PATH:** la app no ejecuta la shell del usuario (04 §4.2); lee
+  `~/.zprofile` y `~/.zshrc` y avisa si nvm (`nvm.sh`) o Herd se cargan
+  después de la línea de Elephant (`detect::path_shadow`), con la línea
+  para copiar. `elephant doctor` mira el `PATH` real de la terminal y dice,
+  para `php`, `composer`, `node`, `npm` y `npx`, si son los de Elephant y
+  qué línea mover. Elephant nunca edita `~/.zshrc` por esto. Con nvm
+  instalado, la vista Node explica que Elephant no lo usa ni lo toca. No
+  se copian versiones de `~/.nvm`: sin su checksum no se pueden
+  comprobar, y reinstalar desde nodejs.org es un clic.
+- **Superficies:** `node_*` y `composer_*` (00 §5.6), `Snapshot.node`
+  (con la versión de cada proyecto conocido) y `Snapshot.composer`;
+  órdenes `elephant node list|install|use|isolate|reshim` y `elephant
+  composer list|install` (sin desinstalar, como manda 00 §5.9).
+- **Pruebas reales** (`#[ignore]`, HOME temporal): `node::tests::
+  real_node_in_a_temporary_home` (LTS de nodejs.org, `node -v` con
+  `.nvmrc`, `npm -v`, `npx -v`, `npm i -g semver` y `semver` por su
+  selector, y el error de una versión no instalada) y `composer::
+  system_tests::real_composer_runs_with_the_project_php` (Composer
+  estable con el PHP 8.4.27 de Elephant enlazado en solo lectura y un PHP
+  7.4 falso para comprobar `.php-version`).
 
 ## Riesgos
 

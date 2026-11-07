@@ -18,6 +18,9 @@ rm -f "$target/elephant"
 install -m 755 "$root/target/release/elephant" "$target/elephant"
 
 echo "Instalado en $target/php y $target/elephant"
+# `node`, `npm`, `composer`… son enlaces a `php` (decide por argv[0]): siguen
+# valiendo con el binario nuevo. Se crean al instalar Node o Composer, o con
+# `elephant node reshim`.
 echo "Para activar el selector de PHP, añade esto al final de ~/.zshrc (después de la línea de Herd):"
 # Las comillas simples son intencionadas: la línea debe copiarse sin expandir.
 # shellcheck disable=SC2016

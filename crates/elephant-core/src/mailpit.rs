@@ -1,5 +1,6 @@
 //! Estado de Mailpit para el menú de la barra y el panel: si está instalado,
-//! si está en marcha y cuántos correos ha capturado.
+//! si está en marcha y cuántos correos ha capturado. Vale el de Elephant
+//! (06, `services::status`) y el de Homebrew: los dos usan el puerto 8025.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -8,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::brew::Service;
 use crate::paths;
+use crate::services::{ManagedService, RunState, ServiceKind};
 
 const URL: &str = "http://127.0.0.1:8025";
 
@@ -34,16 +36,24 @@ impl Default for MailpitInfo {
     }
 }
 
-/// Usa la lista de servicios que ya tiene quien llama; solo consulta la API
-/// de Mailpit (con 1 s como mucho) si está en marcha.
-pub fn info(services: &[Service]) -> MailpitInfo {
-    let service = services.iter().find(|service| service.name == "mailpit");
-    let running = service.is_some_and(|service| service.running);
+/// Usa las listas de servicios que ya tiene quien llama (los de brew y los
+/// propios); solo consulta la API de Mailpit (con 1 s como mucho) si está en
+/// marcha. Si están los dos, manda el propio.
+pub fn info(services: &[Service], managed: &[ManagedService]) -> MailpitInfo {
+    let own = managed.iter().find(|m| m.service == ServiceKind::Mailpit && !m.versions.is_empty());
+    let own_running = own.is_some_and(|m| m.branches.iter().any(|b| b.state == RunState::Running));
+    let brew = services.iter().find(|service| service.name == "mailpit");
+    let brew_running = brew.is_some_and(|service| service.running);
+    let url = match own.and_then(|m| m.web_port) {
+        Some(port) if own_running || !brew_running => format!("http://127.0.0.1:{port}"),
+        _ => URL.to_string(),
+    };
+    let running = own_running || brew_running;
     MailpitInfo {
-        installed: service.is_some(),
+        installed: own.is_some() || brew.is_some(),
         running,
-        url: URL.to_string(),
-        messages: if running { count_messages() } else { None },
+        messages: if running { count_messages(&url) } else { None },
+        url,
     }
 }
 
@@ -51,10 +61,10 @@ fn curl_path() -> PathBuf {
     paths::tool_override("curl").unwrap_or_else(|| PathBuf::from("/usr/bin/curl"))
 }
 
-fn count_messages() -> Option<u32> {
+fn count_messages(url: &str) -> Option<u32> {
     let output = Command::new(curl_path())
         .args(["-sS", "-f", "--max-time", "1"])
-        .arg(format!("{URL}/api/v1/messages?limit=1"))
+        .arg(format!("{url}/api/v1/messages?limit=1"))
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
@@ -93,17 +103,48 @@ mod tests {
         assert_eq!(parse_total("<html>"), None);
     }
 
+    fn own(state: Option<RunState>) -> ManagedService {
+        use crate::services::{BranchStatus, InstalledVersion};
+        ManagedService {
+            service: ServiceKind::Mailpit,
+            name: "Mailpit".into(),
+            port: 1025,
+            web_port: Some(8025),
+            versions: vec![InstalledVersion { version: "1.33.0".into(), branch: "1".into(), path: "/x".into() }],
+            branches: state
+                .map(|state| BranchStatus {
+                    branch: "1".into(),
+                    version: "1.33.0".into(),
+                    label: "sh.elephant.mailpit.1".into(),
+                    state,
+                    pid: None,
+                    autostart: false,
+                    error: None,
+                    data_dir: "/d".into(),
+                    data_ready: true,
+                    log_path: "/l".into(),
+                })
+                .into_iter()
+                .collect(),
+            import: None,
+        }
+    }
+
     #[test]
     fn without_the_service_it_is_not_installed() {
-        let info = info(&[service("redis", true)]);
+        let info = info(&[service("redis", true)], &[]);
         assert_eq!(info, MailpitInfo::default());
     }
 
     #[test]
     fn a_stopped_service_does_not_call_the_api() {
-        let info = info(&[service("mailpit", false)]);
+        let info = info(&[service("mailpit", false)], &[]);
         assert!(info.installed);
         assert!(!info.running);
         assert_eq!(info.messages, None);
+        // El propio, instalado y parado, también cuenta como instalado.
+        let info = super::info(&[], &[own(Some(RunState::Stopped))]);
+        assert!(info.installed && !info.running);
+        assert_eq!(info.url, URL);
     }
 }

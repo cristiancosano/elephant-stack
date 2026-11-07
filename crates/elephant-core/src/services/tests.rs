@@ -30,9 +30,13 @@ fn env(s: &Sandbox) -> Env {
         agents_dir: s.home.path().join("Library/LaunchAgents"),
         label_suffix: ".test".into(),
         port: Some(3399),
+        web_port: None,
         brew_prefix: s.brew.path().to_path_buf(),
         brew_in_use: Some(false),
         start_timeout: Duration::from_secs(5),
+        apps_dir: s.home.path().join("Applications"),
+        tool_port: Some(8399),
+        mysql_port: Some(3399),
     }
 }
 
@@ -315,9 +319,13 @@ fn real_mysql_installs_starts_answers_and_stops() {
         agents_dir: home.join("Library/LaunchAgents"),
         label_suffix: ".test".into(),
         port: Some(3399),
+        web_port: None,
         brew_prefix: home.join("no-brew"),
         brew_in_use: Some(false),
         start_timeout: Duration::from_secs(60),
+        apps_dir: home.join("Applications"),
+        tool_port: None,
+        mysql_port: None,
     };
     let release = ServiceRelease {
         service: ServiceKind::Mysql,
@@ -422,9 +430,13 @@ fn real_brew_data_is_copied_and_starts() {
         agents_dir: home.join("Library/LaunchAgents"),
         label_suffix: ".test".into(),
         port: Some(3399),
+        web_port: None,
         brew_prefix: PathBuf::from("/opt/homebrew"),
         brew_in_use: None,
         start_timeout: Duration::from_secs(120),
+        apps_dir: home.join("Applications"),
+        tool_port: None,
+        mysql_port: None,
     };
     let Some(offer) = mysql::brew_offer(&env) else {
         println!("No hay datos de MySQL de Homebrew legibles.");
@@ -465,4 +477,480 @@ fn real_brew_data_is_copied_and_starts() {
     if let Err(panic) = result {
         std::panic::resume_unwind(panic);
     }
+}
+
+// ── PostgreSQL, Redis y Mailpit ──────────────────────────────────────────────
+
+/// Un paquete con `scripts` (ruta → cuerpo) bajo `top` (o sin carpeta raíz).
+fn package(fixtures: &Path, kind: ServiceKind, version: &str, top: Option<&str>, asset: &str, scripts: &[(&str, String)]) -> ServiceRelease {
+    let staging = fixtures.join("src").join(asset);
+    let _ = fs::remove_dir_all(&staging);
+    let base = match top {
+        Some(top) => staging.join(top),
+        None => staging.clone(),
+    };
+    for (path, body) in scripts {
+        let file = base.join(path);
+        fs::create_dir_all(file.parent().unwrap()).unwrap();
+        write_script(&file, body);
+    }
+    let mut command = Command::new(download::SYSTEM_TAR);
+    command.arg("-czf").arg(fixtures.join(asset)).arg("-C").arg(&staging);
+    match top {
+        Some(top) => {
+            command.arg(top);
+        }
+        None => {
+            for (path, _) in scripts {
+                command.arg(path.split('/').next().unwrap());
+            }
+        }
+    }
+    assert!(command.status().unwrap().success());
+    ServiceRelease {
+        service: kind,
+        version: version.into(),
+        branch: kind.branch_of(version),
+        url: format!("https://cdn.example.test/{asset}"),
+        sha256: download::sha256_file(&fixtures.join(asset)).unwrap(),
+        size: 100,
+        lts: false,
+    }
+}
+
+/// Como el de theseus-rs: `postgres --version` dice 18.6 en la 18.6.1, hay
+/// enlaces duros en `share/timezone` y un `initdb` que prepara los datos.
+fn postgres_package(fixtures: &Path) -> ServiceRelease {
+    let top = "postgresql-18.6.1-aarch64-apple-darwin";
+    let mut release = package(
+        fixtures,
+        ServiceKind::Postgresql,
+        "18.6.1",
+        Some(top),
+        "pg-staging.tar.gz",
+        &[
+            ("bin/postgres", r#"[ "$1" = "--version" ] && echo "postgres (PostgreSQL) 18.6""#.to_string()),
+            (
+                "bin/initdb",
+                r#"while [ $# -gt 0 ]; do [ "$1" = "-D" ] && d="$2"; shift; done
+mkdir -p "$d" && chmod 700 "$d" && echo 18 > "$d/PG_VERSION""#
+                    .to_string(),
+            ),
+            ("share/timezone/Greenwich", "echo tz".to_string()),
+        ],
+    );
+    // Rehecho con un enlace duro, como el paquete real.
+    let src = fixtures.join("src/pg-staging.tar.gz");
+    fs::hard_link(src.join(top).join("share/timezone/Greenwich"), src.join(top).join("share/timezone/GMT")).unwrap();
+    let asset = format!("{top}.tar.gz");
+    assert!(Command::new(download::SYSTEM_TAR).arg("-czf").arg(fixtures.join(&asset)).arg("-C").arg(&src).arg(top).status().unwrap().success());
+    release.url = format!("https://cdn.example.test/{asset}");
+    release.sha256 = download::sha256_file(&fixtures.join(&asset)).unwrap();
+    release
+}
+
+fn redis_package(fixtures: &Path) -> ServiceRelease {
+    package(
+        fixtures,
+        ServiceKind::Redis,
+        "8.2.11",
+        Some("redis-8.2.11"),
+        "redis-8.2.11-macos-arm64.tar.gz",
+        &[("bin/redis-server", r#"[ "$1" = "--version" ] && echo "Redis server v=8.2.11 sha=00000000:0 malloc=libc bits=64""#.to_string())],
+    )
+}
+
+fn mailpit_package(fixtures: &Path) -> ServiceRelease {
+    package(
+        fixtures,
+        ServiceKind::Mailpit,
+        "1.33.0",
+        None,
+        "mailpit-darwin-arm64.tar.gz",
+        &[
+            ("mailpit", r#"[ "$*" = "version --no-release-check" ] && echo "mailpit v1.33.0 compiled with go1.27.3 on darwin/arm64""#.to_string()),
+            ("LICENSE", "MIT".to_string()),
+        ],
+    )
+}
+
+#[test]
+fn postgresql_installs_with_hard_links_and_runs_postgres_with_its_own_paths() {
+    let s = sandbox();
+    let env = env(&s);
+    install::install(&env, &postgres_package(s.fixtures.path()), &mut |_| {}, &mut |_, _| {}).unwrap();
+    let install = env.install_dir(ServiceKind::Postgresql, "18.6.1");
+    assert!(install.join("share/timezone/GMT").is_file());
+    let versions = installed_versions(&env, ServiceKind::Postgresql);
+    assert_eq!((versions[0].version.as_str(), versions[0].branch.as_str()), ("18.6.1", "18"));
+
+    let plist = plist_for(&env, ServiceKind::Postgresql, "18", false).unwrap();
+    assert_eq!(plist.label, "sh.elephant.postgresql.18.test");
+    let data = s.home.path().join(".elephant-stack");
+    assert!(plist.program[0].ends_with("services/postgresql/18.6.1/bin/postgres"));
+    let args = plist.program[1..].join(" ");
+    let expected = format!(
+        "-D {} -p 3399 -k {} -c listen_addresses=127.0.0.1 -c unix_socket_permissions=0700",
+        data.join("data/postgresql/18").display(),
+        data.join("run/postgresql-18").display()
+    );
+    assert_eq!(args, expected);
+
+    // Primer arranque: initdb y la carpeta en 0700; si alguien la abre, se corrige.
+    use std::os::unix::fs::PermissionsExt;
+    assert!(prepare_data(&env, ServiceKind::Postgresql, &install, "18", &mut |_| {}).unwrap());
+    let dir = env.data_dir(ServiceKind::Postgresql, "18");
+    assert!(dir.join("PG_VERSION").is_file());
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+    before_start(&env, ServiceKind::Postgresql, "18").unwrap();
+    assert_eq!(fs::metadata(&dir).unwrap().permissions().mode() & 0o777, 0o700);
+    assert!(env.socket_path(ServiceKind::Postgresql, "18").is_dir());
+    assert!(!prepare_data(&env, ServiceKind::Postgresql, &install, "18", &mut |_| {}).unwrap());
+    let status = status_in(&env, &[]);
+    let pg = status.iter().find(|s| s.service == ServiceKind::Postgresql).unwrap();
+    assert_eq!((pg.port, pg.web_port), (3399, None));
+    assert!(pg.branches[0].data_ready);
+}
+
+#[test]
+fn redis_gets_a_generated_config_and_only_listens_on_localhost() {
+    let s = sandbox();
+    let env = env(&s);
+    install::install(&env, &redis_package(s.fixtures.path()), &mut |_| {}, &mut |_, _| {}).unwrap();
+    let plist = plist_for(&env, ServiceKind::Redis, "8.2", false).unwrap();
+    let conf = s.home.path().join(".elephant-stack/config/redis-8.2.conf");
+    assert_eq!(plist.program[1], conf.display().to_string());
+    let install = env.install_dir(ServiceKind::Redis, "8.2.11");
+    assert!(prepare_data(&env, ServiceKind::Redis, &install, "8.2", &mut |_| {}).unwrap());
+    before_start(&env, ServiceKind::Redis, "8.2").unwrap();
+    let text = fs::read_to_string(&conf).unwrap();
+    for line in ["port 3399", "bind 127.0.0.1", "daemonize no", "logfile \"\""] {
+        assert!(text.lines().any(|l| l == line), "{line}: {text}");
+    }
+    let dir = env.data_dir(ServiceKind::Redis, "8.2");
+    assert!(text.contains(&format!("dir \"{}\"", dir.display())));
+    assert!(dir.is_dir());
+    let status = status_in(&env, &[]);
+    let redis = status.iter().find(|s| s.service == ServiceKind::Redis).unwrap();
+    assert!(redis.branches[0].data_ready && redis.import.is_none());
+}
+
+#[test]
+fn mailpit_has_no_root_folder_and_keeps_one_database_for_every_version() {
+    let s = sandbox();
+    let mut env = env(&s);
+    env.web_port = Some(8399);
+    install::install(&env, &mailpit_package(s.fixtures.path()), &mut |_| {}, &mut |_, _| {}).unwrap();
+    assert!(env.install_dir(ServiceKind::Mailpit, "1.33.0").join("mailpit").is_file());
+    let plist = plist_for(&env, ServiceKind::Mailpit, "1", false).unwrap();
+    let db = s.home.path().join(".elephant-stack/data/mailpit/mailpit.db");
+    assert_eq!(
+        plist.program[1..],
+        ["--smtp", "127.0.0.1:3399", "--listen", "127.0.0.1:8399", "--database", &db.display().to_string(), "--disable-version-check"]
+    );
+    assert_eq!(env.ports(ServiceKind::Mailpit), [3399, 8399]);
+    let status = status_in(&env, &[]);
+    let mailpit = status.iter().find(|s| s.service == ServiceKind::Mailpit).unwrap();
+    assert_eq!((mailpit.port, mailpit.web_port), (3399, Some(8399)));
+}
+
+#[test]
+fn every_service_is_listed_even_without_installing_anything() {
+    let s = sandbox();
+    let env = env(&s);
+    let ids: Vec<&str> = status_in(&env, &[]).iter().map(|s| s.service.id()).collect();
+    assert_eq!(ids, ["mysql", "postgresql", "redis", "mailpit"]);
+    assert_eq!(ServiceKind::Postgresql.branch_of("18.6.1"), "18");
+    assert_eq!(ServiceKind::Redis.branch_of("8.2.11"), "8.2");
+    assert_eq!(ServiceKind::Mailpit.branch_of("1.33.0"), "1");
+}
+
+#[test]
+fn postgres_logs_explain_with_their_fatal_line() {
+    let log = "2026-11-07 10:00:00.000 CET [812] LOG:  starting PostgreSQL 18.6\n2026-11-07 10:00:00.001 CET [812] FATAL:  lock file \"postmaster.pid\" already exists\n2026-11-07 10:00:00.002 CET [812] LOG:  database system is shut down\n";
+    assert_eq!(last_useful_line(log).as_deref(), Some("FATAL:  lock file \"postmaster.pid\" already exists"));
+}
+
+fn brew_postgres(s: &Sandbox) -> PathBuf {
+    let dir = s.brew.path().join("var/postgresql@18");
+    fs::create_dir_all(dir.join("base/5")).unwrap();
+    fs::create_dir_all(dir.join("pg_notify")).unwrap();
+    fs::write(dir.join("PG_VERSION"), "18\n").unwrap();
+    fs::write(dir.join("base/5/1259"), "tablas").unwrap();
+    fs::write(dir.join("postmaster.pid"), "812\n").unwrap();
+    dir
+}
+
+#[test]
+fn brew_postgres_data_is_copied_with_private_permissions_and_without_its_pid() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = sandbox();
+    let env = env(&s);
+    let source = brew_postgres(&s);
+    let offer = postgresql::brew_offer(&env).unwrap();
+    assert_eq!((offer.version.as_str(), offer.branch.as_str()), ("18", "18"));
+    assert!(offer.blocked.is_none() && offer.manual.is_none());
+    let error = import_in(&env, ServiceKind::Postgresql, &mut |_| {}, &mut |_, _| {}).unwrap_err();
+    assert!(error.contains("Instala PostgreSQL 18"), "{error}");
+
+    install::install(&env, &postgres_package(s.fixtures.path()), &mut |_| {}, &mut |_, _| {}).unwrap();
+    let report = import_in(&env, ServiceKind::Postgresql, &mut |_| {}, &mut |_, _| {}).unwrap();
+    let target = PathBuf::from(&report.target);
+    assert_eq!(fs::read_to_string(target.join("base/5/1259")).unwrap(), "tablas");
+    assert!(target.join("pg_notify").is_dir(), "las carpetas vacías también hacen falta");
+    assert!(!target.join("postmaster.pid").exists());
+    assert_eq!(fs::metadata(&target).unwrap().permissions().mode() & 0o777, 0o700);
+    assert!(source.join("postmaster.pid").is_file(), "el original no se toca");
+    assert!(postgresql::brew_offer(&env).is_none());
+}
+
+#[test]
+fn brew_postgres_data_in_use_or_unreadable_is_not_copied() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = sandbox();
+    let mut env = env(&s);
+    let source = brew_postgres(&s);
+    env.brew_in_use = Some(true);
+    let offer = postgresql::brew_offer(&env).unwrap();
+    assert!(offer.blocked.unwrap().contains("brew services stop postgresql@18"));
+    env.brew_in_use = Some(false);
+
+    // Un archivo que no se puede leer (como los de otra cuenta): sin botón,
+    // con los pasos para volcarlos con pg_dumpall.
+    let file = source.join("base/5/1259");
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).unwrap();
+    let offer = postgresql::brew_offer(&env).unwrap();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o600)).unwrap();
+    let manual = offer.manual.unwrap();
+    assert!(manual.contains("pg_dumpall") && manual.contains("brew services stop postgresql@18"), "{manual}");
+    assert!(manual.contains(&format!("{}/opt/postgresql@18/bin/pg_dumpall", s.brew.path().display())), "{manual}");
+    assert!(offer.blocked.is_none());
+}
+
+// ── Pruebas reales (HOME temporal, puertos altos, etiquetas `.test`) ─────────
+
+/// HOME corto (los sockets no pueden pasar de 103 bytes), sin brew.
+fn real_env(name: &str, curl: PathBuf, port: u16) -> Env {
+    let home = PathBuf::from(format!("/tmp/es-{name}-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(&home).unwrap();
+    let home = home.canonicalize().unwrap();
+    Env {
+        tools: Tools { home: home.clone(), curl, tar: PathBuf::from(download::SYSTEM_TAR) },
+        agents_dir: home.join("Library/LaunchAgents"),
+        label_suffix: ".test".into(),
+        port: Some(port),
+        web_port: None,
+        brew_prefix: home.join("no-brew"),
+        brew_in_use: Some(false),
+        start_timeout: Duration::from_secs(60),
+        apps_dir: home.join("Applications"),
+        tool_port: None,
+        mysql_port: None,
+    }
+}
+
+/// La versión más reciente de `branch` en el `services.json` publicado, sin
+/// pasar por `catalog()` (que guardaría la caché en el HOME real).
+fn published(kind: ServiceKind, branch: Option<&str>) -> ServiceRelease {
+    let json = download::fetch_text(Path::new("/usr/bin/curl"), catalog::CATALOG_URL).unwrap();
+    catalog::parse(&json, current_platform())
+        .unwrap()
+        .releases
+        .into_iter()
+        .find(|r| r.service == kind && branch.is_none_or(|b| r.branch == b))
+        .unwrap_or_else(|| panic!("el catálogo no tiene {} {branch:?}", kind.id()))
+}
+
+/// Ejecuta `work` y, pase lo que pase, descarga las etiquetas y borra el HOME.
+fn with_cleanup(env: &Env, labels: &[String], work: impl FnOnce()) {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work));
+    for label in labels {
+        let _ = launchd::bootout(label);
+    }
+    let _ = fs::remove_dir_all(&env.tools.home);
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+fn run_out(program: &Path, args: &[&str]) -> String {
+    let output = Command::new(program).args(args).output().unwrap();
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    text.trim().to_string()
+}
+
+/// PostgreSQL real: descarga del índice publicado, `initdb`, arranca con
+/// launchd en el puerto 5499, responde a `psql` por TCP y por su socket, se
+/// apaga rápido, vuelve a arrancar con los mismos datos y, con el puerto
+/// ocupado, explica quién lo usa.
+///
+/// `cargo test -p elephant-core real_postgresql -- --ignored --nocapture`
+#[test]
+#[ignore = "descarga PostgreSQL y usa el launchd real con una etiqueta .test"]
+fn real_postgresql_initializes_starts_answers_and_stops() {
+    let env = real_env("pg", PathBuf::from("/usr/bin/curl"), 5499);
+    let kind = ServiceKind::Postgresql;
+    let release = published(kind, Some("18"));
+    let label = env.label(kind, "18");
+    with_cleanup(&env, std::slice::from_ref(&label), || {
+        let mut log = |line: &str| println!("{line}");
+        install::install(&env, &release, &mut log, &mut |_, _| {}).unwrap();
+        let report = start_in(&env, kind, "18", &mut log).unwrap();
+        assert!(report.initialized);
+        let branch = status_in(&env, &launchd::jobs_with_prefix(LABEL_PREFIX).unwrap())[1].branches[0].clone();
+        assert_eq!(branch.state, RunState::Running);
+        assert!(branch.data_ready);
+        use std::os::unix::fs::PermissionsExt;
+        let data = env.data_dir(kind, "18");
+        assert_eq!(fs::metadata(&data).unwrap().permissions().mode() & 0o777, 0o700);
+
+        let psql = env.install_dir(kind, &release.version).join("bin/psql");
+        let answer = run_out(&psql, &["-h", "127.0.0.1", "-p", "5499", "-U", "postgres", "-tAc", "select version()"]);
+        println!("select version() → {answer}");
+        assert!(answer.starts_with("PostgreSQL 18."), "{answer}");
+        let socket = env.socket_path(kind, "18").display().to_string();
+        assert_eq!(run_out(&psql, &["-h", &socket, "-p", "5499", "-U", "postgres", "-tAc", "select 1"]), "1");
+        run_out(&psql, &["-h", "127.0.0.1", "-p", "5499", "-U", "postgres", "-c", "create database tienda"]);
+
+        // Apagar: `pg_ctl -m fast` y la descarga del agente.
+        let started = Instant::now();
+        stop_in(&env, kind, "18").unwrap();
+        println!("apagado en {:?}", started.elapsed());
+        assert!(!launchd::is_loaded(&label) && !port_open(5499));
+        let pg_log = fs::read_to_string(env.log_path(kind, "18")).unwrap();
+        assert!(pg_log.contains("fast shutdown request"), "{pg_log}");
+
+        // Otra vez con los mismos datos.
+        assert!(!start_in(&env, kind, "18", &mut log).unwrap().initialized);
+        let list = run_out(&psql, &["-h", "127.0.0.1", "-p", "5499", "-U", "postgres", "-tAc", "select datname from pg_database where datname = 'tienda'"]);
+        assert_eq!(list, "tienda");
+        stop_in(&env, kind, "18").unwrap();
+
+        // Con el puerto ocupado, dice quién lo usa.
+        let listener = std::net::TcpListener::bind("127.0.0.1:5499").unwrap();
+        let error = start_in(&env, kind, "18", &mut log).unwrap_err();
+        drop(listener);
+        println!("{error}");
+        assert!(error.contains("El puerto 5499 lo usa"), "{error}");
+        assert!(!launchd::is_loaded(&label));
+    });
+}
+
+/// Redis real: el paquete que compila php-builds, del índice publicado (o de
+/// `ELEPHANT_REDIS_DIR`, una carpeta `redis-<v>` con `bin/redis-server`).
+/// Responde en el puerto 6399, guarda en su carpeta al apagarse y, si el Redis
+/// de Homebrew ocupa el 6379, el error lo dice.
+///
+/// `cargo test -p elephant-core real_redis -- --ignored --nocapture`
+#[test]
+#[ignore = "descarga Redis y usa el launchd real con una etiqueta .test"]
+fn real_redis_starts_answers_saves_and_names_brew_on_its_port() {
+    let fixtures = TempDir::new("real-redis-fix");
+    let bin = TempDir::new("real-redis-bin");
+    let (release, curl) = match std::env::var_os("ELEPHANT_REDIS_DIR").map(PathBuf::from) {
+        Some(dir) => {
+            let top = dir.file_name().unwrap().to_string_lossy().to_string();
+            let version = top.trim_start_matches("redis-").to_string();
+            let asset = format!("{top}-macos-arm64.tar.gz");
+            // Solo se lee: se empaqueta como lo publica el CI.
+            assert!(Command::new(download::SYSTEM_TAR).arg("-czf").arg(fixtures.path().join(&asset)).arg("-C").arg(dir.parent().unwrap()).arg(&top).status().unwrap().success());
+            let release = ServiceRelease {
+                service: ServiceKind::Redis,
+                branch: ServiceKind::Redis.branch_of(&version),
+                url: format!("https://github.com/cristiancosano/php-builds/releases/download/{top}/{asset}"),
+                sha256: download::sha256_file(&fixtures.path().join(&asset)).unwrap(),
+                size: 1,
+                lts: false,
+                version,
+            };
+            (release, fake_curl(bin.path(), fixtures.path()))
+        }
+        None => (published(ServiceKind::Redis, None), PathBuf::from("/usr/bin/curl")),
+    };
+    let env = real_env("redis", curl, 6399);
+    let kind = ServiceKind::Redis;
+    let branch = release.branch.clone();
+    let label = env.label(kind, &branch);
+    with_cleanup(&env, std::slice::from_ref(&label), || {
+        let mut log = |line: &str| println!("{line}");
+        install::install(&env, &release, &mut log, &mut |_, _| {}).unwrap();
+        start_in(&env, kind, &branch, &mut log).unwrap();
+        let cli = env.install_dir(kind, &release.version).join("bin/redis-cli");
+        assert_eq!(run_out(&cli, &["-p", "6399", "ping"]), "PONG");
+        assert_eq!(run_out(&cli, &["-p", "6399", "set", "elephant", "sí"]), "OK");
+        let info = run_out(&cli, &["-p", "6399", "config", "get", "bind"]);
+        assert!(info.ends_with("127.0.0.1"), "{info}");
+        stop_in(&env, kind, &branch).unwrap();
+        assert!(env.data_dir(kind, &branch).join("dump.rdb").is_file(), "debe guardar al apagarse");
+        start_in(&env, kind, &branch, &mut log).unwrap();
+        assert_eq!(run_out(&cli, &["-p", "6399", "get", "elephant"]), "sí");
+        stop_in(&env, kind, &branch).unwrap();
+
+        // El caso de este Mac: el Redis de Homebrew en el 6379. Solo se lee.
+        if port_open(6379) {
+            let mut on_default = env.clone();
+            on_default.port = Some(6379);
+            let error = start_in(&on_default, kind, &branch, &mut log).unwrap_err();
+            println!("{error}");
+            assert!(error.contains("El puerto 6379 lo usa"), "{error}");
+            if launchd::homebrew_jobs().unwrap().iter().any(|j| j.service_name() == Some("redis") && j.pid.is_some()) {
+                assert!(error.contains("Redis de Homebrew") && error.contains("brew services stop redis"), "{error}");
+            }
+            assert!(!launchd::is_loaded(&label));
+        }
+    });
+}
+
+/// Mailpit real: del índice publicado, SMTP en 1099 y web en 8099, recibe un
+/// correo y lo cuenta su API; la base de datos queda en `data/mailpit`.
+///
+/// `cargo test -p elephant-core real_mailpit -- --ignored --nocapture`
+#[test]
+#[ignore = "descarga Mailpit y usa el launchd real con una etiqueta .test"]
+fn real_mailpit_receives_mail_and_keeps_its_database() {
+    use std::io::{BufRead, BufReader, Write};
+    let mut env = real_env("mailpit", PathBuf::from("/usr/bin/curl"), 1099);
+    env.web_port = Some(8099);
+    let kind = ServiceKind::Mailpit;
+    let release = published(kind, None);
+    let branch = release.branch.clone();
+    let label = env.label(kind, &branch);
+    with_cleanup(&env, std::slice::from_ref(&label), || {
+        let mut log = |line: &str| println!("{line}");
+        install::install(&env, &release, &mut log, &mut |_, _| {}).unwrap();
+        start_in(&env, kind, &branch, &mut log).unwrap();
+
+        let stream = TcpStream::connect("127.0.0.1:1099").unwrap();
+        let mut reader = BufReader::new(stream.try_clone().unwrap());
+        let mut writer = stream;
+        let mut line = String::new();
+        let mut expect = |reader: &mut BufReader<TcpStream>, code: &str| {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            while line.as_bytes().get(3) == Some(&b'-') {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+            }
+            assert!(line.starts_with(code), "{line}");
+        };
+        expect(&mut reader, "220");
+        for (command, code) in [
+            ("EHLO elephant.test\r\n", "250"),
+            ("MAIL FROM:<app@elephant.test>\r\n", "250"),
+            ("RCPT TO:<tu@elephant.test>\r\n", "250"),
+            ("DATA\r\n", "354"),
+            ("Subject: Hola\r\n\r\nDesde Elephant.\r\n.\r\n", "250"),
+            ("QUIT\r\n", "221"),
+        ] {
+            writer.write_all(command.as_bytes()).unwrap();
+            expect(&mut reader, code);
+        }
+        let api = run_out(Path::new("/usr/bin/curl"), &["-sS", "-f", "http://127.0.0.1:8099/api/v1/messages?limit=1"]);
+        let total = serde_json::from_str::<serde_json::Value>(&api).unwrap()["total"].as_u64();
+        assert_eq!(total, Some(1), "{api}");
+        stop_in(&env, kind, &branch).unwrap();
+        assert!(env.data().join("data/mailpit/mailpit.db").is_file());
+        assert!(!port_open(1099) && !port_open(8099));
+    });
 }

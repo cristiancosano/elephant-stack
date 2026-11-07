@@ -1,4 +1,4 @@
-//! Las 20 operaciones de 00 §5.9 (las 17 del plan y las 3 de `stack`, 06). Cada una es un tipo que implementa [`Op`];
+//! Las 21 operaciones de 00 §5.9 (las 17 del plan y las 4 de `stack`, 06). Cada una es un tipo que implementa [`Op`];
 //! [`meta`] la convierte en una fila del catálogo con punteros a funciones
 //! genéricas, así que no hace falta macro ni `match` a mano.
 
@@ -39,6 +39,7 @@ pub(crate) static CATALOG: &[OpMeta] = &[
     meta::<php::PhpSetProject>(),
     meta::<services::ComponentInstall>(),
     meta::<stack::StackInstall>(),
+    meta::<stack::StackTool>(),
     meta::<projects::ProjectStartServices>(),
     meta::<projects::ProjectCreate>(),
 ];

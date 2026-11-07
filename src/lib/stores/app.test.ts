@@ -156,6 +156,7 @@ describe("servicios y herramientas", () => {
           service: "mysql",
           name: "MySQL",
           port: 3306,
+          web_port: null,
           versions: [],
           branches: [
             {

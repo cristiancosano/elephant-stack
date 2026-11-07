@@ -1,10 +1,13 @@
 //! Servicios propios (06): binarios oficiales en
 //! `~/.elephant-stack/services/<servicio>/<versión>`, datos por rama en
 //! `~/.elephant-stack/data/<servicio>/<rama>` y un agente de launchd propio
-//! por rama (`sh.elephant.<servicio>.<rama>`). En esta fase, solo MySQL.
+//! por rama (`sh.elephant.<servicio>.<rama>`): MySQL, PostgreSQL, Redis y
+//! Mailpit. Además, dos herramientas ([`tools`]): phpMyAdmin y pgAdmin.
 //!
 //! - [`catalog`] lee `services.json` (versiones, URL oficial y sha256).
 //! - [`install`] descarga, comprueba y descomprime.
+//! - Lo propio de cada servicio está en [`mysql`], [`postgresql`], [`redis`]
+//!   y [`mailpit`]: argumentos del proceso, primer arranque y datos de brew.
 //! - Encender = `bootstrap` + `kickstart`, apagar = `bootout`. Tras encender
 //!   se comprueba durante unos segundos que el proceso sigue vivo y que el
 //!   puerto responde; si no, queda en `error` con la última línea útil de su
@@ -30,10 +33,15 @@ use crate::{fsutil, stamp, tr};
 
 pub mod catalog;
 mod install;
+mod mailpit;
 mod mysql;
+mod ports;
+mod postgresql;
+mod redis;
+pub mod tools;
 
-pub use catalog::{ServiceRelease, ServicesCatalog, current_platform};
-pub use mysql::ImportOffer;
+pub use catalog::{ServiceRelease, ServicesCatalog, ToolRelease, current_platform};
+pub use tools::{ToolKind, ToolStatus};
 
 /// Prefijo de las etiquetas de launchd de Elephant.
 pub const LABEL_PREFIX: &str = "sh.elephant.";
@@ -60,15 +68,21 @@ pub struct InstallProgress {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ServiceKind {
     Mysql,
+    Postgresql,
+    Redis,
+    Mailpit,
 }
 
 impl ServiceKind {
-    pub const ALL: [Self; 1] = [Self::Mysql];
+    pub const ALL: [Self; 4] = [Self::Mysql, Self::Postgresql, Self::Redis, Self::Mailpit];
 
     /// Nombre en el índice, en las rutas y en las etiquetas.
     pub fn id(self) -> &'static str {
         match self {
             Self::Mysql => "mysql",
+            Self::Postgresql => "postgresql",
+            Self::Redis => "redis",
+            Self::Mailpit => "mailpit",
         }
     }
 
@@ -76,12 +90,37 @@ impl ServiceKind {
     pub fn name(self) -> &'static str {
         match self {
             Self::Mysql => "MySQL",
+            Self::Postgresql => "PostgreSQL",
+            Self::Redis => "Redis",
+            Self::Mailpit => "Mailpit",
         }
     }
 
+    /// El puerto principal: el de SMTP en Mailpit.
     pub fn default_port(self) -> u16 {
         match self {
             Self::Mysql => 3306,
+            Self::Postgresql => 5432,
+            Self::Redis => 6379,
+            Self::Mailpit => 1025,
+        }
+    }
+
+    /// El de su interfaz web, si tiene.
+    pub fn default_web_port(self) -> Option<u16> {
+        match self {
+            Self::Mailpit => Some(8025),
+            _ => None,
+        }
+    }
+
+    /// Su familia entre las fórmulas de Homebrew.
+    pub(crate) fn engine(self) -> presets::Engine {
+        match self {
+            Self::Mysql => presets::Engine::Mysql,
+            Self::Postgresql => presets::Engine::Postgres,
+            Self::Redis => presets::Engine::Redis,
+            Self::Mailpit => presets::Engine::Mailpit,
         }
     }
 
@@ -92,29 +131,51 @@ impl ServiceKind {
             .ok_or_else(|| tr!("Servicio desconocido: {id}", "Unknown service: {id}"))
     }
 
-    /// La rama de una versión, la que comparte los datos: `8.4` de `8.4.7`.
+    /// La rama de una versión, la que comparte los datos: `8.4` de `8.4.7`
+    /// en MySQL y Redis; la mayor en PostgreSQL (`18` de `18.6.1`) y Mailpit.
     pub fn branch_of(self, version: &str) -> String {
         match self {
-            Self::Mysql => presets::branch_of(version),
+            Self::Mysql | Self::Redis => presets::branch_of(version),
+            Self::Postgresql | Self::Mailpit => version.split('.').next().unwrap_or(version).to_string(),
         }
     }
 
-    fn daemon(self, install: &Path) -> PathBuf {
+    pub(crate) fn daemon(self, install: &Path) -> PathBuf {
         match self {
             Self::Mysql => install.join("bin/mysqld"),
+            Self::Postgresql => install.join("bin/postgres"),
+            Self::Redis => install.join("bin/redis-server"),
+            Self::Mailpit => install.join("mailpit"),
         }
     }
 
     fn version_of(self, install: &Path) -> Option<String> {
         match self {
             Self::Mysql => mysql::version_of(install),
+            Self::Postgresql => postgresql::version_of(install),
+            Self::Redis => redis::version_of(install),
+            Self::Mailpit => mailpit::version_of(install),
         }
     }
 
-    /// Un archivo que solo existe en unos datos ya preparados.
-    fn data_marker(self) -> &'static str {
+    /// Si el binario dice ser `version`. Los de PostgreSQL (theseus-rs) llevan
+    /// un número de compilación: `postgres --version` da 18.6 en la 18.6.1.
+    fn version_matches(self, found: &str, version: &str) -> bool {
+        found == version || (self == Self::Postgresql && version.strip_prefix(found).is_some_and(|rest| rest.starts_with('.')))
+    }
+
+    /// El paquete tiene una carpeta raíz (todos menos el de Mailpit).
+    pub(crate) fn rooted_package(self) -> bool {
+        self != Self::Mailpit
+    }
+
+    /// Un archivo que solo existe en unos datos ya preparados. Redis y
+    /// Mailpit solo necesitan la carpeta.
+    fn data_marker(self) -> Option<&'static str> {
         match self {
-            Self::Mysql => "mysql.ibd",
+            Self::Mysql => Some("mysql.ibd"),
+            Self::Postgresql => Some("PG_VERSION"),
+            Self::Redis | Self::Mailpit => None,
         }
     }
 }
@@ -127,10 +188,17 @@ pub(crate) struct Env {
     pub agents_dir: PathBuf,
     pub label_suffix: String,
     pub port: Option<u16>,
+    /// Solo tests: el puerto web de Mailpit.
+    pub web_port: Option<u16>,
     pub brew_prefix: PathBuf,
     /// Solo tests: si los datos de brew están en uso, sin mirar `ps`.
     pub brew_in_use: Option<bool>,
     pub start_timeout: Duration,
+    /// Donde se copian las apps (pgAdmin): `~/Applications`.
+    pub apps_dir: PathBuf,
+    /// Solo tests: el puerto de phpMyAdmin y el de MySQL que comprueba.
+    pub tool_port: Option<u16>,
+    pub mysql_port: Option<u16>,
 }
 
 impl Env {
@@ -143,12 +211,16 @@ impl Env {
             .unwrap_or_else(|| PathBuf::from("/opt/homebrew"));
         Ok(Self {
             agents_dir: tools.home.join("Library/LaunchAgents"),
+            apps_dir: tools.home.join("Applications"),
             tools,
             label_suffix: String::new(),
             port: None,
+            web_port: None,
             brew_prefix,
             brew_in_use: None,
             start_timeout: Duration::from_secs(30),
+            tool_port: None,
+            mysql_port: None,
         })
     }
 
@@ -158,6 +230,15 @@ impl Env {
 
     fn port(&self, kind: ServiceKind) -> u16 {
         self.port.unwrap_or_else(|| kind.default_port())
+    }
+
+    fn web_port(&self, kind: ServiceKind) -> Option<u16> {
+        kind.default_web_port().map(|port| self.web_port.unwrap_or(port))
+    }
+
+    /// Todos los que tiene que tener libres y que deben responder al arrancar.
+    fn ports(&self, kind: ServiceKind) -> Vec<u16> {
+        std::iter::once(self.port(kind)).chain(self.web_port(kind)).collect()
     }
 
     fn label(&self, kind: ServiceKind, branch: &str) -> String {
@@ -176,8 +257,18 @@ impl Env {
         self.versions_dir(kind).join(version)
     }
 
+    /// Mailpit guarda su base de datos fuera de las ramas: los correos no
+    /// dependen de la versión.
     fn data_dir(&self, kind: ServiceKind, branch: &str) -> PathBuf {
-        self.data().join("data").join(kind.id()).join(branch)
+        let root = self.data().join("data").join(kind.id());
+        match kind {
+            ServiceKind::Mailpit => root,
+            _ => root.join(branch),
+        }
+    }
+
+    fn config_dir(&self) -> PathBuf {
+        self.data().join("config")
     }
 
     fn import_marker(&self, kind: ServiceKind, branch: &str) -> PathBuf {
@@ -188,8 +279,23 @@ impl Env {
         self.data().join("run")
     }
 
+    /// El socket de MySQL; PostgreSQL usa una carpeta (`-k`) en la que crea
+    /// `.s.PGSQL.<puerto>`.
     fn socket_path(&self, kind: ServiceKind, branch: &str) -> PathBuf {
-        self.run_dir().join(format!("{}-{branch}.sock", kind.id()))
+        match kind {
+            ServiceKind::Postgresql => self.run_dir().join(format!("{}-{branch}", kind.id())),
+            _ => self.run_dir().join(format!("{}-{branch}.sock", kind.id())),
+        }
+    }
+
+    /// La ruta más larga de su socket (el límite de macOS es 103 bytes).
+    fn longest_socket(&self, kind: ServiceKind, branch: &str) -> Option<PathBuf> {
+        let port = self.port(kind);
+        match kind {
+            ServiceKind::Mysql => Some(self.socket_path(kind, branch)),
+            ServiceKind::Postgresql => Some(self.socket_path(kind, branch).join(format!(".s.PGSQL.{port}"))),
+            _ => None,
+        }
     }
 
     fn error_path(&self, kind: ServiceKind, branch: &str) -> PathBuf {
@@ -252,6 +358,8 @@ pub struct ManagedService {
     pub service: ServiceKind,
     pub name: String,
     pub port: u16,
+    /// El de la interfaz web (Mailpit: 8025).
+    pub web_port: Option<u16>,
     /// De la más reciente a la más antigua.
     pub versions: Vec<InstalledVersion>,
     pub branches: Vec<BranchStatus>,
@@ -297,7 +405,7 @@ fn branches_of(versions: &[InstalledVersion]) -> Vec<String> {
 }
 
 /// Desde `offset`, como mucho los últimos 64 KB.
-fn read_from(path: &Path, offset: u64) -> String {
+pub(crate) fn read_from(path: &Path, offset: u64) -> String {
     let Ok(mut file) = fs::File::open(path) else {
         return String::new();
     };
@@ -312,10 +420,16 @@ fn read_from(path: &Path, offset: u64) -> String {
     String::from_utf8_lossy(&bytes).into_owned()
 }
 
-/// La última línea `[ERROR]` que explica algo (no el «Aborting» final) o, si
-/// no hay, la última que no está vacía, sin la marca de tiempo ni el hilo.
+/// La última línea `[ERROR]` de MySQL que explica algo (no el «Aborting»
+/// final), la última `FATAL:` de PostgreSQL o, si no hay, la última que no
+/// está vacía, sin la marca de tiempo ni el hilo.
 pub(crate) fn last_useful_line(text: &str) -> Option<String> {
     let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    if !lines.iter().any(|l| l.contains("[ERROR]"))
+        && let Some(line) = lines.iter().rev().find_map(|l| l.find("FATAL:").map(|at| &l[at..]))
+    {
+        return Some(line.chars().take(300).collect());
+    }
     let line = lines
         .iter()
         .rev()
@@ -369,7 +483,7 @@ fn branch_status(env: &Env, kind: ServiceKind, branch: &str, version: &str, jobs
         pid: job.and_then(|job| job.pid),
         autostart,
         error,
-        data_ready: data_dir.join(kind.data_marker()).exists(),
+        data_ready: kind.data_marker().map_or_else(|| data_dir.is_dir(), |marker| data_dir.join(marker).exists()),
         data_dir: data_dir.display().to_string(),
         log_path: log.display().to_string(),
         label,
@@ -392,14 +506,21 @@ fn status_in(env: &Env, jobs: &[LaunchJob]) -> Vec<ManagedService> {
                 service: kind,
                 name: kind.name().to_string(),
                 port: env.port(kind),
+                web_port: env.web_port(kind),
                 versions,
                 branches,
-                import: match kind {
-                    ServiceKind::Mysql => mysql::brew_offer(env),
-                },
+                import: brew_offer(env, kind),
             }
         })
         .collect()
+}
+
+fn brew_offer(env: &Env, kind: ServiceKind) -> Option<ImportOffer> {
+    match kind {
+        ServiceKind::Mysql => mysql::brew_offer(env),
+        ServiceKind::Postgresql => postgresql::brew_offer(env),
+        ServiceKind::Redis | ServiceKind::Mailpit => None,
+    }
 }
 
 /// Lo instalado, su estado y lo que se puede importar. Solo lee: `launchctl
@@ -454,7 +575,11 @@ pub fn install(
 /// Cerrojo de un servicio entre la app, la CLI y las tareas: nunca se
 /// encienden o se borran dos cosas del mismo servicio a la vez.
 fn lock(env: &Env, kind: ServiceKind) -> Result<fs::File, String> {
-    let path = env.data().join("locks").join(format!("{}.lock", kind.id()));
+    lock_named(env, kind.id())
+}
+
+pub(crate) fn lock_named(env: &Env, id: &str) -> Result<fs::File, String> {
+    let path = env.data().join("locks").join(format!("{id}.lock"));
     download::dir_for(&path)?;
     let file = fs::OpenOptions::new()
         .create(true)
@@ -469,7 +594,7 @@ fn lock(env: &Env, kind: ServiceKind) -> Result<fs::File, String> {
 
 use crate::setup::download;
 
-fn job(label: &str) -> Option<LaunchJob> {
+pub(crate) fn job(label: &str) -> Option<LaunchJob> {
     launchd::jobs_with_prefix(label)
         .ok()?
         .into_iter()
@@ -512,7 +637,7 @@ fn uninstall_in(env: &Env, kind: ServiceKind, version: &str) -> Result<(), Strin
     }
     match version_for(env, kind, &branch) {
         None => {
-            launchd::bootout(&label)?;
+            unload(env, kind, &branch)?;
             let _ = fs::remove_file(env.plist_path(&label));
             let _ = fs::remove_file(env.error_path(kind, &branch));
         }
@@ -585,7 +710,7 @@ pub struct StartReport {
     pub initialized: bool,
 }
 
-fn port_open(port: u16) -> bool {
+pub(crate) fn port_open(port: u16) -> bool {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok()
 }
@@ -633,7 +758,7 @@ pub(crate) fn check_owner(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn owner_name(uid: u32) -> String {
+pub(crate) fn owner_name(uid: u32) -> String {
     std::process::Command::new("/usr/bin/id")
         .args(["-nu", &uid.to_string()])
         .output()
@@ -649,10 +774,14 @@ fn owner_name(uid: u32) -> String {
 fn prepare_data(env: &Env, kind: ServiceKind, install: &Path, branch: &str, on_line: &mut dyn FnMut(&str)) -> Result<bool, String> {
     let dir = env.data_dir(kind, branch);
     for needed in [env.run_dir(), env.log_path(kind, branch).parent().map(Path::to_path_buf).unwrap_or_default()] {
-        fs::create_dir_all(&needed).map_err(|error| {
-            let dir = needed.display();
-            tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
-        })?;
+        create_dir(&needed)?;
+    }
+    // Redis y Mailpit solo necesitan su carpeta: crean sus archivos al arrancar.
+    if kind.data_marker().is_none() {
+        let existed = dir.is_dir();
+        create_private_dir(&dir)?;
+        check_owned_and_writable(&dir)?;
+        return Ok(!existed);
     }
     let empty = match fs::read_dir(&dir) {
         Ok(mut entries) => {
@@ -675,13 +804,49 @@ fn prepare_data(env: &Env, kind: ServiceKind, install: &Path, branch: &str, on_l
     }
     match kind {
         ServiceKind::Mysql => mysql::initialize(env, install, branch, on_line)?,
+        ServiceKind::Postgresql => postgresql::initialize(env, install, branch, on_line)?,
+        ServiceKind::Redis | ServiceKind::Mailpit => {}
     }
     Ok(true)
+}
+
+fn create_dir(dir: &Path) -> Result<(), String> {
+    fs::create_dir_all(dir).map_err(|error| {
+        let dir = dir.display();
+        tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+    })
+}
+
+/// Crea `dir` (y lo que falte por encima) solo para el usuario: 0700.
+pub(crate) fn create_private_dir(dir: &Path) -> Result<(), String> {
+    use std::os::unix::fs::DirBuilderExt;
+    if dir.is_dir() {
+        return Ok(());
+    }
+    if let Some(parent) = dir.parent() {
+        create_dir(parent)?;
+    }
+    fs::DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(|error| {
+        let dir = dir.display();
+        tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+    })
+}
+
+/// Lo que se deja listo justo antes de cada arranque, ya con los datos.
+fn before_start(env: &Env, kind: ServiceKind, branch: &str) -> Result<(), String> {
+    match kind {
+        ServiceKind::Postgresql => postgresql::before_start(env, branch),
+        ServiceKind::Redis => redis::write_config(env, branch),
+        ServiceKind::Mysql | ServiceKind::Mailpit => Ok(()),
+    }
 }
 
 fn program(env: &Env, kind: ServiceKind, install: &Path, branch: &str) -> Vec<String> {
     match kind {
         ServiceKind::Mysql => mysql::daemon_args(env, install, branch),
+        ServiceKind::Postgresql => postgresql::daemon_args(env, install, branch),
+        ServiceKind::Redis => redis::daemon_args(env, install, branch),
+        ServiceKind::Mailpit => mailpit::daemon_args(env, install),
     }
 }
 
@@ -728,12 +893,13 @@ pub(crate) fn probe(job: Option<&LaunchJob>, port_open: bool) -> Probe {
 /// Espera a que el proceso esté vivo y el puerto responda. Si termina antes o
 /// se agota el tiempo, devuelve el motivo con la última línea útil del log.
 fn wait_started(env: &Env, kind: ServiceKind, branch: &str, label: &str, log_offset: u64) -> Result<(), String> {
+    let ports = env.ports(kind);
     let port = env.port(kind);
     let deadline = Instant::now() + env.start_timeout;
     let name = kind.name();
     let reason = loop {
         let job = job(label);
-        match probe(job.as_ref(), port_open(port)) {
+        match probe(job.as_ref(), ports.iter().all(|&p| port_open(p))) {
             Probe::Up => return Ok(()),
             Probe::Exited(code) => {
                 let code = code.map_or_else(|| "?".to_string(), |c| c.to_string());
@@ -762,13 +928,16 @@ fn start_in(env: &Env, kind: ServiceKind, branch: &str, on_line: &mut dyn FnMut(
         .ok_or_else(|| tr!("{name} {branch} no está instalado.", "{name} {branch} isn’t installed."))?;
     let label = env.label(kind, branch);
     let mut report = StartReport::default();
+    // Si se apaga algo, su proceso puede tardar en soltar el puerto.
+    let mut unloaded = false;
 
     // Una sola rama de cada servicio: comparten el puerto.
     for other in branches_of(&installed_versions(env, kind)) {
         let other_label = env.label(kind, &other);
         if other != branch && launchd::is_loaded(&other_label) {
             let was_running = is_running(&other_label);
-            launchd::bootout(&other_label)?;
+            unload(env, kind, &other)?;
+            unloaded = true;
             let _ = fs::remove_file(env.error_path(kind, &other));
             if was_running {
                 report.stopped.push(format!("{name} {other}"));
@@ -787,22 +956,25 @@ fn start_in(env: &Env, kind: ServiceKind, branch: &str, on_line: &mut dyn FnMut(
             return Ok(());
         }
         if launchd::is_loaded(&label) {
-            launchd::bootout(&label)?;
+            unload(env, kind, branch)?;
+            unloaded = true;
         }
-        wait_port_free(env.port(kind));
-        let port = env.port(kind);
-        let socket = env.socket_path(kind, branch);
-        if socket.as_os_str().len() > 103 {
+        if unloaded {
+            for port in env.ports(kind) {
+                wait_port_free(port);
+            }
+        }
+        if let Some(socket) = env.longest_socket(kind, branch)
+            && socket.as_os_str().len() > 103
+        {
             let path = socket.display();
             return Err(tr!("La ruta del socket es demasiado larga: {path}", "The socket path is too long: {path}"));
         }
-        if port_open(port) {
-            return Err(tr!(
-                "El puerto {port} ya está en uso (¿otro MySQL, como el de Homebrew?). Detenlo y vuelve a intentarlo.",
-                "Port {port} is already in use (another MySQL, like Homebrew’s?). Stop it and try again."
-            ));
+        if let Some(port) = env.ports(kind).into_iter().find(|&port| port_open(port)) {
+            return Err(ports::busy_error(kind.name(), port, Some(kind.engine())));
         }
         report.initialized = prepare_data(env, kind, &env.install_dir(kind, &version), branch, on_line)?;
+        before_start(env, kind, branch)?;
         fsutil::write_atomic(&path, xml.as_bytes())?;
         let offset = fs::metadata(env.log_path(kind, branch)).map_or(0, |m| m.len());
         on_line(&tr!("Arrancando {name} {version}", "Starting {name} {version}"));
@@ -819,7 +991,7 @@ fn start_in(env: &Env, kind: ServiceKind, branch: &str, on_line: &mut dyn FnMut(
 }
 
 /// Tras un `bootout`, el proceso puede tardar unos segundos en soltar el puerto.
-fn wait_port_free(port: u16) {
+pub(crate) fn wait_port_free(port: u16) {
     let deadline = Instant::now() + Duration::from_secs(15);
     while port_open(port) && Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(250));
@@ -827,10 +999,23 @@ fn wait_port_free(port: u16) {
 }
 
 fn stop_in(env: &Env, kind: ServiceKind, branch: &str) -> Result<(), String> {
-    let label = env.label(kind, branch);
-    launchd::bootout(&label)?;
+    unload(env, kind, branch)?;
     let _ = fs::remove_file(env.error_path(kind, branch));
     Ok(())
+}
+
+/// Apaga y descarga el agente. PostgreSQL se apaga antes con `pg_ctl -m
+/// fast`: el SIGTERM de launchd es un apagado «smart», que espera a que se
+/// vayan los clientes y acaba en un SIGKILL a los 20 s.
+fn unload(env: &Env, kind: ServiceKind, branch: &str) -> Result<(), String> {
+    let label = env.label(kind, branch);
+    if kind == ServiceKind::Postgresql
+        && is_running(&label)
+        && let Some(version) = version_for(env, kind, branch)
+    {
+        postgresql::fast_stop(env, &env.install_dir(kind, &version), branch);
+    }
+    launchd::bootout(&label)
 }
 
 /// Enciende (y comprueba que arranca) o apaga una rama. Encender una apaga
@@ -876,6 +1061,94 @@ fn set_autostart_in(env: &Env, kind: ServiceKind, branch: &str, on: bool, on_lin
 
 // ── Importar datos ───────────────────────────────────────────────────────────
 
+/// Datos de Homebrew que se pueden copiar a una rama propia.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ImportOffer {
+    /// `/opt/homebrew/var/mysql`, `/opt/homebrew/var/postgresql@18`.
+    pub source: String,
+    /// Última versión que usó esos datos (en PostgreSQL, la mayor: `18`).
+    pub version: String,
+    /// Rama a la que se pueden copiar (la misma que la de `version`).
+    pub branch: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub size: u64,
+    /// Por qué no se puede copiar ahora (un servidor los está usando, un
+    /// archivo no se puede leer…).
+    pub blocked: Option<String>,
+    /// No se pueden copiar (son de otra cuenta): cómo pasarlos a mano, ya
+    /// traducido. Sin botón de copiar.
+    pub manual: Option<String>,
+    /// La rama ya tiene datos: se guardarían aparte antes de copiar.
+    pub replaces: bool,
+}
+
+/// Lo que ocupa `dir` (sin lo que dice `skip`) o el primer archivo que no se
+/// puede leer.
+pub(crate) fn readable_size(dir: &Path, skip: &dyn Fn(&str) -> bool) -> Result<u64, String> {
+    let mut total = 0;
+    let entries = fs::read_dir(dir).map_err(|_| dir.display().to_string())?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = fs::symlink_metadata(&path) else {
+            return Err(path.display().to_string());
+        };
+        if meta.is_dir() {
+            total += readable_size(&path, skip)?;
+        } else if meta.is_file() && !skip(&entry.file_name().to_string_lossy()) {
+            fs::File::open(&path).map_err(|_| path.display().to_string())?;
+            total += meta.len();
+        }
+    }
+    Ok(total)
+}
+
+/// Copia de `from` a `to` (que no existe): carpetas (con `dir_mode`) y
+/// archivos normales, sin enlaces ni lo que dice `skip`. Lo copiado es del
+/// usuario actual y sus archivos se pueden leer y escribir (al menos 0600).
+pub(crate) fn copy_tree(
+    from: &Path,
+    to: &Path,
+    skip: &dyn Fn(&str) -> bool,
+    dir_mode: u32,
+    done: &mut u64,
+    on_bytes: &mut dyn FnMut(u64),
+) -> Result<(), String> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    fs::DirBuilder::new().mode(dir_mode).create(to).map_err(|error| {
+        let dir = to.display();
+        tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
+    })?;
+    // `mode` pasa por la umask: se fija después.
+    let _ = fs::set_permissions(to, fs::Permissions::from_mode(dir_mode));
+    let entries = fs::read_dir(from).map_err(|error| {
+        let dir = from.display();
+        tr!("No se pudo leer {dir}: {error}", "Couldn’t read {dir}: {error}")
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| error.to_string())?;
+        let path = entry.path();
+        let name = entry.file_name();
+        let text = name.to_string_lossy();
+        let meta = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
+        if meta.is_dir() {
+            copy_tree(&path, &to.join(&name), skip, dir_mode, done, on_bytes)?;
+        } else if meta.is_file() && !skip(&text) {
+            let target = to.join(&name);
+            fs::copy(&path, &target).map_err(|error| {
+                let file = path.display();
+                tr!("No se pudo copiar {file}: {error}", "Couldn’t copy {file}: {error}")
+            })?;
+            let mode = meta.permissions().mode() & 0o777 | 0o600;
+            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(mode));
+            *done += meta.len();
+            on_bytes(*done);
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -901,11 +1174,9 @@ pub fn import_brew_data(kind: ServiceKind, on_line: &mut dyn FnMut(&str), on_byt
 
 fn import_in(env: &Env, kind: ServiceKind, on_line: &mut dyn FnMut(&str), on_bytes: &mut dyn FnMut(u64, u64)) -> Result<ImportReport, String> {
     let name = kind.name();
-    let offer = match kind {
-        ServiceKind::Mysql => mysql::brew_offer(env),
-    }
-    .ok_or_else(|| tr!("No hay datos de {name} de Homebrew que copiar.", "There’s no Homebrew {name} data to copy."))?;
-    if let Some(blocked) = offer.blocked {
+    let offer = brew_offer(env, kind)
+        .ok_or_else(|| tr!("No hay datos de {name} de Homebrew que copiar.", "There’s no Homebrew {name} data to copy."))?;
+    if let Some(blocked) = offer.blocked.or(offer.manual) {
         return Err(blocked);
     }
     let branch = offer.branch.as_str();
@@ -935,7 +1206,12 @@ fn import_in(env: &Env, kind: ServiceKind, on_line: &mut dyn FnMut(&str), on_byt
     on_line(&tr!("Copiando {from}", "Copying {from}"));
     let mut done = 0;
     let total = offer.size;
-    if let Err(error) = mysql::copy_tree(&source, &tmp, &mut done, &mut |bytes| on_bytes(bytes, total.max(bytes))) {
+    // PostgreSQL no arranca si su carpeta de datos se puede leer por otros.
+    let (skip, dir_mode): (&dyn Fn(&str) -> bool, u32) = match kind {
+        ServiceKind::Postgresql => (&postgresql::skipped, 0o700),
+        _ => (&mysql::skipped, 0o750),
+    };
+    if let Err(error) = copy_tree(&source, &tmp, skip, dir_mode, &mut done, &mut |bytes| on_bytes(bytes, total.max(bytes))) {
         let _ = fs::remove_dir_all(&tmp);
         return Err(error);
     }

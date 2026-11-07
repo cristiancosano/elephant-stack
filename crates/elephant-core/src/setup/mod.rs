@@ -22,7 +22,7 @@ use crate::php::VersionInfo;
 
 mod apply;
 pub(crate) mod catalog;
-mod detect;
+pub(crate) mod detect;
 pub(crate) mod download;
 mod plan;
 pub(crate) mod presets;

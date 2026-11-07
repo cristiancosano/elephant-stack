@@ -6,6 +6,10 @@ import type { ServiceKind } from "./ServiceKind";
 
 export type ManagedService = { service: ServiceKind, name: string, port: number, 
 /**
+ * El de la interfaz web (Mailpit: 8025).
+ */
+web_port: number | null, 
+/**
  * De la más reciente a la más antigua.
  */
 versions: Array<InstalledVersion>, branches: Array<BranchStatus>, 

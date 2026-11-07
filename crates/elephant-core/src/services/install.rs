@@ -1,7 +1,9 @@
 //! Instalador común de los servicios propios: el mismo camino que PHP
 //! (`setup::download`: curl, sha256, tar y `rename` atómico), pero para
-//! paquetes con una carpeta raíz y enlaces internos, como el de MySQL
-//! (`mysql-8.4.7-macos15-arm64/bin/mysqld`, `lib/libssl.dylib -> libssl.3.dylib`).
+//! paquetes con enlaces internos. La mayoría tienen una carpeta raíz, como el
+//! de MySQL (`mysql-8.4.7-macos15-arm64/bin/mysqld`, `lib/libssl.dylib ->
+//! libssl.3.dylib`) o el de PostgreSQL (con enlaces duros en
+//! `share/timezone`); el de Mailpit no (`mailpit`, `LICENSE`, `README.md`).
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -12,7 +14,8 @@ use super::{Env, ServiceKind};
 use crate::setup::download;
 use crate::{tr, tr_str};
 
-/// Una entrada del paquete: nombre, tipo (`-`, `d`, `l`) y destino del enlace.
+/// Una entrada del paquete: nombre, tipo (`-`, `d`, `l`, `h`) y destino del
+/// enlace (relativo a su carpeta si es simbólico, al paquete si es duro).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Entry {
     pub name: String,
@@ -46,13 +49,13 @@ fn escapes(path: &Path) -> bool {
     false
 }
 
-/// Todo dentro de una única carpeta raíz, sin rutas absolutas ni `..`; solo
-/// archivos, carpetas y enlaces relativos que no salen de la raíz.
-pub(crate) fn check_entries(entries: &[Entry]) -> Result<(), String> {
+/// Sin rutas absolutas ni `..`; solo archivos, carpetas y enlaces que no
+/// salen del paquete. Con `rooted`, todo dentro de una única carpeta raíz.
+pub(crate) fn check_entries(entries: &[Entry], rooted: bool) -> Result<(), String> {
     if entries.is_empty() {
         return Err(tr!("No se ha podido leer el contenido del paquete.", "Couldn’t read the contents of the package."));
     }
-    let mut root: Option<&str> = None;
+    let mut root: Option<String> = None;
     for entry in entries {
         let name = entry.name.trim_start_matches("./");
         let path = Path::new(name);
@@ -60,18 +63,31 @@ pub(crate) fn check_entries(entries: &[Entry]) -> Result<(), String> {
             return Err(not_allowed(&entry.name));
         }
         let top = name.split('/').next().unwrap_or("");
-        match root {
-            None => root = Some(top),
+        match &root {
+            _ if !rooted => {}
+            None => root = Some(top.to_string()),
             Some(root) if root == top => {}
             Some(_) => return Err(not_allowed(&entry.name)),
         }
         match (entry.kind, &entry.link) {
             ('-' | 'd', None) => {}
             ('l', Some(target)) => {
-                // El destino se resuelve desde la carpeta del enlace, sin la raíz.
-                let inside = path.parent().unwrap_or(Path::new("")).components().skip(1);
+                // El destino se resuelve desde la carpeta del enlace (sin la raíz).
+                let skip = usize::from(rooted);
+                let inside = path.parent().unwrap_or(Path::new("")).components().skip(skip);
                 let joined: PathBuf = inside.collect::<PathBuf>().join(target);
                 if target.starts_with('/') || escapes(&joined) {
+                    return Err(not_allowed(&entry.name));
+                }
+            }
+            // Un enlace duro apunta a otra entrada del paquete, con su ruta completa.
+            ('h', Some(target)) => {
+                let clean = target.trim_start_matches("./");
+                let bad = clean.is_empty()
+                    || target.starts_with('/')
+                    || Path::new(clean).components().any(|c| c == Component::ParentDir)
+                    || (rooted && clean.split('/').next() != name.split('/').next());
+                if bad {
                     return Err(not_allowed(&entry.name));
                 }
             }
@@ -88,8 +104,8 @@ pub(crate) fn check_entries(entries: &[Entry]) -> Result<(), String> {
 }
 
 /// Lee el paquete con `tar -tzf` (nombres) y `tar -tvzf` (tipo y destino de
-/// los enlaces, en el mismo orden).
-fn list_archive(tar: &Path, archive: &Path) -> Result<Vec<Entry>, String> {
+/// los enlaces, en el mismo orden). El `tar` de macOS lee también los `.zip`.
+pub(crate) fn list_archive(tar: &Path, archive: &Path) -> Result<Vec<Entry>, String> {
     let names: Vec<String> = download::tar_output(tar, &["-tzf"], archive)?.lines().map(String::from).collect();
     let verbose = download::tar_output(tar, &["-tvzf"], archive)?;
     let lines: Vec<&str> = verbose.lines().collect();
@@ -101,10 +117,12 @@ fn list_archive(tar: &Path, archive: &Path) -> Result<Vec<Entry>, String> {
         .zip(lines)
         .map(|(name, line)| {
             let kind = line.chars().next().unwrap_or('?');
-            let marker = format!(" {name} -> ");
-            let link = (kind == 'l')
-                .then(|| line.find(&marker).map(|at| line[at + marker.len()..].to_string()))
-                .flatten();
+            let marker = match kind {
+                'l' => Some(format!(" {name} -> ")),
+                'h' => Some(format!(" {name} link to ")),
+                _ => None,
+            };
+            let link = marker.and_then(|marker| line.find(&marker).map(|at| line[at + marker.len()..].to_string()));
             Entry { name, kind, link }
         })
         .collect())
@@ -154,7 +172,8 @@ fn verify_and_extract(
         return Err(download::mismatch());
     }
     on_line(tr_str!("Firma correcta. Comprobando el contenido del paquete", "Signature OK. Checking the package contents"));
-    check_entries(&list_archive(&env.tools.tar, part)?)?;
+    let rooted = kind.rooted_package();
+    check_entries(&list_archive(&env.tools.tar, part)?, rooted)?;
 
     let root = dest.parent().ok_or_else(|| tr!("Ruta de instalación no válida.", "Invalid install path."))?;
     let tmp = root.join(format!(".tmp-{version}"));
@@ -166,10 +185,11 @@ fn verify_and_extract(
     let name = kind.name();
     let installed = (|| {
         on_line(tr_str!("Descomprimiendo", "Extracting"));
+        let strip = if rooted { "1" } else { "0" };
         let status = Command::new(&env.tools.tar)
             .arg("-xzf")
             .arg(part)
-            .args(["--strip-components", "1", "-C"])
+            .args(["--strip-components", strip, "-C"])
             .arg(&tmp)
             .stdin(Stdio::null())
             .status()
@@ -178,7 +198,7 @@ fn verify_and_extract(
             return Err(tr!("No se ha podido extraer el paquete.", "Couldn’t extract the package."));
         }
         match kind.version_of(&tmp) {
-            Some(found) if found == version => {}
+            Some(found) if kind.version_matches(&found, version) => {}
             Some(found) => {
                 return Err(tr!(
                     "El paquete dice ser {name} {version} pero contiene {name} {found}.",
@@ -223,7 +243,28 @@ mod tests {
             entry("mysql-8.4.11-macos15-arm64/lib/libssl.dylib", 'l', Some("libssl.3.dylib")),
             entry("mysql-8.4.11-macos15-arm64/lib/plugin/debug/libcrypto.3.dylib", 'l', Some("../../../lib/libcrypto.3.dylib")),
         ];
-        check_entries(&entries).unwrap();
+        check_entries(&entries, true).unwrap();
+    }
+
+    #[test]
+    fn accepts_hard_links_like_postgresqls_and_flat_packages_like_mailpits() {
+        let top = "postgresql-18.6.1-aarch64-apple-darwin";
+        let entries = [
+            entry(&format!("{top}/"), 'd', None),
+            entry(&format!("{top}/share/timezone/Greenwich"), '-', None),
+            entry(&format!("{top}/share/timezone/GMT"), 'h', Some(&format!("{top}/share/timezone/Greenwich"))),
+        ];
+        check_entries(&entries, true).unwrap();
+        let outside = [entry(&format!("{top}/x"), 'h', Some("otra/x"))];
+        assert!(check_entries(&outside, true).is_err());
+        let escape = [entry(&format!("{top}/x"), 'h', Some(&format!("{top}/../../etc/passwd")))];
+        assert!(check_entries(&escape, true).is_err());
+
+        let flat = [entry("LICENSE", '-', None), entry("README.md", '-', None), entry("mailpit", '-', None)];
+        check_entries(&flat, true).unwrap_err();
+        check_entries(&flat, false).unwrap();
+        assert!(check_entries(&[entry("x", 'l', Some("../y"))], false).is_err());
+        assert!(check_entries(&[entry("a/x", 'l', Some("../y"))], false).is_ok());
     }
 
     #[test]
@@ -236,10 +277,11 @@ mod tests {
             root(entry("/etc/x", '-', None)),
             root(entry("otra/x", '-', None)),
             root(entry("m/dev", 'c', None)),
-            root(entry("m/x", 'h', Some("m/y"))),
+            root(entry("m/x", 'h', Some("otra/y"))),
+            root(entry("m/x", 'h', None)),
         ] {
-            assert!(check_entries(&bad).is_err(), "{bad:?}");
+            assert!(check_entries(&bad, true).is_err(), "{bad:?}");
         }
-        assert!(check_entries(&[]).is_err());
+        assert!(check_entries(&[], true).is_err());
     }
 }

@@ -469,7 +469,7 @@
       }
     },
     {
-      "about": "Servicios propios de Elephant (sin Homebrew; hoy, MySQL): versiones instaladas, cada rama con su estado (running, stopped o error con el motivo), puerto, y versiones que se pueden instalar.",
+      "about": "Servicios propios de Elephant sin Homebrew (mysql, postgresql, redis, mailpit): versiones instaladas, cada rama con su estado (running, stopped o error con el motivo) y puerto, versiones que se pueden instalar y las herramientas phpmyadmin y pgadmin.",
       "cli": "elephant stack list",
       "id": "stack_list",
       "idempotent": true,
@@ -541,10 +541,10 @@
             "type": "object"
           },
           "ImportOffer": {
-            "description": "Datos de MySQL de Homebrew que se pueden copiar a una rama propia.",
+            "description": "Datos de Homebrew que se pueden copiar a una rama propia.",
             "properties": {
               "blocked": {
-                "description": "Por qué no se puede copiar ahora (un mysqld los está usando, un\narchivo no se puede leer…).",
+                "description": "Por qué no se puede copiar ahora (un servidor los está usando, un\narchivo no se puede leer…).",
                 "type": [
                   "string",
                   "null"
@@ -553,6 +553,13 @@
               "branch": {
                 "description": "Rama a la que se pueden copiar (la misma que la de `version`).",
                 "type": "string"
+              },
+              "manual": {
+                "description": "No se pueden copiar (son de otra cuenta): cómo pasarlos a mano, ya\ntraducido. Sin botón de copiar.",
+                "type": [
+                  "string",
+                  "null"
+                ]
               },
               "replaces": {
                 "description": "La rama ya tiene datos: se guardarían aparte antes de copiar.",
@@ -564,11 +571,11 @@
                 "type": "integer"
               },
               "source": {
-                "description": "`/opt/homebrew/var/mysql`.",
+                "description": "`/opt/homebrew/var/mysql`, `/opt/homebrew/var/postgresql@18`.",
                 "type": "string"
               },
               "version": {
-                "description": "Última versión que usó esos datos.",
+                "description": "Última versión que usó esos datos (en PostgreSQL, la mayor: `18`).",
                 "type": "string"
               }
             },
@@ -637,6 +644,16 @@
                   "$ref": "#/$defs/InstalledVersion"
                 },
                 "type": "array"
+              },
+              "web_port": {
+                "description": "El de la interfaz web (Mailpit: 8025).",
+                "format": "uint16",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               }
             },
             "required": [
@@ -659,7 +676,10 @@
           "ServiceKind": {
             "description": "Un servicio que Elephant sabe instalar y ejecutar.",
             "enum": [
-              "mysql"
+              "mysql",
+              "postgresql",
+              "redis",
+              "mailpit"
             ],
             "type": "string"
           },
@@ -702,6 +722,132 @@
               "lts"
             ],
             "type": "object"
+          },
+          "ToolKind": {
+            "description": "Una herramienta que Elephant sabe instalar.",
+            "enum": [
+              "phpmyadmin",
+              "pgadmin"
+            ],
+            "type": "string"
+          },
+          "ToolRelease": {
+            "description": "Una versión de una herramienta (phpMyAdmin, pgAdmin).",
+            "properties": {
+              "php": {
+                "description": "Versiones de PHP con las que funciona: `>=7.2,<8.4` (phpMyAdmin).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sha256": {
+                "type": "string"
+              },
+              "size": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "tool": {
+                "$ref": "#/$defs/ToolKind"
+              },
+              "url": {
+                "description": "URL oficial: el zip de phpMyAdmin, el DMG de pgAdmin.",
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "version",
+              "url",
+              "sha256",
+              "size"
+            ],
+            "type": "object"
+          },
+          "ToolStatus": {
+            "description": "Estado de una herramienta.",
+            "properties": {
+              "blocked": {
+                "description": "No se puede abrir hasta resolver `warning`.",
+                "type": "boolean"
+              },
+              "external": {
+                "description": "Una copia que no ha instalado Elephant (pgAdmin en `/Applications`):\nse puede abrir, pero no actualizar ni desinstalar.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Su carpeta (phpMyAdmin) o su app (pgAdmin).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "php": {
+                "description": "phpMyAdmin: el PHP de Elephant con el que se sirve.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "php_range": {
+                "description": "phpMyAdmin: las versiones de PHP que admite (`>=7.2,<8.4`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "running": {
+                "description": "phpMyAdmin: su servidor está en marcha.",
+                "type": "boolean"
+              },
+              "target": {
+                "description": "Objetivo de `busy` y de los problemas en la app.",
+                "type": "string"
+              },
+              "tool": {
+                "$ref": "#/$defs/ToolKind"
+              },
+              "url": {
+                "description": "phpMyAdmin: dónde se abre (solo en 127.0.0.1).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version": {
+                "description": "La versión que ha instalado Elephant.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "warning": {
+                "description": "Lo que falta o conviene saber (no hay PHP compatible, MySQL está\napagado), ya traducido.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "tool",
+              "name",
+              "target",
+              "running",
+              "blocked"
+            ],
+            "type": "object"
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -719,11 +865,27 @@
               "$ref": "#/$defs/ManagedService"
             },
             "type": "array"
+          },
+          "tools": {
+            "description": "Herramientas (phpMyAdmin, pgAdmin): lo instalado y su estado.",
+            "items": {
+              "$ref": "#/$defs/ToolStatus"
+            },
+            "type": "array"
+          },
+          "tools_available": {
+            "description": "La versión más reciente de cada herramienta en el catálogo.",
+            "items": {
+              "$ref": "#/$defs/ToolRelease"
+            },
+            "type": "array"
           }
         },
         "required": [
           "services",
-          "available"
+          "available",
+          "tools",
+          "tools_available"
         ],
         "title": "ListOut",
         "type": "object"
@@ -2460,7 +2622,7 @@
       }
     },
     {
-      "about": "Arranca o detiene una rama de un servicio propio de Elephant (mysql 8.4…), o activa o quita su arranque al iniciar sesión. Arrancar comprueba que responde y apaga las otras ramas del servicio.",
+      "about": "Arranca o detiene una rama de un servicio propio de Elephant (mysql 8.4, postgresql 18, redis 8.2, mailpit 1…), o activa o quita su arranque al iniciar sesión. Arrancar comprueba que responde, apaga las otras ramas y, si el puerto está ocupado, dice quién lo usa.",
       "cli": "elephant stack control",
       "id": "stack_control",
       "idempotent": true,
@@ -2479,7 +2641,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "branch": {
-            "description": "Rama instalada: 8.4, 9.7…",
+            "description": "Rama instalada: 8.4, 18, 8.2, 1…",
             "type": "string"
           },
           "operation": {
@@ -2487,7 +2649,7 @@
             "description": "start, stop, autostart-on o autostart-off."
           },
           "service": {
-            "description": "Servicio: mysql.",
+            "description": "Servicio: mysql, postgresql, redis o mailpit.",
             "type": "string"
           }
         },
@@ -2785,11 +2947,11 @@
             "type": "boolean"
           },
           "service": {
-            "description": "Servicio: mysql.",
+            "description": "Servicio: mysql, postgresql, redis o mailpit.",
             "type": "string"
           },
           "version": {
-            "description": "Versión del catálogo (stack list): 8.4.11…",
+            "description": "Versión del catálogo (stack list): 8.4.11, 18.6.1…",
             "type": "string"
           }
         },
@@ -2817,6 +2979,185 @@
           "version"
         ],
         "title": "InstallOut",
+        "type": "object"
+      }
+    },
+    {
+      "about": "Instala o actualiza (la última del catálogo), desinstala o abre phpmyadmin (servido con el PHP de Elephant en 127.0.0.1:8081) o pgadmin (app en ~/Applications, firma comprobada); start y stop encienden o apagan el servidor de phpmyadmin. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.",
+      "cli": "elephant stack tool",
+      "id": "stack_tool",
+      "idempotent": true,
+      "input_schema": {
+        "$defs": {
+          "ToolOp": {
+            "enum": [
+              "install",
+              "uninstall",
+              "start",
+              "stop",
+              "open"
+            ],
+            "type": "string"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "detach": {
+            "default": false,
+            "description": "No esperar: devuelve el id de la tarea al momento.",
+            "type": "boolean"
+          },
+          "operation": {
+            "$ref": "#/$defs/ToolOp",
+            "description": "install (o actualizar), uninstall, start, stop u open."
+          },
+          "tool": {
+            "description": "Herramienta: phpmyadmin o pgadmin.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "tool"
+        ],
+        "title": "ToolArgs",
+        "type": "object"
+      },
+      "kind": "mutate",
+      "long": true,
+      "output_schema": {
+        "$defs": {
+          "ToolKind": {
+            "description": "Una herramienta que Elephant sabe instalar.",
+            "enum": [
+              "phpmyadmin",
+              "pgadmin"
+            ],
+            "type": "string"
+          },
+          "ToolOp": {
+            "enum": [
+              "install",
+              "uninstall",
+              "start",
+              "stop",
+              "open"
+            ],
+            "type": "string"
+          },
+          "ToolStatus": {
+            "description": "Estado de una herramienta.",
+            "properties": {
+              "blocked": {
+                "description": "No se puede abrir hasta resolver `warning`.",
+                "type": "boolean"
+              },
+              "external": {
+                "description": "Una copia que no ha instalado Elephant (pgAdmin en `/Applications`):\nse puede abrir, pero no actualizar ni desinstalar.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "path": {
+                "description": "Su carpeta (phpMyAdmin) o su app (pgAdmin).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "php": {
+                "description": "phpMyAdmin: el PHP de Elephant con el que se sirve.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "php_range": {
+                "description": "phpMyAdmin: las versiones de PHP que admite (`>=7.2,<8.4`).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "running": {
+                "description": "phpMyAdmin: su servidor está en marcha.",
+                "type": "boolean"
+              },
+              "target": {
+                "description": "Objetivo de `busy` y de los problemas en la app.",
+                "type": "string"
+              },
+              "tool": {
+                "$ref": "#/$defs/ToolKind"
+              },
+              "url": {
+                "description": "phpMyAdmin: dónde se abre (solo en 127.0.0.1).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "version": {
+                "description": "La versión que ha instalado Elephant.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "warning": {
+                "description": "Lo que falta o conviene saber (no hay PHP compatible, MySQL está\napagado), ya traducido.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "tool",
+              "name",
+              "target",
+              "running",
+              "blocked"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "detail": {
+            "description": "Lo instalado o abierto: la versión (install) o la URL o la app (open).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "operation": {
+            "$ref": "#/$defs/ToolOp"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ToolStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Su estado después de la operación."
+          },
+          "tool": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "operation"
+        ],
+        "title": "ToolOut",
         "type": "object"
       }
     },

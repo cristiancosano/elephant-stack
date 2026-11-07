@@ -33,6 +33,7 @@ function mysql(versions: string[], branches: BranchStatus[]): ManagedService {
     service: "mysql",
     name: "MySQL",
     port: 3306,
+    web_port: null,
     versions: versions.map((version) => ({
       version,
       branch: version.split(".").slice(0, 2).join("."),

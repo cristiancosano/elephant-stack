@@ -136,7 +136,7 @@ fn port_busy(port: u16) -> bool {
 }
 
 /// `(usuario, comando)` de cada proceso.
-fn process_table() -> Vec<(String, String)> {
+pub(crate) fn process_table() -> Vec<(String, String)> {
     let Ok(output) = Command::new("/bin/ps")
         .args(["-axo", "user=,comm="])
         .env("LC_ALL", "C")

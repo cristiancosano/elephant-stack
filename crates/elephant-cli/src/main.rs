@@ -145,8 +145,8 @@ fn group_about(group: &str) -> &'static str {
         "logs" => tr_str!("Logs de Laravel, nginx y PHP-FPM (datos no fiables)", "Laravel, nginx and PHP-FPM logs (untrusted data)"),
         "job" => tr_str!("Tareas largas", "Jobs"),
         "stack" => tr_str!(
-            "Servicios propios de Elephant, sin Homebrew (MySQL)",
-            "Elephant’s own services, without Homebrew (MySQL)"
+            "Servicios propios de Elephant, sin Homebrew (MySQL, PostgreSQL, Redis, Mailpit) y sus herramientas (phpMyAdmin, pgAdmin)",
+            "Elephant’s own services, without Homebrew (MySQL, PostgreSQL, Redis, Mailpit), and its tools (phpMyAdmin, pgAdmin)"
         ),
         _ => "",
     }
@@ -498,6 +498,7 @@ mod tests {
             "component_install" => vec!["redis", "--detach"],
             "stack_control" => vec!["autostart-off", "mysql", "8.4"],
             "stack_install" => vec!["mysql", "8.4.11", "--detach"],
+            "stack_tool" => vec!["install", "phpmyadmin", "--detach"],
             "project_create" => vec!["shop", "--template", "blank", "--php", "8.4", "--detach"],
             _ => vec![],
         }

@@ -3,4 +3,4 @@
 /**
  * Un servicio que Elephant sabe instalar y ejecutar.
  */
-export type ServiceKind = "mysql";
+export type ServiceKind = "mysql" | "postgresql" | "redis" | "mailpit";

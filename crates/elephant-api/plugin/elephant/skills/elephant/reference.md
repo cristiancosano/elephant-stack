@@ -31,7 +31,7 @@ Componentes del entorno (mysql, postgresql, redis, mailpit, nginx, php, composer
 
 MCP: `stack_list`.
 
-Servicios propios de Elephant (sin Homebrew; hoy, MySQL): versiones instaladas, cada rama con su estado (running, stopped o error con el motivo), puerto, y versiones que se pueden instalar.
+Servicios propios de Elephant sin Homebrew (mysql, postgresql, redis, mailpit): versiones instaladas, cada rama con su estado (running, stopped o error con el motivo) y puerto, versiones que se pueden instalar y las herramientas phpmyadmin y pgadmin.
 
 ### `elephant php list`
 
@@ -148,13 +148,13 @@ Arranca, detiene o reinicia un servicio de Homebrew (mysql, postgresql, redis, m
 
 MCP: `stack_control`.
 
-Arranca o detiene una rama de un servicio propio de Elephant (mysql 8.4…), o activa o quita su arranque al iniciar sesión. Arrancar comprueba que responde y apaga las otras ramas del servicio.
+Arranca o detiene una rama de un servicio propio de Elephant (mysql 8.4, postgresql 18, redis 8.2, mailpit 1…), o activa o quita su arranque al iniciar sesión. Arrancar comprueba que responde, apaga las otras ramas y, si el puerto está ocupado, dice quién lo usa.
 
 | CLI | MCP | Descripción |
 |---|---|---|
 | `OPERACION` | `operation` | start, stop, autostart-on o autostart-off. Valores: start, stop, autostart-on, autostart-off. |
-| `SERVICE` | `service` | Servicio: mysql. |
-| `BRANCH` | `branch` | Rama instalada: 8.4, 9.7…. |
+| `SERVICE` | `service` | Servicio: mysql, postgresql, redis o mailpit. |
+| `BRANCH` | `branch` | Rama instalada: 8.4, 18, 8.2, 1…. |
 
 ### `elephant php use VERSION`
 
@@ -196,8 +196,20 @@ Descarga e instala una versión de un servicio propio de Elephant (binario ofici
 
 | CLI | MCP | Descripción |
 |---|---|---|
-| `SERVICE` | `service` | Servicio: mysql. |
-| `VERSION` | `version` | Versión del catálogo (stack list): 8.4.11…. |
+| `SERVICE` | `service` | Servicio: mysql, postgresql, redis o mailpit. |
+| `VERSION` | `version` | Versión del catálogo (stack list): 8.4.11, 18.6.1…. |
+| `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
+
+### `elephant stack tool OPERACION TOOL`
+
+MCP: `stack_tool` · tarea larga (espera 45 s; después, código 75 y `job show`).
+
+Instala o actualiza (la última del catálogo), desinstala o abre phpmyadmin (servido con el PHP de Elephant en 127.0.0.1:8081) o pgadmin (app en ~/Applications, firma comprobada); start y stop encienden o apagan el servidor de phpmyadmin. Tarea larga: espera 45 s y, si no ha terminado, devuelve un job_id.
+
+| CLI | MCP | Descripción |
+|---|---|---|
+| `OPERACION` | `operation` | install (o actualizar), uninstall, start, stop u open. Valores: install, uninstall, start, stop, open. |
+| `TOOL` | `tool` | Herramienta: phpmyadmin o pgadmin. |
 | `--detach` | `detach` | No esperar: devuelve el id de la tarea al momento. |
 
 ### `elephant project start-services`

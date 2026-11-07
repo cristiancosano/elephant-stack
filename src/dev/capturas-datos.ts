@@ -128,6 +128,7 @@ const managed: ManagedService[] = [
     service: "mysql",
     name: "MySQL",
     port: 3306,
+    web_port: null,
     versions: [
       { version: "9.7.1", branch: "9.7", path: `${ES}/services/mysql/9.7.1` },
       { version: "8.4.11", branch: "8.4", path: `${ES}/services/mysql/8.4.11` },
@@ -142,6 +143,7 @@ const managed: ManagedService[] = [
       branch: "9.7",
       size: 429_000_000,
       blocked: null,
+      manual: null,
       replaces: false,
     },
   },
@@ -167,6 +169,7 @@ export const servicesCatalog: ServicesCatalog = {
     mysqlRelease("8.4.12", 168_100_000, true),
     mysqlRelease("8.4.11", 167_977_240, true),
   ],
+  tools: [],
   offline: false,
 };
 

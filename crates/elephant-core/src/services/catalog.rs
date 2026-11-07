@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::ServiceKind;
+use super::{ServiceKind, ToolKind};
 use crate::setup::catalog::MemoryCache;
 use crate::setup::{download, presets};
 use crate::{fsutil, paths, tr};
@@ -36,12 +36,31 @@ pub struct ServiceRelease {
     pub lts: bool,
 }
 
+/// Una versión de una herramienta (phpMyAdmin, pgAdmin).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct ToolRelease {
+    pub tool: ToolKind,
+    pub version: String,
+    /// URL oficial: el zip de phpMyAdmin, el DMG de pgAdmin.
+    pub url: String,
+    pub sha256: String,
+    #[cfg_attr(feature = "ts", ts(type = "number"))]
+    pub size: u64,
+    /// Versiones de PHP con las que funciona: `>=7.2,<8.4` (phpMyAdmin).
+    pub php: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ServicesCatalog {
     /// De esta plataforma, de la más reciente a la más antigua por servicio.
     pub releases: Vec<ServiceRelease>,
+    /// Herramientas de esta plataforma (o de todas), de la más reciente a la más antigua.
+    #[serde(default)]
+    pub tools: Vec<ToolRelease>,
     /// Sin red ni copia en disco.
     pub offline: bool,
 }
@@ -49,6 +68,11 @@ pub struct ServicesCatalog {
 impl ServicesCatalog {
     pub fn find(&self, kind: ServiceKind, version: &str) -> Option<&ServiceRelease> {
         self.releases.iter().find(|r| r.service == kind && r.version == version)
+    }
+
+    /// La versión más reciente de una herramienta.
+    pub fn latest_tool(&self, tool: ToolKind) -> Option<&ToolRelease> {
+        self.tools.iter().find(|r| r.tool == tool)
     }
 }
 
@@ -62,6 +86,7 @@ struct RawCatalog {
 #[derive(Deserialize)]
 struct RawRelease {
     version: String,
+    #[serde(default)]
     branch: String,
     platform: String,
     url: String,
@@ -70,6 +95,8 @@ struct RawRelease {
     size: u64,
     #[serde(default)]
     lts: bool,
+    #[serde(default)]
+    php: Option<String>,
 }
 
 /// `macos-arm64`, `linux-x86_64`…: la plataforma de este binario, con los
@@ -122,7 +149,27 @@ pub(crate) fn parse(json: &str, platform: &str) -> Result<ServicesCatalog, Strin
         ));
     }
     let mut releases = Vec::new();
+    let mut tools = Vec::new();
     for (name, list) in raw.components {
+        if let Ok(tool) = ToolKind::parse(&name) {
+            tools.extend(
+                list.into_iter()
+                    .filter(|r| r.platform == platform || r.platform == "any")
+                    .filter(|r| is_version(&r.version))
+                    .filter(|r| r.url.starts_with("https://") && download::asset_name(&r.url).is_ok())
+                    .filter(|r| is_sha256(&r.sha256))
+                    .filter(|r| r.php.as_deref().is_none_or(|c| super::tools::parse_constraint(c).is_some()))
+                    .map(|r| ToolRelease {
+                        tool,
+                        version: r.version,
+                        url: r.url,
+                        sha256: r.sha256.to_ascii_lowercase(),
+                        size: r.size,
+                        php: r.php,
+                    }),
+            );
+            continue;
+        }
         let Ok(kind) = ServiceKind::parse(&name) else {
             continue;
         };
@@ -150,7 +197,14 @@ pub(crate) fn parse(json: &str, platform: &str) -> Result<ServicesCatalog, Strin
             .then_with(|| presets::version_key(&b.version).cmp(&presets::version_key(&a.version)))
     });
     releases.dedup_by(|a, b| a.service == b.service && a.version == b.version);
-    Ok(ServicesCatalog { releases, offline: false })
+    tools.sort_by(|a, b| {
+        a.tool
+            .id()
+            .cmp(b.tool.id())
+            .then_with(|| presets::version_key(&b.version).cmp(&presets::version_key(&a.version)))
+    });
+    tools.dedup_by(|a, b| a.tool == b.tool && a.version == b.version);
+    Ok(ServicesCatalog { releases, tools, offline: false })
 }
 
 fn cache_path(home: &Path) -> PathBuf {
@@ -180,6 +234,7 @@ pub(crate) fn catalog(force_refresh: bool) -> ServicesCatalog {
         }
         Err(_) => home.as_deref().and_then(load_disk).unwrap_or(ServicesCatalog {
             releases: Vec::new(),
+            tools: Vec::new(),
             offline: true,
         }),
     }
@@ -200,21 +255,45 @@ pub(crate) mod tests {
         {"version":"9.7.2","branch":"9.7","platform":"macos-arm64","url":"http://x/mysql.tar.gz","sha256":"a96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":1,"lts":true},
         {"version":"9.7.3","branch":"9.7","platform":"macos-arm64","url":"https://x/mysql.tar.gz","sha256":"nope","size":1,"lts":true}
       ],
-      "postgresql":[{"version":"18.1.0","branch":"18","platform":"macos-arm64","url":"https://x/pg.tar.gz","sha256":"a96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":1,"lts":false}],
-      "mailpit":[]
+      "postgresql":[{"version":"18.6.1","branch":"18","platform":"macos-arm64","url":"https://github.com/theseus-rs/postgresql-binaries/releases/download/18.6.1/postgresql-18.6.1-aarch64-apple-darwin.tar.gz","sha256":"89e91cc80650a43d22c018b95ca356a0c9e15838a1182fed2880bfb5d7d9c9a6","size":88814625,"lts":true},
+                    {"version":"18.6.1","branch":"8","platform":"macos-arm64","url":"https://x/pg.tar.gz","sha256":"a96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":1,"lts":false}],
+      "redis":[{"version":"8.2.11","branch":"8.2","platform":"macos-arm64","url":"https://github.com/cristiancosano/php-builds/releases/download/redis-8.2.11/redis-8.2.11-macos-arm64.tar.gz","sha256":"c96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":2000000,"lts":false}],
+      "mailpit":[{"version":"1.33.0","branch":"1","platform":"macos-arm64","url":"https://github.com/axllent/mailpit/releases/download/v1.33.0/mailpit-darwin-arm64.tar.gz","sha256":"0c4abbf289c6d8ee3c11adc2f93d9a1b45084e25104e19a0d9b06e847e98e0fb","size":10406800,"lts":false}],
+      "phpmyadmin":[
+        {"version":"5.2.3","platform":"any","url":"https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.zip","sha256":"d96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":14000000,"php":">=7.2,<8.4"},
+        {"version":"5.2.4","platform":"any","url":"https://files.phpmyadmin.net/x.zip","sha256":"d96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":1,"php":"~8 raro"}
+      ],
+      "pgadmin":[
+        {"version":"9.10","platform":"macos-arm64","url":"https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v9.10/macos/pgadmin4-9.10-arm64.dmg","sha256":"e96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":200000000},
+        {"version":"9.10","platform":"macos-x86_64","url":"https://ftp.postgresql.org/pub/pgadmin/pgadmin4/v9.10/macos/pgadmin4-9.10-x86_64.dmg","sha256":"e96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":200000000}
+      ],
+      "algo-nuevo":[{"version":"1.0","branch":"1","platform":"any","url":"https://x/y.zip","sha256":"e96e00493bc3499b9ffd7f08d65c5d64933af0383a8287d9873b64f94c2d6009","size":1}]
     }}"#;
 
     #[test]
     fn keeps_valid_releases_of_this_platform_newest_first() {
         let catalog = parse(INDEX, "macos-arm64").unwrap();
-        let versions: Vec<&str> = catalog.releases.iter().map(|r| r.version.as_str()).collect();
-        // PostgreSQL llega en la fase 2: por ahora se ignora.
-        assert_eq!(versions, ["26.10.0", "8.4.11", "8.4.7"]);
-        assert!(catalog.releases.iter().all(|r| r.service == ServiceKind::Mysql));
+        let versions: Vec<String> = catalog.releases.iter().map(|r| format!("{} {}", r.service.id(), r.version)).collect();
+        // Por orden de servicio; la de PostgreSQL con la rama mal, fuera.
+        assert_eq!(versions, ["mailpit 1.33.0", "mysql 26.10.0", "mysql 8.4.11", "mysql 8.4.7", "postgresql 18.6.1", "redis 8.2.11"]);
         let first = catalog.find(ServiceKind::Mysql, "8.4.7").unwrap();
         assert_eq!(first.sha256, first.sha256.to_ascii_lowercase());
         assert!(first.lts && !catalog.releases[0].lts);
         assert_eq!(parse(INDEX, "linux-x86_64").unwrap().releases.len(), 1);
+    }
+
+    #[test]
+    fn tools_come_from_this_platform_or_any_with_their_php_range() {
+        let catalog = parse(INDEX, "macos-arm64").unwrap();
+        let tools: Vec<String> = catalog.tools.iter().map(|r| format!("{} {}", r.tool.id(), r.version)).collect();
+        // El 5.2.4 tiene un rango de PHP que no se entiende: fuera.
+        assert_eq!(tools, ["pgadmin 9.10", "phpmyadmin 5.2.3"]);
+        let pma = catalog.latest_tool(ToolKind::Phpmyadmin).unwrap();
+        assert_eq!(pma.php.as_deref(), Some(">=7.2,<8.4"));
+        assert!(catalog.latest_tool(ToolKind::Pgadmin).unwrap().url.ends_with("arm64.dmg"));
+        // phpMyAdmin vale en cualquier plataforma; pgAdmin solo en la suya.
+        let linux = parse(INDEX, "linux-arm64").unwrap();
+        assert_eq!(linux.tools.len(), 1);
     }
 
     #[test]

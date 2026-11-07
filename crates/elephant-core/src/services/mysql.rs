@@ -5,9 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use serde::Serialize;
-
-use super::{Env, ServiceKind, last_useful_line};
+use super::{Env, ImportOffer, ServiceKind, last_useful_line, readable_size};
 use crate::{launchd, tr};
 
 /// Opciones de `mysqld`. `--no-defaults` va primero: así no lee el `my.cnf`
@@ -80,26 +78,6 @@ pub(crate) fn initialize(env: &Env, install: &Path, branch: &str, on_line: &mut 
     ))
 }
 
-/// Datos de MySQL de Homebrew que se pueden copiar a una rama propia.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-pub struct ImportOffer {
-    /// `/opt/homebrew/var/mysql`.
-    pub source: String,
-    /// Última versión que usó esos datos.
-    pub version: String,
-    /// Rama a la que se pueden copiar (la misma que la de `version`).
-    pub branch: String,
-    #[cfg_attr(feature = "ts", ts(type = "number"))]
-    pub size: u64,
-    /// Por qué no se puede copiar ahora (un mysqld los está usando, un
-    /// archivo no se puede leer…).
-    pub blocked: Option<String>,
-    /// La rama ya tiene datos: se guardarían aparte antes de copiar.
-    pub replaces: bool,
-}
-
 pub(crate) fn brew_source(env: &Env) -> PathBuf {
     env.brew_prefix.join("var/mysql")
 }
@@ -129,7 +107,7 @@ pub(crate) fn source_in_use(source: &Path, ps: &str, brew_jobs: &[launchd::Launc
     by_process || by_brew
 }
 
-fn ps_commands() -> String {
+pub(crate) fn ps_commands() -> String {
     Command::new("/bin/ps")
         .args(["-axo", "command="])
         .stdin(Stdio::null())
@@ -141,27 +119,8 @@ fn ps_commands() -> String {
 /// Lo que no se copia: `*.pem` (certificados y claves RSA, que mysqld vuelve a
 /// generar al arrancar sin ellos; en brew las claves son `-rw-------` y otra
 /// cuenta no las puede leer), sockets y `.pid`.
-fn skipped(name: &str) -> bool {
+pub(crate) fn skipped(name: &str) -> bool {
     name.ends_with(".pem") || name.ends_with(".pid") || name.starts_with("mysql.sock")
-}
-
-/// Lo que ocupa `dir` y el primer archivo que no se puede leer, si lo hay.
-pub(crate) fn readable_size(dir: &Path) -> Result<u64, String> {
-    let mut total = 0;
-    let entries = fs::read_dir(dir).map_err(|_| dir.display().to_string())?;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let Ok(meta) = fs::symlink_metadata(&path) else {
-            return Err(path.display().to_string());
-        };
-        if meta.is_dir() {
-            total += readable_size(&path)?;
-        } else if meta.is_file() && !skipped(&entry.file_name().to_string_lossy()) {
-            fs::File::open(&path).map_err(|_| path.display().to_string())?;
-            total += meta.len();
-        }
-    }
-    Ok(total)
 }
 
 /// La oferta, si hay datos de brew legibles y con versión conocida y no se
@@ -183,7 +142,7 @@ pub(crate) fn brew_offer_with(env: &Env, in_use: &dyn Fn(&Path) -> bool) -> Opti
     if env.import_marker(ServiceKind::Mysql, &branch).exists() {
         return None;
     }
-    let (size, unreadable) = match readable_size(&source) {
+    let (size, unreadable) = match readable_size(&source, &skipped) {
         Ok(size) => (size, None),
         Err(path) => (0, Some(path)),
     };
@@ -205,43 +164,9 @@ pub(crate) fn brew_offer_with(env: &Env, in_use: &dyn Fn(&Path) -> bool) -> Opti
         branch,
         size,
         blocked,
+        manual: None,
         replaces,
     })
-}
-
-/// Copia de `from` a `to` (que no existe): carpetas y archivos normales,
-/// sin enlaces ni lo que dice [`skipped`]. Lo copiado es del usuario actual.
-pub(crate) fn copy_tree(from: &Path, to: &Path, done: &mut u64, on_bytes: &mut dyn FnMut(u64)) -> Result<(), String> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
-    fs::DirBuilder::new().mode(0o750).create(to).map_err(|error| {
-        let dir = to.display();
-        tr!("No se pudo crear {dir}: {error}", "Couldn’t create {dir}: {error}")
-    })?;
-    let entries = fs::read_dir(from).map_err(|error| {
-        let dir = from.display();
-        tr!("No se pudo leer {dir}: {error}", "Couldn’t read {dir}: {error}")
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|error| error.to_string())?;
-        let path = entry.path();
-        let name = entry.file_name();
-        let text = name.to_string_lossy();
-        let meta = fs::symlink_metadata(&path).map_err(|error| error.to_string())?;
-        if meta.is_dir() {
-            copy_tree(&path, &to.join(&name), done, on_bytes)?;
-        } else if meta.is_file() && !skipped(&text) {
-            let target = to.join(&name);
-            fs::copy(&path, &target).map_err(|error| {
-                let file = path.display();
-                tr!("No se pudo copiar {file}: {error}", "Couldn’t copy {file}: {error}")
-            })?;
-            let mode = meta.permissions().mode() & 0o777 | 0o600;
-            let _ = fs::set_permissions(&target, fs::Permissions::from_mode(mode));
-            *done += meta.len();
-            on_bytes(*done);
-        }
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -295,11 +220,11 @@ mod tests {
         std::os::unix::fs::symlink("/etc/passwd", from.join("enlace")).unwrap();
         let to = dir.path().join("to");
         let mut done = 0;
-        copy_tree(&from, &to, &mut done, &mut |_| {}).unwrap();
+        super::super::copy_tree(&from, &to, &skipped, 0o750, &mut done, &mut |_| {}).unwrap();
         assert_eq!(done, 6);
         assert!(to.join("shop/orders.ibd").is_file());
         assert!(!to.join("host.pid").exists() && !to.join("enlace").exists());
         assert!(!to.join("private_key.pem").exists());
-        assert_eq!(readable_size(&to).unwrap(), 6);
+        assert_eq!(readable_size(&to, &skipped).unwrap(), 6);
     }
 }

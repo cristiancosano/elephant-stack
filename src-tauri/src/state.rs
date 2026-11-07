@@ -274,7 +274,7 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
     let php = php::status().unwrap_or_default();
     let projects = elephant_logs::projects::discover(&home);
     let jobs = jobs::list_active();
-    let mailpit = components.as_ref().ok().map(|_| mailpit::info(&services));
+    let mailpit = Some(mailpit::info(&services, &managed));
     let mcp = commands::mcp::brief();
     let setup_needed = setup::state::load().is_none();
 

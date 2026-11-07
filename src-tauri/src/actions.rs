@@ -12,7 +12,8 @@ use std::process::{Command, Stdio};
 
 use elephant_core::brew::Operation;
 use elephant_core::services::{self, ServiceKind, ToolKind};
-use elephant_core::{i18n, needs, ops, tr, tr_str};
+use elephant_core::composer::{self, ComposerChannel};
+use elephant_core::{i18n, needs, node, ops, tr, tr_str};
 use elephant_core::settings::{self, Editor, Settings};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
@@ -102,6 +103,54 @@ pub fn replace_php(
         .map(|project| project.root)
         .collect();
     tracked(app, PHP, tr_str!("Actualizando PHP…", "Updating PHP…"), || ops::replace_php(old, new, &roots))
+}
+
+// ── Node y Composer (06 fase 3) ─────────────────────────────────────────────
+// Objetivos de `busy` y de los problemas: `node` y `composer`.
+
+const NODE: &str = "node";
+const COMPOSER: &str = "composer";
+
+fn project_roots(app: &AppHandle) -> Vec<PathBuf> {
+    app.state::<AppState>().snapshot().projects.into_iter().map(|project| project.root).collect()
+}
+
+pub fn node_install(app: &AppHandle, version: &str, on_line: &mut dyn FnMut(&str), on_bytes: &mut dyn FnMut(u64, u64)) -> Result<String, String> {
+    tracked(app, NODE, tr_str!("Instalando Node…", "Installing Node…"), || node::install(version, on_line, on_bytes))
+}
+
+/// Instala la más reciente de la mayor de `old` y la sustituye en la global
+/// y en los proyectos que la fijaban (los que conoce la app).
+pub fn node_update(
+    app: &AppHandle,
+    old: &str,
+    on_line: &mut dyn FnMut(&str),
+    on_bytes: &mut dyn FnMut(u64, u64),
+) -> Result<node::NodeReplaceReport, String> {
+    let roots = project_roots(app);
+    tracked(app, NODE, tr_str!("Actualizando Node…", "Updating Node…"), || node::update(old, &roots, on_line, on_bytes))
+}
+
+pub fn node_uninstall(app: &AppHandle, version: &str) -> Result<(), String> {
+    tracked(app, NODE, tr_str!("Desinstalando…", "Uninstalling…"), || node::uninstall(version))
+}
+
+pub fn node_set_global(app: &AppHandle, spec: Option<&str>) -> Result<(), String> {
+    tracked(app, NODE, tr_str!("Cambiando la versión de Node…", "Changing Node version…"), || node::set_global(spec)).map(drop)
+}
+
+pub fn node_set_project(app: &AppHandle, dir: &Path, spec: &str) -> Result<String, String> {
+    tracked(app, NODE, tr_str!("Cambiando la versión de Node…", "Changing Node version…"), || {
+        node::set_project(dir, spec).map(|file| file.display().to_string())
+    })
+}
+
+pub fn composer_install(app: &AppHandle, channel: ComposerChannel, on_line: &mut dyn FnMut(&str)) -> Result<String, String> {
+    tracked(app, COMPOSER, tr_str!("Instalando Composer…", "Installing Composer…"), || composer::install(channel, on_line))
+}
+
+pub fn composer_uninstall(app: &AppHandle) -> Result<(), String> {
+    tracked(app, COMPOSER, tr_str!("Desinstalando…", "Uninstalling…"), composer::uninstall)
 }
 
 // ── Servicios propios (06) ──────────────────────────────────────────────────

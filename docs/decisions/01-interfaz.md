@@ -420,7 +420,8 @@ Todas las cifras (RAM, CPU, contadores, horas) llevan `font-variant-numeric: tab
  Sitios                     12        ⌘2
  Servicios                 3/5        ⌘3
  PHP                       8.4        ⌘4
- Logs                    ● 2          ⌘5   (punto rojo: errores sin ver)
+ Node                      24         ⌘5   (06 fase 3)
+ Logs                    ● 2          ⌘6   (punto rojo: errores sin ver)
 
  Ajustes                              ⌘,
  ──────────────────────── (pie)
@@ -534,7 +535,7 @@ Sustituye al menú por defecto de Tauri, que está en inglés. Solo se ve con la
 
 - **Elephant Stack**: Acerca de, Ajustes… ⌘, · Ocultar ⌘H, Ocultar otros ⌥⌘H · Salir ⌘Q.
 - **Edición**: Deshacer, Rehacer, Cortar, Copiar, Pegar, Seleccionar todo (`PredefinedMenuItem`) · Buscar ⌘F (envía `ui:command find`).
-- **Visualización**: Panel ⌘1, Sitios ⌘2, Servicios ⌘3, PHP ⌘4, Logs ⌘5 · Mostrar/ocultar barra lateral ⌃⌘S · Mostrar/ocultar inspector ⌥⌘I · Actualizar ⌘R.
+- **Visualización**: Panel ⌘1, Sitios ⌘2, Servicios ⌘3, PHP ⌘4, Node ⌘5, Logs ⌘6 · Mostrar/ocultar barra lateral ⌃⌘S · Mostrar/ocultar inspector ⌥⌘I · Actualizar ⌘R.
 - **Ventana**: Minimizar ⌘M, Zoom, Cerrar ⌘W.
 
 Los items de navegación emiten `nav:go`. Así los atajos funcionan aunque el foco esté en un campo, sin listeners de teclado en JS.

@@ -148,7 +148,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &nav(app, "#/sitios", &tr!("Sitios", "Sites"), Some("CmdOrCtrl+2"))?,
             &nav(app, "#/servicios", &tr!("Servicios", "Services"), Some("CmdOrCtrl+3"))?,
             &nav(app, "#/php", "PHP", Some("CmdOrCtrl+4"))?,
-            &nav(app, "#/logs", "Logs", Some("CmdOrCtrl+5"))?,
+            &nav(app, "#/node", "Node", Some("CmdOrCtrl+5"))?,
+            &nav(app, "#/logs", "Logs", Some("CmdOrCtrl+6"))?,
             &separator()?,
             &ui(app, UiCommand::Live, &tr!("En vivo", "Live"), "CmdOrCtrl+L")?,
             // No borra nada, como ⌘K en Terminal (C20).

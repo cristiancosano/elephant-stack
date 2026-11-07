@@ -4,6 +4,7 @@ import type { Dictionary } from "../../types";
 import agents from "./agents";
 import common from "./common";
 import logs from "./logs";
+import node from "./node";
 import panel from "./panel";
 import php from "./php";
 import services from "./services";
@@ -20,6 +21,7 @@ export default {
   panel,
   services,
   php,
+  node,
   sites,
   logs,
   wizard,

@@ -91,6 +91,8 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
     managed: [],
     managed_tools: [],
     php: { versions: [], active: null },
+    node: { versions: [], global: null, active: null, global_error: null, nvm: null, projects: [], path: null },
+    composer: { version: null, installed: false, channel: null, phar: null, php: null, selector: false },
     projects: [],
     busy: [],
     problems: [],
@@ -411,6 +413,8 @@ describe("problemas", () => {
     expect(problemRoute(s, "php")).toBe("#/php");
     expect(problemRoute(s, "0123456789abcdef")).toBe("#/sitios");
     expect(problemRoute(s, "redis")).toBe("#/servicios");
+    expect(problemRoute(s, "node")).toBe("#/node");
+    expect(problemRoute(s, "composer")).toBe("#/php");
   });
 
   it("al abrir una vista se quitan sus fallos de acciones, no los errores de servicio", () => {

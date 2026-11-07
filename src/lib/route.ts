@@ -1,7 +1,7 @@
 // Rutas de la ventana: un hash como `#/logs?project=acme&level=error`.
 // Puro y sin dependencias para poder probarlo; el estado vive en router.svelte.ts.
 
-export type View = "panel" | "sitios" | "servicios" | "php" | "logs" | "ajustes" | "asistente";
+export type View = "panel" | "sitios" | "servicios" | "php" | "node" | "logs" | "ajustes" | "asistente";
 
 export interface Route {
   view: View;
@@ -15,6 +15,7 @@ export const VIEWS: readonly View[] = [
   "sitios",
   "servicios",
   "php",
+  "node",
   "logs",
   "ajustes",
   "asistente",

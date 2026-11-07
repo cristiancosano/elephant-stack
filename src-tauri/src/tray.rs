@@ -345,8 +345,10 @@ fn job_text(job: &JobInfo) -> String {
 
 /// Ruta de la vista donde se ve un problema.
 fn problem_route(snapshot: &Snapshot, target: &str) -> &'static str {
-    if target == "php" {
+    if target == "php" || target == "composer" {
         "#/php"
+    } else if target == "node" {
+        "#/node"
     } else if snapshot.projects.iter().any(|p| p.id == target) {
         "#/sitios"
     } else {
@@ -1039,6 +1041,8 @@ mod tests {
             managed: Vec::new(),
             managed_tools: Vec::new(),
             php: PhpStatus::default(),
+            node: Default::default(),
+            composer: Default::default(),
             projects: Vec::new(),
             busy: Vec::new(),
             problems: Vec::new(),

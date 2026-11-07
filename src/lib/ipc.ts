@@ -38,6 +38,10 @@ import type { InstallProgress } from "./bindings/InstallProgress";
 import type { ServiceKind } from "./bindings/ServiceKind";
 import type { ServicesCatalog } from "./bindings/ServicesCatalog";
 import type { ToolKind } from "./bindings/ToolKind";
+import type { ComposerCatalog } from "./bindings/ComposerCatalog";
+import type { ComposerChannel } from "./bindings/ComposerChannel";
+import type { NodeCatalog } from "./bindings/NodeCatalog";
+import type { NodeReplaceReport } from "./bindings/NodeReplaceReport";
 import type { SourceCheck } from "./bindings/SourceCheck";
 import type { StartReport } from "./bindings/StartReport";
 import type { UpdateReport } from "./bindings/UpdateReport";
@@ -192,6 +196,30 @@ export const toolUninstall = (tool: ToolKind) => invoke<void>("tool_uninstall", 
 export const toolPower = (tool: ToolKind, on: boolean) => invoke<void>("tool_power", { tool, on });
 /** Abre phpMyAdmin (enciende su servidor si hace falta) o pgAdmin; devuelve la URL o la app. */
 export const toolOpen = (tool: ToolKind) => invoke<string>("tool_open", { tool });
+
+// ── Node y Composer (commands/node.rs, 06 fase 3) ────────────────────────────
+
+export const nodeCatalog = (force = false) => invoke<NodeCatalog>("node_catalog", { force });
+/** `24`, `24.11.1` o `lts`; devuelve la versión instalada. */
+export function nodeInstall(version: string, onEvent: (e: InstallProgress) => void): Promise<string> {
+  return invoke<string>("node_install", { version, onEvent: channel(onEvent) });
+}
+/** Instala la más reciente de la mayor de `old` y la sustituye. */
+export function nodeUpdate(old: string, onEvent: (e: InstallProgress) => void): Promise<NodeReplaceReport> {
+  return invoke<NodeReplaceReport>("node_update", { old, onEvent: channel(onEvent) });
+}
+export const nodeUninstall = (version: string) => invoke<void>("node_uninstall", { version });
+/** `null` vuelve a «la más reciente». */
+export const nodeSetGlobal = (spec: string | null) => invoke<void>("node_set_global", { spec });
+/** Escribe el `.nvmrc` (o `.node-version`); devuelve el archivo. */
+export const nodeSetProject = (dir: string, spec: string) => invoke<string>("node_set_project", { dir, spec });
+
+export const composerCatalog = (force = false) => invoke<ComposerCatalog>("composer_catalog", { force });
+/** Instala o actualiza Composer a la última del canal; devuelve la versión. */
+export function composerInstall(kind: ComposerChannel, onEvent: (e: InstallProgress) => void): Promise<string> {
+  return invoke<string>("composer_install", { channel: kind, onEvent: channel(onEvent) });
+}
+export const composerUninstall = () => invoke<void>("composer_uninstall");
 
 // ── Canal de agentes (commands/mcp.rs; conserva los nombres, C26) ───────────
 

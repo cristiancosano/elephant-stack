@@ -11,18 +11,26 @@
   import Skeleton from "../ui/Skeleton.svelte";
   import EmptyState from "../ui/EmptyState.svelte";
   import { toast } from "../ui/toasts.svelte";
+  import IconButton from "../ui/IconButton.svelte";
   import {
+    composerCatalog,
+    composerInstall,
+    composerUninstall,
     errorMessage,
     phpCatalog,
     phpDownload,
     phpReplace,
     pickFolder,
     refresh,
+    revealInFinder,
     setGlobalPhp,
     setProjectPhp,
   } from "../lib/ipc";
   import {
+    below,
     busyFor,
+    popupMenu,
+    type MenuEntry,
     PHP_TARGET,
     phpOptions,
     tildePath,
@@ -32,6 +40,8 @@
   import { t } from "../lib/i18n/index.svelte";
   import { mergePhpVersions } from "../lib/php-versions";
   import type { Catalog } from "../lib/bindings/Catalog";
+  import type { ComposerCatalog } from "../lib/bindings/ComposerCatalog";
+  import type { ComposerChannel } from "../lib/bindings/ComposerChannel";
   import type { PhpRelease } from "../lib/bindings/PhpRelease";
   import type { Project } from "../lib/bindings/Project";
   import type { Snapshot } from "../lib/bindings/Snapshot";
@@ -172,6 +182,98 @@
       void refresh().catch(() => {});
     }
   }
+
+  // ── Composer (06 fase 3) ──
+  // Va aquí y no en Servicios ▸ Herramientas: se ejecuta con el PHP del proyecto.
+  const COMPOSER_TARGET = "composer";
+  const composer = $derived(snapshot?.composer ?? null);
+  const composerBusy = $derived(snapshot ? busyFor(snapshot, COMPOSER_TARGET) : undefined);
+  let composerVersions = $state<ComposerCatalog | null>(null);
+  let composerWorking = $state<string | null>(null);
+
+  $effect(() => {
+    composerCatalog()
+      .then((c) => (composerVersions = c))
+      .catch(() => (composerVersions = null));
+  });
+
+  const composerChannel = $derived<ComposerChannel>(composer?.channel ?? "stable");
+  const composerLatest = $derived(composerVersions?.[composerChannel] ?? null);
+  const composerPath = $derived(snapshot?.node.path ?? null);
+
+  async function installComposer(channel: ComposerChannel, label: string) {
+    composerWorking = label;
+    try {
+      const was = composer?.version;
+      const version = await composerInstall(channel, () => {});
+      toast(
+        was ? t("php.composer.update.done", { version }) : t("php.composer.install.done", { version }),
+        { tone: "success" },
+      );
+    } catch (e) {
+      fail(e);
+    } finally {
+      composerWorking = null;
+    }
+  }
+
+  async function uninstallComposer() {
+    try {
+      await composerUninstall();
+      toast(t("php.composer.uninstall.done"), { tone: "success" });
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  function composerMenu(at?: { x: number; y: number }) {
+    const other: ComposerChannel = composerChannel === "lts" ? "stable" : "lts";
+    const target = composerVersions?.[other];
+    const entries: MenuEntry[] = [];
+    if (target) {
+      entries.push(
+        {
+          text:
+            other === "lts"
+              ? t("php.composer.menu.toLts", { version: target.version })
+              : t("php.composer.menu.toStable", { version: target.version }),
+          action: () => void installComposer(other, t("php.composer.update.busy", { next: target.version })),
+        },
+        "separator",
+      );
+    }
+    entries.push(
+      {
+        text: t("php.composer.menu.reveal"),
+        enabled: !!composer?.phar,
+        action: () => composer?.phar && void revealInFinder(composer.phar).catch(fail),
+      },
+      "separator",
+      { text: t("php.composer.menu.uninstall"), action: () => void uninstallComposer() },
+    );
+    void popupMenu(entries, at).catch(fail);
+  }
+
+  function composerSubtitle(): string {
+    if (composerBusy) return composerBusy.label;
+    if (!composer?.installed) {
+      const stable = composerVersions?.stable;
+      return stable
+        ? t("php.composer.notInstalled", { version: stable.version, php: stable.min_php ?? "7.2.5" })
+        : t("php.composer.unavailable");
+    }
+    if (!composer.version) return t("php.composer.legacy");
+    const runs = composer.php ? t("php.composer.runsWith", { php: composer.php }) : t("php.composer.runsWithNone");
+    return composer.channel === "lts" ? `${t("php.composer.lts")} · ${runs}` : runs;
+  }
+
+  const composerNote = $derived.by(() => {
+    if (composer?.installed && !composer.selector) return t("php.composer.foreign");
+    if (!composer?.installed || !composerPath) return null;
+    if (composerPath.shadowed_by === "Herd") return t("php.composer.path", { who: composerPath.shadowed_by, line: composerPath.line });
+    if (!composerPath.configured) return t("php.composer.pathMissing", { line: composerPath.line });
+    return null;
+  });
 </script>
 
 <div class="view">
@@ -262,6 +364,48 @@
           </Group>
         {/if}
 
+        <Group title={t("php.composer.title")} footer={t("php.composer.footer")}>
+          <Row
+            title={composer?.version ? `Composer ${composer.version}` : "Composer"}
+            subtitle={composerSubtitle()}
+          >
+            {#snippet trailing()}
+              {#if composerBusy || composerWorking}
+                <ProgressRing label={composerWorking ?? composerBusy?.label ?? ""} />
+              {:else if !composer?.installed}
+                {#if composerVersions?.stable}
+                  <Button onclick={() => void installComposer("stable", t("php.composer.install.busy"))}>
+                    {t("php.composer.install.action")}<span class="visually-hidden"> Composer</span>
+                  </Button>
+                {/if}
+              {:else if !composer.version}
+                <Button variant="primary" onclick={() => void installComposer("stable", t("php.composer.install.busy"))}>
+                  {t("php.composer.reinstall")}<span class="visually-hidden"> Composer</span>
+                </Button>
+              {:else if composerLatest && composerLatest.version !== composer.version}
+                {@const next = composerLatest.version}
+                <Button
+                  variant="primary"
+                  onclick={() => void installComposer(composerChannel, t("php.composer.update.busy", { next }))}
+                >
+                  {t("php.composer.update.action", { next })}<span class="visually-hidden"> (Composer)</span>
+                </Button>
+              {/if}
+              {#if composer?.installed}
+                <IconButton
+                  icon="more"
+                  label={t("php.composer.menu.more")}
+                  disabled={!!composerBusy || !!composerWorking}
+                  onclick={(event) => composerMenu(below(event))}
+                />
+              {/if}
+            {/snippet}
+          </Row>
+          {#if composerNote}
+            <p class="note" role="listitem">{composerNote}</p>
+          {/if}
+        </Group>
+
         {#if projects.length > 0}
           <Group title={t("php.projects.title")} footer={t("php.projects.footer")}>
             {#each projects as p (p.id)}
@@ -286,6 +430,16 @@
 
 
 <style>
+  .note {
+    margin: 0;
+    padding: 0 var(--s-3) var(--s-3);
+    font: var(--t-callout);
+    color: var(--label-2);
+    user-select: text;
+    -webkit-user-select: text;
+    overflow-wrap: anywhere;
+  }
+
   .mark {
     display: inline-flex;
     color: transparent;

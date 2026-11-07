@@ -3,6 +3,7 @@
 // salvo dentro de `withLocale("en", …)`. Carga todas las áreas y los dos idiomas.
 import "./locales/agents";
 import "./locales/logs";
+import "./locales/node";
 import "./locales/sites";
 import "./locales/wizard";
 import en from "./locales/en/index";

@@ -9,6 +9,7 @@ export default {
     sites: "Sites",
     services: "Services",
     php: "PHP",
+    node: "Node",
     logs: "Logs",
     settings: "Settings",
     nothingRunning: "Nothing running",
@@ -19,6 +20,7 @@ export default {
       other: "{running} of {count} services running",
     },
     defaultPhp: "Default PHP {php}",
+    defaultNode: "Default Node {node}",
     unseenErrors: { one: "{count} unseen error", other: "{count} unseen errors" },
     agents: "Agents · {mode}",
     agentMode: {

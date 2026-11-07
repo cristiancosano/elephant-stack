@@ -5,6 +5,9 @@
 import { entry, frame, summary } from "../lib/logs/fixtures";
 import { CARDS, detection } from "../lib/wizard/fixtures.test-helpers";
 import type { Catalog } from "../lib/bindings/Catalog";
+import type { ComposerCatalog } from "../lib/bindings/ComposerCatalog";
+import type { NodeCatalog } from "../lib/bindings/NodeCatalog";
+import type { NodeRelease } from "../lib/bindings/NodeRelease";
 import type { BranchStatus } from "../lib/bindings/BranchStatus";
 import type { Component } from "../lib/bindings/Component";
 import type { EntryDetail } from "../lib/bindings/EntryDetail";
@@ -291,6 +294,44 @@ export const servicesCatalog: ServicesCatalog = {
   offline: false,
 };
 
+const nodeRelease = (version: string, date: string, lts: string | null, featured: boolean): NodeRelease => ({
+  version,
+  major: Number(version.split(".")[0]),
+  date,
+  lts,
+  npm: null,
+  security: false,
+  featured,
+});
+
+export const nodeCatalog: NodeCatalog = {
+  releases: [
+    nodeRelease("26.13.0", "2026-10-28", "lithium", true),
+    nodeRelease("25.9.0", "2026-03-31", null, false),
+    nodeRelease("24.22.2", "2026-10-27", "krypton", true),
+    nodeRelease("23.11.1", "2025-05-14", null, false),
+    nodeRelease("22.23.4", "2026-10-20", "jod", true),
+    nodeRelease("21.7.3", "2024-04-10", null, false),
+    nodeRelease("20.20.2", "2026-03-24", "iron", false),
+    nodeRelease("18.20.8", "2025-03-27", "hydrogen", false),
+  ],
+  offline: false,
+};
+
+const composerVersion = (version: string, channel: "stable" | "lts", minPhp: string) => ({
+  version,
+  channel,
+  min_php: minPhp,
+  url: `https://getcomposer.org/download/${version}/composer.phar`,
+  checksum_url: `https://getcomposer.org/download/${version}/composer.phar.sha256sum`,
+});
+
+export const composerCatalog: ComposerCatalog = {
+  stable: composerVersion("2.11.1", "stable", "7.2.5"),
+  lts: composerVersion("2.2.31", "lts", "5.3.0"),
+  offline: false,
+};
+
 export const snapshot: Snapshot = {
   revision: 1,
   refreshed_at_ms: NOW,
@@ -303,6 +344,56 @@ export const snapshot: Snapshot = {
       { key: "own:8.3.36", id: "8.3.36", source: "Elephant" },
     ],
     active: { key: "own:8.4.27", id: "8.4.27", source: "Elephant" },
+  },
+  node: {
+    versions: [
+      {
+        version: "24.22.2",
+        major: 24,
+        lts: "krypton",
+        path: "/Users/ana/.elephant-stack/node/24.22.2",
+        npm: "11.6.2",
+        globals: ["pnpm"],
+      },
+      {
+        version: "22.21.0",
+        major: 22,
+        lts: "jod",
+        path: "/Users/ana/.elephant-stack/node/22.21.0",
+        npm: "10.9.4",
+        globals: [],
+      },
+    ],
+    global: null,
+    active: "24.22.2",
+    global_error: null,
+    nvm: "/Users/ana/.nvm",
+    projects: [
+      { dir: "/Users/ana/Herd/shop", requested: "22", file: "/Users/ana/Herd/shop/.nvmrc", reason: "project_file", version: "22.21.0", error: null },
+      { dir: "/Users/ana/Herd/blog", requested: null, file: null, reason: "newest", version: "24.22.2", error: null },
+      {
+        dir: "/Users/ana/Code/api-pagos",
+        requested: "18",
+        file: "/Users/ana/Code/api-pagos/.nvmrc",
+        reason: "project_file",
+        version: null,
+        error: "Elephant Stack: Node 18 no está instalado.",
+      },
+    ],
+    path: {
+      bin: "/Users/ana/.elephant-stack/bin",
+      configured: true,
+      shadowed_by: null,
+      line: 'export PATH="$HOME/.elephant-stack/bin:$PATH"',
+    },
+  },
+  composer: {
+    version: "2.10.2",
+    installed: true,
+    channel: "stable",
+    phar: "/Users/ana/.elephant-stack/tools/composer/2.10.2/composer.phar",
+    php: "8.4.27",
+    selector: true,
   },
   projects,
   busy: [],

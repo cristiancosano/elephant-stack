@@ -46,6 +46,8 @@ const handlers: Record<string, (args: Args) => unknown> = {
   mcp_activity: () => [],
   php_catalog: () => datos.catalog,
   service_catalog: () => datos.servicesCatalog,
+  node_catalog: () => datos.nodeCatalog,
+  composer_catalog: () => datos.composerCatalog,
 };
 
 mockIPC(

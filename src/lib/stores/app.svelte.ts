@@ -163,8 +163,9 @@ export function targetName(s: Snapshot, target: string): string {
 }
 
 /** Vista donde se ve un problema, como `problem_route` del menú de la barra. */
-export function problemRoute(s: Snapshot, target: string): "#/php" | "#/sitios" | "#/servicios" {
-  if (target === PHP_TARGET) return "#/php";
+export function problemRoute(s: Snapshot, target: string): "#/php" | "#/node" | "#/sitios" | "#/servicios" {
+  if (target === PHP_TARGET || target === "composer") return "#/php";
+  if (target === "node") return "#/node";
   return s.projects.some((p) => p.id === target) ? "#/sitios" : "#/servicios";
 }
 

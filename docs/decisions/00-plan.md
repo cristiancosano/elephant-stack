@@ -648,6 +648,15 @@ Todos son `async`, devuelven `Result<_, String>` y hacen el trabajo en `spawn_bl
 | | `tool_uninstall` | `tool: ToolKind` | `()` (solo lo que instaló Elephant) |
 | | `tool_power` | `tool: ToolKind, on: bool` | `()` (el servidor de phpMyAdmin, `php -S 127.0.0.1:8081`) |
 | | `tool_open` | `tool: ToolKind` | `String` (phpMyAdmin en el navegador, encendiéndolo si hace falta, o pgAdmin; la URL o la app) |
+| `node.rs` · 06 fase 3 | `node_catalog` | `force: bool` | `NodeCatalog` (la más reciente de cada mayor de `nodejs.org/dist/index.json`, con las LTS con soporte y la Current destacadas; lo instalado va en `Snapshot.node`) |
+| | `node_install` | `version: String, on_event: Channel<InstallProgress>` | `String` (`24`, `24.11.1`, `lts`…; la versión instalada; regenera los selectores) |
+| | `node_update` | `old: String, on_event: Channel<InstallProgress>` | `NodeReplaceReport` (instala la más reciente de su mayor, mueve la global y los `.nvmrc`/`.node-version` que fijaban `old`, y la borra) |
+| | `node_uninstall` | `version: String` | `()` |
+| | `node_set_global` | `spec: Option<String>` | `()` (`None` = la más reciente) |
+| | `node_set_project` | `dir: String, spec: String` | `String` (el `.nvmrc` o `.node-version` escrito) |
+| | `composer_catalog` | `force: bool` | `ComposerCatalog` (canales `stable` y `lts` de getcomposer.org; lo instalado va en `Snapshot.composer`) |
+| | `composer_install` | `channel: ComposerChannel, on_event: Channel<InstallProgress>` | `String` (instala o actualiza; la versión) |
+| | `composer_uninstall` | — | `()` (solo el de Elephant y su selector) |
 | `mcp.rs` · P09 | `mcp_status` | — | `McpStatus { linked, link_path, target, mode, claude_path: Option<String>, claude_registered: bool, last_used_ms }` (`claude_registered` = plugin `elephant@elephant-stack` instalado, según `claude plugin list --json`) |
 | | `mcp_enable` / `mcp_disable` | — | `McpStatus` (crea o quita el enlace `~/.elephant-stack/bin/elephant` → `sidecar::path("cli")`; `mcp_disable` además ejecuta `claude plugin uninstall elephant@elephant-stack` si el plugin está instalado) |
 | | `mcp_connect_claude` | — | `McpStatus` (escribe el plugin con `elephant __write-plugin` y ejecuta, con argumentos separados y sin shell, `claude plugin marketplace add ~/.elephant-stack/share/claude-plugin` y `claude plugin install elephant@elephant-stack -s user`; 05 §6.4) |

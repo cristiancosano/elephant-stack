@@ -32,6 +32,9 @@
   // del chunk inicial (01 §11), y crecerá con la gestión de sitios.
   let logs: Promise<typeof import("./views/logs/Logs.svelte")> | null = null;
   let sites: Promise<typeof import("./views/Sites.svelte")> | null = null;
+  // Node lleva su área de textos diferida (06 fase 3).
+  let node: Promise<typeof import("./views/Node.svelte")> | null = null;
+  const loadNode = () => (node ??= import("./views/Node.svelte"));
   const loadLogs = () => (logs ??= import("./views/logs/Logs.svelte"));
   const loadSites = () => (sites ??= import("./views/Sites.svelte"));
 
@@ -147,6 +150,10 @@
           <Services {snapshot} {route} />
         {:else if route.view === "php"}
           <Php {snapshot} {route} />
+        {:else if route.view === "node"}
+          {#await loadNode() then { default: Node }}
+            <Node {snapshot} {route} />
+          {/await}
         {:else if route.view === "logs"}
           {#await loadLogs() then { default: Logs }}
             <Logs {snapshot} {route} />

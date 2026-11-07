@@ -2,6 +2,7 @@
 //! la barra. [`update`] es el único punto que lo cambia, sube la revisión,
 //! emite `state:changed` y refresca el tray.
 
+use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
 use elephant_core::brew::Service;
@@ -9,6 +10,8 @@ use elephant_core::components::{self, Component};
 use elephant_core::jobs::{self, JobInfo};
 use elephant_core::mailpit::{self, MailpitInfo};
 use elephant_core::monitor::Usage;
+use elephant_core::composer::{self, ComposerStatus};
+use elephant_core::node::{self, NodeStatus};
 use elephant_core::php::{self, PhpStatus};
 use elephant_core::settings::{McpMode, Settings};
 use elephant_core::i18n::{self, Locale};
@@ -33,6 +36,10 @@ pub struct Snapshot {
     /// Herramientas de Elephant (06 fase 2): phpMyAdmin y pgAdmin.
     pub managed_tools: Vec<ToolStatus>,
     pub php: PhpStatus,
+    /// Node de Elephant (06 fase 3): versiones, la global y la de cada proyecto.
+    pub node: NodeStatus,
+    /// Composer de Elephant (06 fase 3).
+    pub composer: ComposerStatus,
     /// Lo que descubre `elephant-logs`, incluidos los sitios de Herd (C17).
     pub projects: Vec<elephant_logs::Project>,
     pub busy: Vec<Busy>,
@@ -162,6 +169,8 @@ impl AppState {
             managed: Vec::new(),
             managed_tools: Vec::new(),
             php: PhpStatus::default(),
+            node: NodeStatus::default(),
+            composer: ComposerStatus::default(),
             projects: Vec::new(),
             busy: Vec::new(),
             problems: Vec::new(),
@@ -277,6 +286,9 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
     let managed_tools = services::tools::status();
     let php = php::status().unwrap_or_default();
     let projects = elephant_logs::projects::discover(&home);
+    let roots: Vec<PathBuf> = projects.iter().map(|p| p.root.clone()).collect();
+    let node = node::status(&roots);
+    let composer = composer::status();
     let jobs = jobs::list_active();
     let mailpit = Some(mailpit::info(&services, &managed));
     let mcp = commands::mcp::brief();
@@ -298,6 +310,8 @@ pub fn refresh(app: &AppHandle) -> Result<Snapshot, String> {
             s.mailpit = mailpit;
         }
         s.php = php;
+        s.node = node;
+        s.composer = composer;
         s.projects = projects;
         s.jobs = jobs;
         s.mcp = mcp;

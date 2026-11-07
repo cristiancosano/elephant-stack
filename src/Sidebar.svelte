@@ -1,6 +1,6 @@
 <script lang="ts">
   // Barra lateral (01 §7.1): transparente sobre el material `sidebar` de la ventana.
-  // Los atajos (⌘1…⌘5, ⌘,) están en el menú Visualización, no se pintan aquí.
+  // Los atajos (⌘1…⌘6, ⌘,) están en el menú Visualización, no se pintan aquí.
   import Icon from "./ui/Icon.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import type { IconName } from "./ui/icons";
@@ -54,6 +54,8 @@
     const siteCount = s ? sites(s).length : 0;
     const installed = s ? services(s).length + managedCounts(s).installed : 0;
     const php = s ? phpBranch(s) : null;
+    // La mayor de la versión por defecto, como la rama de PHP: «24».
+    const node = s?.node.active?.split(".")[0] ?? null;
     const unseen = s?.logs.unseen_errors ?? 0;
     return [
       { view: "panel", href: "#/panel", label: t("shell.nav.overview"), icon: "panel" },
@@ -80,6 +82,14 @@
         icon: "php",
         count: php ?? undefined,
         countLabel: php ? t("shell.nav.defaultPhp", { php }) : undefined,
+      },
+      {
+        view: "node",
+        href: "#/node",
+        label: t("shell.nav.node"),
+        icon: "node",
+        count: node ?? undefined,
+        countLabel: node ? t("shell.nav.defaultNode", { node }) : undefined,
       },
       {
         view: "logs",

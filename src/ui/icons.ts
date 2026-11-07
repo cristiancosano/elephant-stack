@@ -7,6 +7,7 @@ export const ICON_NAMES = [
   "sitios",
   "servicios",
   "php",
+  "node",
   "logs",
   "ajustes",
   // Acciones

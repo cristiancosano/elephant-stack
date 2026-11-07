@@ -12,6 +12,7 @@
 
 import type agents from "./es/agents";
 import type logs from "./es/logs";
+import type node from "./es/node";
 import type sites from "./es/sites";
 import type wizard from "./es/wizard";
 import common from "./es/common";
@@ -31,6 +32,7 @@ export const AREAS = [
   "panel",
   "services",
   "php",
+  "node",
   "sites",
   "logs",
   "wizard",
@@ -41,7 +43,7 @@ export const AREAS = [
 export type Area = (typeof AREAS)[number];
 
 /** Áreas cuyo español no va en el chunk inicial: las registra su vista. */
-export const DEFERRED_AREAS = ["sites", "logs", "wizard", "agents"] as const satisfies readonly Area[];
+export const DEFERRED_AREAS = ["node", "sites", "logs", "wizard", "agents"] as const satisfies readonly Area[];
 
 export type DeferredArea = (typeof DEFERRED_AREAS)[number];
 
@@ -53,6 +55,7 @@ export interface Messages {
   panel: typeof panel;
   services: typeof services;
   php: typeof php;
+  node: typeof node;
   sites: typeof sites;
   logs: typeof logs;
   wizard: typeof wizard;

@@ -4,6 +4,7 @@
 pub mod core;
 pub mod logs;
 pub mod mcp;
+pub mod node;
 pub mod services;
 pub mod setup;
 

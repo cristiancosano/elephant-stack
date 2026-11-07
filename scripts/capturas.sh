@@ -52,6 +52,7 @@ views=(
   "servicios #/servicios"
   "servicios-todo #/servicios 920,1560"
   "php #/php"
+  "node #/node"
   "logs #/logs?range=all"
   "logs-inspector #/logs?range=all&entry=00000000000000ab-9f20"
   "ajustes-general #/ajustes/general"

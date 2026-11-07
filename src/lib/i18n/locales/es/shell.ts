@@ -9,6 +9,7 @@ export default {
     sites: "Sitios",
     services: "Servicios",
     php: "PHP",
+    node: "Node",
     logs: "Logs",
     settings: "Ajustes",
     nothingRunning: "Nada en marcha",
@@ -19,6 +20,7 @@ export default {
       other: "{running} de {count} servicios en marcha",
     },
     defaultPhp: "PHP {php} por defecto",
+    defaultNode: "Node {node} por defecto",
     unseenErrors: { one: "{count} error sin ver", other: "{count} errores sin ver" },
     agents: "Agentes · {mode}",
     agentMode: {

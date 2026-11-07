@@ -246,8 +246,10 @@ pub(crate) fn sha256_file(path: &Path) -> Result<String, String> {
         .collect())
 }
 
-/// Solo archivos normales de la lista blanca, más el directorio `./`. Una ruta
-/// absoluta, con `..`, un enlace o cualquier otra entrada aborta el paso.
+/// Solo archivos normales de la lista blanca, más el directorio `./` y los
+/// textos de licencias de `license/` (sin subcarpetas), que php-builds añade
+/// desde PHP 8.3.36. Una ruta absoluta, con `..`, un enlace o cualquier otra
+/// entrada aborta el paso.
 pub(crate) fn check_listing(names: &[String], kinds: &[char]) -> Result<(), String> {
     if names.len() != kinds.len() || names.is_empty() {
         return Err(tr!("No se ha podido leer el contenido del paquete de PHP.", "Couldn’t read the contents of the PHP package."));
@@ -261,8 +263,11 @@ pub(crate) fn check_listing(names: &[String], kinds: &[char]) -> Result<(), Stri
         }
         let entry = name.trim_start_matches("./").trim_end_matches('/');
         let allowed = match (entry, kind) {
-            ("" | ".", 'd') => true,
-            (entry, '-') => PHP_ENTRIES.contains(&entry),
+            ("" | "." | "license", 'd') => true,
+            (entry, '-') => {
+                PHP_ENTRIES.contains(&entry)
+                    || entry.strip_prefix("license/").is_some_and(|file| !file.is_empty() && !file.contains('/'))
+            }
             _ => false,
         };
         if !allowed {
@@ -771,6 +776,11 @@ if [ -n "$out" ]; then cp "$file" "$out"; else cat "$file"; fi"#,
             "un enlace no vale"
         );
         assert!(check_listing(&names(&["./lib/"]), &['d']).is_err());
+        // Las licencias que trae php-builds desde 8.3.36, sin subcarpetas ni enlaces.
+        assert!(check_listing(&names(&["./license/", "./license/lib_zlib_0.txt"]), &['d', '-']).is_ok());
+        assert!(check_listing(&names(&["./license/a/b.txt"]), &['-']).is_err());
+        assert!(check_listing(&names(&["./license/a/"]), &['d']).is_err());
+        assert!(check_listing(&names(&["./license/x"]), &['l']).is_err());
         assert!(check_listing(&names(&["./bin/php"]), &['-']).is_err());
         assert!(check_listing(&names(&["/etc/x"]), &['-']).is_err());
         assert!(check_listing(&names(&["a/../../x"]), &['-']).is_err());

@@ -177,6 +177,47 @@ Cada fase deja la app funcionando, con sus tests y capturas en los dos idiomas.
 - **Superficies:** comandos `service_*` (00 §5.6), `Snapshot.managed`, la vista
   Servicios y las órdenes `elephant stack list|control|install`.
 
+### Fase 2: cómo ha quedado
+
+- **Código:** `services::{postgresql, redis, mailpit, ports, tools}`. El
+  instalador admite paquetes sin carpeta raíz (Mailpit) y enlaces duros
+  (PostgreSQL). Ramas: PostgreSQL y Mailpit por mayor (`18`, `1`), Redis
+  por `X.Y` (lo que publica php-builds).
+- **PostgreSQL:** `initdb -U postgres --auth=trust -E UTF8
+  --locale=en_US.UTF-8` y `postgres -D -p -k run/postgresql-<rama>`, con
+  `listen_addresses=127.0.0.1`. La carpeta de datos queda en 0700 (se
+  corrige al arrancar si no). Apagar usa antes `pg_ctl stop -m fast`: el
+  SIGTERM de launchd es un apagado «smart» que espera a los clientes.
+- **Importar de brew:** la mayor más reciente de `var/postgresql@N`, sin
+  `postmaster.pid`, en 0700. Si algún archivo no se puede leer (otra
+  cuenta), no hay botón: se explica el volcado con `pg_dumpall` (de brew) y
+  `psql` (de Elephant). Ojo: el superusuario de unos datos copiados de brew
+  es la cuenta que los creó, no `postgres`.
+- **Redis:** `config/redis-<rama>.conf` generado en cada arranque.
+- **Mailpit:** `--smtp 127.0.0.1:1025 --listen 127.0.0.1:8025 --database
+  data/mailpit/mailpit.db --disable-version-check`; los correos no dependen
+  de la versión. `mailpit::info` cuenta con el propio y con el de brew.
+- **Puerto ocupado:** `lsof` da el proceso; si es un servicio de brew, el
+  error dice «detenlo con `brew services stop <fórmula>`»; si es de
+  Elephant, lo nombra; si no, da el proceso y su pid.
+- **phpMyAdmin:** zip oficial en `tools/phpmyadmin/<v>` con
+  `config.inc.php` (root sin contraseña en 127.0.0.1:3306, sin servidores
+  arbitrarios, `TempDir` propio, sin comprobar versiones). Lo sirve
+  `php -S 127.0.0.1:8081` con el PHP de Elephant más reciente que cumpla
+  `php` del índice, como agente `sh.elephant.phpmyadmin` sin `RunAtLoad`
+  (se enciende al abrirlo).
+- **pgAdmin:** se monta el DMG en `tmp/`, se copia la app con `ditto
+  --noqtn` a `~/Applications/.pgAdmin 4.app.elephant-tmp`, se le quitan
+  `com.apple.FinderInfo` y la cuarentena (el DMG oficial trae un FinderInfo
+  que hace fallar `codesign --strict`; no forman parte de la firma), se
+  comprueba `codesign --verify --deep --strict`, el Team ID `TCHGL2R7C5` y
+  `spctl`, y solo entonces se coloca. La marca `tools/pgadmin/installed.json`
+  permite actualizar y desinstalar; un pgAdmin que no instaló Elephant no se
+  toca.
+- **Superficies:** comandos `tool_*`, `Snapshot.managed_tools`, la sección
+  Herramientas de la vista Servicios, interruptores de las ramas propias en
+  el Panel y en el menú de la barra, y `elephant stack tool`.
+
 ## Riesgos
 
 - **Página de MySQL:** si cambia, el job falla y se avisa en GitHub. La app sigue
